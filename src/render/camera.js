@@ -7,7 +7,7 @@ import { ARENA } from '../data/constants.js';
  * punches in for Gamebreakers / goals and shakes on big hits.
  */
 export class GameCamera {
-  constructor(camera) {
+  constructor(camera, opts = {}) {
     this.cam = camera;
     this.pos = new THREE.Vector3(0, 9, 22);
     this.look = new THREE.Vector3(0, 0.8, 0);
@@ -22,6 +22,7 @@ export class GameCamera {
     this.cam.updateProjectionMatrix();
     this.focus = null;
     this.focusGoal = 1;
+    this.firstPerson = !!opts.firstPerson;
   }
 
   punch(amount = 0.4) {
@@ -57,7 +58,13 @@ export class GameCamera {
     if (this.modeTimer > 0) this.modeTimer -= dt;
     else if (this.mode !== 'play') this.mode = 'play';
 
-    switch (this.mode) {
+    if (this.firstPerson && sim.controlled) {
+      const p = sim.controlled;
+      const forward = new THREE.Vector3(Math.sin(p.facing), 0, Math.cos(p.facing));
+      desiredPos = new THREE.Vector3(p.pos.x, p.y + 1.72, p.pos.z).addScaledVector(forward, 0.08);
+      desiredLook = desiredPos.clone().addScaledVector(forward, 5).add(new THREE.Vector3(0, 0.15, 0));
+      desiredFov = 76;
+    } else switch (this.mode) {
       case 'goalcam': {
         // Low angle beside the goal under attack, looking back at the play.
         const f = this.focus;

@@ -35,13 +35,14 @@ export class MatchRenderer {
     this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.007);
 
     this.camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 400);
-    this.gameCam = new GameCamera(this.camera);
+    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson });
 
     this.setupLights(theme);
     this.court = buildCourt(this.scene, theme);
     this.crowd = this.court.getObjectByName('crowd');
     this.water = this.court.getObjectByName('water');
     this.bubbles = this.court.getObjectByName('bubbles');
+    this.arcaneAccents = this.court.getObjectByName('arcaneAccents');
     this.goals = [this.court.getObjectByName('goalPos'), this.court.getObjectByName('goalNeg')];
     this.goalPulse = [0, 0];
 
@@ -57,6 +58,8 @@ export class MatchRenderer {
     this.tmp = new THREE.Vector3();
     this.crowdEnergy = 0.2;
     this.gbFlash = 0;
+    this.highlightTimer = 0;
+    this.simTimeScale = 1;
     this.elapsed = 0;
 
     this.setupPost();
@@ -218,9 +221,17 @@ export class MatchRenderer {
       this.fx.shockwave(victim.pos, team(player.team).accent, 2.5, 0.35);
       this.crowdEnergy = Math.max(this.crowdEnergy, 0.8);
     });
-    on('shot', ({ player, gb, volley }) => {
+    on('shot', ({ player, gb, volley, quality }) => {
       this.fx.bubbles(player.pos, gb ? 24 : 8, gb ? 2 : 1, 0.9);
       if (volley || gb) this.gameCam.setMode('goalcam', gb ? 1.8 : 1.2, player);
+      if (this.sim.userTeam === null || player.team === this.sim.userTeam) {
+        const highlight = gb || volley || quality >= 0.8;
+        if (highlight) {
+          this.highlightTimer = gb ? 1.2 : 0.72;
+          this.simTimeScale = gb ? 0.2 : quality >= 1 ? 0.32 : 0.55;
+          this.gameCam.punch(gb ? 0.8 : quality >= 1 ? 0.35 : 0.18);
+        }
+      }
     });
     on('breach', ({ player }) => this.fx.bubbles(player.pos, 10, 1.1, 0.2));
     on('splash', ({ pos, size }) => this.fx.bubbles(pos, 6, size, 0.1));
@@ -259,6 +270,10 @@ export class MatchRenderer {
   update(dt) {
     const sim = this.sim;
     this.elapsed += dt;
+    if (this.highlightTimer > 0) {
+      this.highlightTimer = Math.max(0, this.highlightTimer - dt);
+      if (this.highlightTimer === 0) this.simTimeScale = 1;
+    }
     for (const p of sim.players) {
       const v = this.views.get(p.id);
       v.update(p, sim, dt, sim.ball.holder === p);
@@ -318,6 +333,7 @@ export class MatchRenderer {
     // Water + bubbles
     if (this.water && this.water.userData.update) this.water.userData.update(this.elapsed);
     if (this.bubbles && this.bubbles.userData.update) this.bubbles.userData.update(dt);
+    if (this.arcaneAccents && this.arcaneAccents.userData.update) this.arcaneAccents.userData.update(this.elapsed);
 
     // Crowd bounce
     this.crowdEnergy += (0.2 - this.crowdEnergy) * Math.min(1, dt * 0.6);

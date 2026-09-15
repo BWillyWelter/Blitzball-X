@@ -17,6 +17,7 @@ export class CharacterView {
     this.root.name = `player_${playerData.id}`;
     this.build();
     this.t = 0;
+    this.poseReady = false;
   }
 
   build() {
@@ -268,6 +269,8 @@ export class CharacterView {
     const time = p.anim.t;
     const A = this.arms;
     const L = this.legs;
+    const joints = [this.body, this.torso, this.hips, this.neck, ...A.flatMap((a) => [a.shoulder, a.elbow]), ...L.flatMap((l) => [l.hip, l.knee])];
+    const previousPose = joints.map((joint) => ({ x: joint.rotation.x, y: joint.rotation.y, z: joint.rotation.z }));
     const resetJoint = (g) => g.rotation.set(0, 0, 0);
     for (const a of A) {
       resetJoint(a.shoulder);
@@ -621,6 +624,20 @@ export class CharacterView {
     tg.opacity += ((p.turboActive || st === 'gbdrive' ? 0.85 : 0) - tg.opacity) * Math.min(1, dt * 10);
     this.turboGlow.rotation.z += dt * 4;
     this.turboGlow.scale.setScalar(1 + Math.sin(this.t * 14) * 0.08);
+
+    // Ease the procedural target pose so action-state changes read as animation rather than
+    // a one-frame rig reset. The simulation remains authoritative; this only smooths rendering.
+    if (!this.poseReady) this.poseReady = true;
+    else {
+      const blend = 1 - Math.exp(-dt * 18);
+      for (let i = 0; i < joints.length; i++) {
+        const joint = joints[i];
+        const previous = previousPose[i];
+        joint.rotation.x = dampAngle(previous.x, joint.rotation.x, blend);
+        joint.rotation.y = dampAngle(previous.y, joint.rotation.y, blend);
+        joint.rotation.z = dampAngle(previous.z, joint.rotation.z, blend);
+      }
+    }
   }
 
   /** World position of the right hand (for ball attachment while holding). */
@@ -633,6 +650,13 @@ export class CharacterView {
     this.arms[0].hand.getWorldPosition(target);
     return target;
   }
+}
+
+function dampAngle(current, target, blend) {
+  let delta = target - current;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return current + delta * blend;
 }
 
 let _blob = null;

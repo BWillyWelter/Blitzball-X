@@ -13,7 +13,7 @@ import { HUD } from './ui/hud.js';
 import { Commentary } from './ui/commentary.js';
 import { loadState, saveState, clearState } from './ui/save.js';
 import { TouchControls, isTouchDevice } from './ui/touch.js';
-import { createCareer, currentOpponent, recordResult, careerTitle } from './game/career.js';
+import { createCareer, currentOpponent, recordResult, careerTitle, awardPlayerProgress } from './game/career.js';
 import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import { PHYS } from './data/constants.js';
 import * as Screens from './ui/screens.js';
@@ -108,9 +108,9 @@ class App {
     return !!(c && TEAM_BY_ID[c.teamId] && Array.isArray(c.ladder) && c.ladder.every((id) => TEAM_BY_ID[id]) && (c.complete || TEAM_BY_ID[c.ladder[c.stage]]));
   }
 
-  startCareer(teamId) {
+  startCareer(teamId, player = {}) {
     if (!TEAM_BY_ID[teamId]) return this.go('title');
-    this.state.career = createCareer(teamId, this.state.settings.difficulty);
+    this.state.career = createCareer(teamId, this.state.settings.difficulty, player);
     this.save();
     this.go('career');
   }
@@ -130,12 +130,19 @@ class App {
     wrap.innerHTML = `<canvas class="game-canvas"></canvas><div class="hud"></div><div class="tip-overlay"><div class="tip-box"><div class="tip-teams"><span style="--c1:${home.primary}">${home.city} ${home.name}</span><em>VS</em><span style="--c1:${away.primary}">${away.city} ${away.name}</span></div><div class="tip-rule">TWO HALVES · MOST GOALS WINS · ${mode === 'career' ? 'THEIR SPHERE' : `${home.city.toUpperCase()} SPHERE`}</div></div></div>`;
     this.root.appendChild(wrap);
     const canvas = wrap.querySelector('.game-canvas');
+    if (mode === 'career' && this.state.career) {
+      const base = TEAM_BY_ID[this.state.career.teamId];
+      const player = this.state.career.player;
+      home = { ...base, roster: [player, ...base.roster.filter((p) => p.role !== 'GK').slice(1), base.roster.find((p) => p.role === 'GK')] };
+      away = currentOpponent(this.state.career);
+      userTeam = 1;
+    }
     const difficulty = mode === 'career' && this.state.career ? this.state.career.difficulty : this.state.settings.difficulty;
     const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
-    const sim = new MatchSim({ home, away, difficulty, seed, userTeam });
+    const sim = new MatchSim({ home: mode === 'career' ? away : home, away: mode === 'career' ? home : away, difficulty, seed, userTeam: mode === 'career' ? 1 : userTeam });
     let renderer;
     try {
-      renderer = new MatchRenderer(canvas, sim, this.state.settings);
+      renderer = new MatchRenderer(canvas, sim, { ...this.state.settings, firstPerson: mode === 'career' });
     } catch (e) {
       console.error(e);
       wrap.remove();
@@ -321,7 +328,9 @@ class App {
       if (m.mode === 'career' && this.state.career) {
         const c = this.state.career;
         const before = c.rep;
-        recordResult(c, { won, score: [...sim.score], style: myStyle, margin });
+          recordResult(c, { won, score: [...sim.score], style: myStyle, margin });
+          const progression = awardPlayerProgress(c, { won, style: myStyle, margin });
+          c.lastUnlocks = progression.unlocked;
         careerResult = won
           ? `+${c.rep - before} REP · ${careerTitle(c)}${c.complete ? ' · YOU BEAT EVERY CREW. LEGEND DIFFICULTY UNLOCKED.' : ` · NEXT: ${currentOpponent(c).city.toUpperCase()}`}`
           : `+${c.rep - before} REP · Run it back to move up the ladder.`;

@@ -1,17 +1,48 @@
 import { TEAMS, teamOverall } from '../data/teams.js';
 import { RNG } from '../core/rng.js';
 
+const ARCHETYPE_STATS = {
+  FINISHER: { spd: 72, sht: 82, hnd: 68, pas: 58, tkl: 52, pow: 78, end: 70, gb: 72 },
+  SNIPER: { spd: 68, sht: 88, hnd: 70, pas: 64, tkl: 48, pow: 48, end: 68, gb: 78 },
+  HANDLER: { spd: 82, sht: 62, hnd: 88, pas: 82, tkl: 62, pow: 44, end: 76, gb: 82 },
+  ENFORCER: { spd: 58, sht: 48, hnd: 52, pas: 54, tkl: 74, pow: 88, end: 82, gb: 66 },
+  ALLROUND: { spd: 70, sht: 68, hnd: 68, pas: 68, tkl: 64, pow: 64, end: 70, gb: 68 },
+};
+
+export function createPlayerProfile({ name = 'Rookie', archetype = 'ALLROUND', skin = 0, hair = 0 } = {}) {
+  const stats = ARCHETYPE_STATS[archetype] || ARCHETYPE_STATS.ALLROUND;
+  return {
+    id: `career_${Date.now()}_${Math.floor(Math.random() * 1e5)}`,
+    name: name.trim().slice(0, 18) || 'Rookie',
+    nick: name.trim().split(/\s+/)[0].slice(0, 12).toUpperCase() || 'ROOKIE',
+    archetype,
+    role: 'FW',
+    number: 10,
+    skin: Number(skin) || 0,
+    hair: Number(hair) || 0,
+    ...stats,
+    cat: 45,
+    blk: 42,
+    signature: 'UNLOCK YOUR SIGNATURE',
+    level: 1,
+    xp: 0,
+    gear: [],
+    items: [],
+  };
+}
+
 /**
  * "Run The Pools" career: pick a crew, beat every other crew in their home sphere
  * in a ladder ordered by strength, earn Rep, unlock the Legend difficulty at the end.
  * Serialisable to JSON for localStorage.
  */
-export function createCareer(teamId, difficulty = 'pro') {
+export function createCareer(teamId, difficulty = 'pro', player = {}) {
   const ladder = TEAMS.filter((t) => t.id !== teamId)
     .sort((a, b) => teamOverall(a) - teamOverall(b))
     .map((t) => t.id);
   return {
     teamId,
+    player: createPlayerProfile(player),
     difficulty,
     ladder,
     stage: 0,
@@ -22,6 +53,35 @@ export function createCareer(teamId, difficulty = 'pro') {
     complete: false,
     seed: Math.floor(Math.random() * 1e9),
   };
+}
+
+export function xpToNext(level) {
+  return 100 + (level - 1) * 75;
+}
+
+export function awardPlayerProgress(career, result) {
+  const p = career.player;
+  const earned = 35 + Math.round((result.style || 0) / 25) + (result.won ? 100 : 35) + Math.max(0, result.margin || 0) * 8;
+  p.xp += earned;
+  const unlocked = [];
+  while (p.xp >= xpToNext(p.level)) {
+    p.xp -= xpToNext(p.level);
+    p.level++;
+    const gear = p.level === 2 ? 'TURBO FINS' : p.level === 3 ? 'AQUA VISOR' : p.level === 4 ? 'POWER GAUNTLET' : p.level === 5 ? 'SIGNATURE SHOT' : null;
+    if (gear && !p.gear.includes(gear)) {
+      p.gear.push(gear);
+      unlocked.push(gear);
+      if (gear === 'TURBO FINS') p.spd = Math.min(99, p.spd + 2);
+      if (gear === 'POWER GAUNTLET') p.pow = Math.min(99, p.pow + 2);
+    }
+    const item = p.level === 6 ? 'RIPTIDE CHARM' : p.level === 8 ? 'GAMEBREAKER CORE' : null;
+    if (item && !p.items.includes(item)) {
+      p.items.push(item);
+      unlocked.push(item);
+    }
+  }
+  if (p.gear.includes('SIGNATURE SHOT')) p.signature = 'LEVEL BREAKER';
+  return { earned, unlocked };
 }
 
 export function currentOpponent(career) {

@@ -127,6 +127,7 @@ export function TeamSelectScreen(app, params) {
         <div class="ts-vs">VS</div>
         <div class="ts-side ts-right"><div class="ts-label">${mode === 'career' ? 'FIRST OPPONENT' : 'CPU'}</div><div class="ts-card"></div></div>
       </div>
+      ${mode === 'career' ? `<div class="player-build"><label>PLAYER NAME <input class="player-name" maxlength="18" value="Rookie" /></label><label>STYLE <select class="player-style"><option value="ALLROUND">ALL-AROUND</option><option value="FINISHER">FINISHER</option><option value="SNIPER">SNIPER</option><option value="HANDLER">HANDLER</option><option value="ENFORCER">ENFORCER</option></select></label><span>BUILD ONE SWIMMER · LEVEL UP · UNLOCK GEAR</span></div>` : ''}
       <div class="ts-grid">${TEAMS.map((t, i) => `<button class="ts-chip" data-i="${i}" style="--c1:${t.primary};--c3:${t.accent}">${t.abbr}</button>`).join('')}</div>
       <footer class="screen-foot">
         <div class="foot-left"><span class="key">◀ ▶</span> browse <span class="key">▲ ▼</span> switch side <span class="key">ENTER</span> lock in <span class="key">ESC</span> back</div>
@@ -182,7 +183,7 @@ export function TeamSelectScreen(app, params) {
     app.save();
     const home = TEAMS[picks[0]];
     const away = TEAMS[picks[1]];
-    if (mode === 'career') app.startCareer(home.id);
+    if (mode === 'career') app.startCareer(home.id, { name: el.querySelector('.player-name').value, archetype: el.querySelector('.player-style').value });
     else app.startMatch({ home, away, userTeam: mode === 'versus' ? null : 0, mode });
   };
   el.querySelector('.start-btn').addEventListener('click', start);
@@ -227,10 +228,12 @@ export function CareerScreen(app) {
     .join('');
   const el = h(`
     <section class="screen career" style="--c1:${team.primary};--c2:${team.secondary};--c3:${team.accent}">
-      <header class="screen-head"><h1>RUN THE STREETS</h1><div class="head-sub">${team.city} ${team.name} · ${careerTitle(c)} · REP ${c.rep} · ${c.wins}W ${c.losses}L</div></header>
+      <header class="screen-head"><h1>${c.player.name.toUpperCase()}</h1><div class="head-sub">LV ${c.player.level} · ${c.player.archetype} · ${team.city} ${team.name} · ${careerTitle(c)} · XP ${c.player.xp} · ${c.wins}W ${c.losses}L</div></header>
       <div class="career-body">
         <div class="career-left">
           <div class="career-next">
+            <div class="cn-title">${c.player.gear.length ? `GEAR: ${c.player.gear.join(' · ')}` : 'NO GEAR UNLOCKED'}</div>
+            <div class="cn-sub">${c.player.items.length ? `SPECIAL ITEMS: ${c.player.items.join(' · ')}` : 'SPECIAL ITEMS: LOCKED'}</div>
             ${c.complete ? `<div class="cn-title">YOU RUN THIS CITY</div><div class="cn-sub">Every crew beaten. Legend difficulty unlocked.</div>` : `<div class="cn-title">NEXT UP</div>${teamCard(opp, { cls: 'cpu' })}<div class="cn-court">@ ${opp.city.toUpperCase()} · THEIR SPHERE</div>`}
           </div>
           ${menuList([

@@ -12,12 +12,66 @@ export function buildCourt(scene, theme) {
   group.name = 'arena';
   group.add(buildWaterSphere(theme));
   group.add(buildPlayingDisc(theme));
+  group.add(buildArcaneAccents(theme));
   group.add(buildGoal(1, theme));
   group.add(buildGoal(-1, theme));
   group.add(buildBubbles(theme));
   group.add(buildSurroundings(theme));
   scene.add(group);
   return group;
+}
+
+function buildArcaneAccents(theme) {
+  const g = new THREE.Group();
+  g.name = 'arcaneAccents';
+  const lineMat = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending });
+  const accentMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+
+  // A suspended sigil gives the court a high-fantasy broadcast identity without obscuring play.
+  const sigil = new THREE.Group();
+  sigil.position.y = 0.18;
+  for (const radius of [1.0, 1.28, 1.55]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.018, 6, 64), lineMat);
+    ring.rotation.x = -Math.PI / 2;
+    sigil.add(ring);
+  }
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 1), accentMat);
+  crystal.position.y = 0.35;
+  sigil.add(crystal);
+  g.add(sigil);
+
+  // Energy lanes point toward both goals and make the playable space legible at a glance.
+  for (const sign of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const lane = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.018, 5.5 - i * 0.5), lineMat);
+      lane.position.set(sign * (2.2 + i * 1.0), 0.01, 0);
+      lane.rotation.y = sign * (0.05 + i * 0.025);
+      g.add(lane);
+    }
+  }
+
+  // Crystal pylons mark the boundary and pulse with the same rhythm as the water shader.
+  const pylons = [];
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const pylon = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 1), accentMat.clone());
+    pylon.position.set(Math.cos(a) * (ARENA.fieldRadius - 0.15), 0.2, Math.sin(a) * (ARENA.fieldRadius - 0.15));
+    pylon.scale.y = 1.8;
+    pylons.push(pylon);
+    g.add(pylon);
+  }
+  g.userData.update = (time) => {
+    sigil.rotation.y = time * 0.18;
+    crystal.rotation.x = time * 1.6;
+    crystal.rotation.z = time * 1.1;
+    const pulse = 0.62 + Math.sin(time * 3.5) * 0.2;
+    for (let i = 0; i < pylons.length; i++) {
+      pylons[i].material.opacity = pulse + Math.sin(time * 4 + i) * 0.1;
+      pylons[i].scale.x = 0.85 + Math.sin(time * 3 + i) * 0.12;
+      pylons[i].scale.z = 0.85 + Math.sin(time * 3 + i) * 0.12;
+    }
+  };
+  return g;
 }
 
 const THEMES = {

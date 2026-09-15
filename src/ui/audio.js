@@ -146,6 +146,17 @@ export class AudioSystem {
     this.noise({ dur: 0.3, vol: 0.28, filter: 600 * pitch, slide: 2600 * pitch, q: 0.7, attack: 0.03 });
   }
 
+  shotCharge() {
+    this.tone({ freq: 180, type: 'sine', dur: 0.22, vol: 0.16, slide: 520, filter: { freq: 1400 } });
+    this.noise({ dur: 0.18, vol: 0.1, filter: 900, slide: 2200, q: 1.2, attack: 0.04 });
+  }
+
+  perfectShot() {
+    this.tone({ freq: 740, type: 'square', dur: 0.16, vol: 0.22, slide: 1480, filter: { freq: 3200 } });
+    this.tone({ freq: 1480, type: 'triangle', dur: 0.32, vol: 0.16, slide: 900, filter: { freq: 2600 } });
+    this.noise({ dur: 0.24, vol: 0.24, filter: 4200, slide: 1800, q: 0.6, type: 'highpass', attack: 0.01 });
+  }
+
   fence() {
     this.noise({ dur: 0.35, vol: 0.3, filter: 2200, q: 2 });
     this.tone({ freq: 1800, type: 'triangle', dur: 0.3, vol: 0.08 });
