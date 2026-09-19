@@ -2,6 +2,7 @@ import { Vec3, clamp, lerp } from '../core/vec3.js';
 import { RNG } from '../core/rng.js';
 import { EventBus } from '../core/events.js';
 import { ARENA, RULES, PHYS, MOVE, ACTION, STYLE, DIFFICULTY } from '../data/constants.js';
+import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { createPlayer, createBall, emptyInput, copyInput } from './entities.js';
 import { starters } from '../data/teams.js';
 import { updateAI } from './ai.js';
@@ -50,6 +51,16 @@ export class MatchSim {
     this.gb = [0, 0];
     this.gbReady = [false, false];
     this.momentum = [0, 0]; // consecutive goals
+    this.rubber = [1, 1]; // anti-blowout assist multiplier per team (see ringRattle)
+    // Playbook: indices into OFFENSE_PLAYS / DEFENSE_PLAYS. Index 0 of each is the neutral default.
+    this.offPlay = [0, 0];
+    this.defPlay = [0, 0];
+    this.userPlayTimer = 0; // cooldown between user play calls
+    this.gbDriveShield = false; // true while a Gamebreaker drive is live (untackleable)
+    // Dedicated RNG for CPU play calls: keeps play chatter out of the main gameplay stream
+    // (so tests/balance that assume base-game rolls stay stable) while staying per-sim seeded.
+    this.playRng = new RNG((seed ^ 0x51ec7) >>> 0);
+    this.rungPulse = [0, 0]; // visual: goal-ring pulse when a goal is conceded
     this.possession = 0;
     this.possessionClock = this.rules.possessionClock;
     this.mustClear = false; // unused in Blitzball; kept for HUD compatibility
@@ -236,6 +247,39 @@ export class MatchSim {
   }
 
   // ---------------------------------------------------------------------------
+  // Playbook
+  // ---------------------------------------------------------------------------
+
+  /** Active offensive play for a team (index 0 is the neutral default). */
+  offensePlayOf(team) {
+    return OFFENSE_PLAYS[this.offPlay[team]] || OFFENSE_PLAYS[0];
+  }
+
+  /** Active defensive play for a team (index 0 is the neutral default). */
+  defensePlayOf(team) {
+    return DEFENSE_PLAYS[this.defPlay[team]] || DEFENSE_PLAYS[0];
+  }
+
+  /** Defensive modifiers in effect for a team (its chosen defensive play). */
+  defenseMods(team) {
+    return this.defensePlayOf(team);
+  }
+
+  /**
+   * Call a play. Offense plays apply while the team has the ball; defense plays while it
+   * doesn't. Returns the play object (for HUD feedback) or null on a rejected call.
+   */
+  callPlay(side, index, team = this.userTeam ?? 0) {
+    if (team !== 0 && team !== 1) return null;
+    const list = side === 'offense' ? OFFENSE_PLAYS : DEFENSE_PLAYS;
+    if (!list[index]) return null;
+    if (side === 'offense') this.offPlay[team] = index;
+    else this.defPlay[team] = index;
+    this.events.emit('playcall', { team, side, play: list[index] });
+    return list[index];
+  }
+
+  // ---------------------------------------------------------------------------
   // Ball possession helpers
   // ---------------------------------------------------------------------------
 
@@ -282,6 +326,7 @@ export class MatchSim {
       dt = rawDt * this.timeScale;
     } else this.timeScale = 1;
     this.time += dt;
+    if (this.userPlayTimer > 0) this.userPlayTimer -= dt;
     for (const p of this.players) this.tickCooldowns(p, dt);
     if (this.ball.releaseCooldown) {
       this.ball.releaseCooldown.t -= dt;
@@ -295,6 +340,7 @@ export class MatchSim {
         for (const p of this.players) p.anim.t += dt;
         if (this.stateTimer <= 0) {
           this.state = 'live';
+          this.clearGbShield();
           this.events.emit('live', { possession: this.possession, half: this.half });
         }
         break;
@@ -328,7 +374,7 @@ export class MatchSim {
         break;
       case 'gamebreaker':
         this.stepGamebreaker(dt);
-                break;
+        break;
       default:
         break;
     }
@@ -410,6 +456,14 @@ export class MatchSim {
   processInput(p, dt) {
     const inp = p.input;
     if (inp.switchPlayer && this.isUser(p)) this.switchControlled();
+    // Playbook: digits 1-3 call offense plays, 7-9 defense plays (user team only, small cooldown
+    // so key mashing can't machine-gun commentary banners).
+    if (inp.playcall && this.isUser(p) && this.userPlayTimer <= 0 && (this.state === 'live' || this.state === 'gamebreaker')) {
+      const offense = inp.playcall < 5;
+      const play = this.callPlay(offense ? 'offense' : 'defense', offense ? inp.playcall - 1 : inp.playcall - 7);
+      if (play) this.userPlayTimer = 0.4;
+    }
+    inp.playcall = 0;
     if (p.state === 'fallen' || p.state === 'stumble' || p.stun > 0) return;
 
     const isCarrier = this.ball.holder === p;
@@ -450,17 +504,19 @@ export class MatchSim {
     const inp = p.input;
     const isCarrier = this.ball.holder === p;
 
-    // Turbo
+    // Turbo (defensive fatigue: press costs more stamina, zone recovers some)
     const wantsTurbo = !deadBall && inp.turbo && (inp.moveX !== 0 || inp.moveZ !== 0) && p.turbo > MOVE.turboMin && (p.state === 'swim' || p.state === 'idle');
     p.turboActive = wantsTurbo;
     const endur = 0.7 + (p.data.end / 99) * 0.6;
-    if (p.turboActive) p.turbo = Math.max(0, p.turbo - (MOVE.turboDrain / endur) * dt);
-    else p.turbo = Math.min(100, p.turbo + MOVE.turboRegen * endur * dt);
+    const onDefense = this.possession !== p.team;
+    const fatigue = onDefense ? this.defenseMods(p.team).fatigue || 1 : 1;
+    if (p.turboActive) p.turbo = Math.max(0, p.turbo - ((MOVE.turboDrain / endur) * fatigue) * dt);
+    else p.turbo = Math.min(100, p.turbo + (MOVE.turboRegen * endur / fatigue) * dt);
 
     // Locomotion
     let maxSpeed = (p.isKeeper ? MOVE.keeperSpeed : MOVE.maxSpeed) * (0.82 + (p.data.spd / 99) * 0.36);
     if (p.turboActive) maxSpeed *= MOVE.turboMult;
-    if (isCarrier) maxSpeed *= MOVE.carrierMult;
+    if (isCarrier) maxSpeed *= MOVE.carrierMult * (this.offensePlayOf(p.team).speed || 1);
     const canMove = !deadBall && p.stun <= 0 && (p.state === 'idle' || p.state === 'swim' || p.state === 'catch' || p.state === 'shoot' && p.shot && !p.shot.released && p.shot.kind !== 'volley');
     if (p.state === 'trick' && p.trick) {
       // scripted trick motion
@@ -678,16 +734,20 @@ export class MatchSim {
     const d = p.pos.distanceToXZ(carrier.pos);
     if (d > ACTION.tackleRange) return false;
     if (carrier.airborne || carrier.state === 'shoot' && carrier.shot && carrier.shot.released) return false;
+    // A live Gamebreaker drive is untackleable — the payoff moment shouldn't end in a fumble.
+    if (carrier === this.gbPlayer && this.gbDriveShield) return false;
     const facing = f.dot(Vec3.dirXZ(p.pos, carrier.pos)) > 0.1;
     if (!facing) return false;
     let prob = 0.22 + ((p.data.tkl - carrier.data.hnd) / 99) * 0.35;
     if (carrier.state === 'trick') prob *= carrier.trick && carrier.trick.turbo ? 0.3 : 0.55;
     if (carrier.state === 'idle' && carrier.stateTime > 1.0) prob += 0.14;
     if (carrier.state === 'pass' || carrier.state === 'shoot') prob += 0.12;
-    if (!this.isUser(p)) prob *= this.difficulty.tackleRate;
+    if (!this.isUser(p)) prob *= this.difficulty.tackleRate * 1.5;
     else prob *= 1.15 * this.difficulty.userBonus;
     if (this.momentum[carrier.team] >= this.rules.onFireGoals) prob *= 0.8;
-    prob = clamp(prob, 0.05, 0.75);
+    prob *= this.rubber[p.team];
+    prob *= this.defenseMods(p.team).tackle || 1;
+    prob = clamp(prob, 0.05, 0.78);
     if (this.rng.chance(prob)) {
       carrier.stats.to++;
       p.stats.tkl++;
@@ -699,7 +759,7 @@ export class MatchSim {
       this.giveBall(p);
       this.setState(p, 'catch', 0.14);
       this.addStyle(p, STYLE.tackle, 'PICKED', { big: true });
-            this.events.emit('tackle', { player: p, victim: carrier });
+      this.events.emit('tackle', { player: p, victim: carrier });
       return true;
     }
     p.stun = ACTION.tackleWhiffRecovery;
@@ -717,6 +777,8 @@ export class MatchSim {
     let bd = Infinity;
     for (const q of this.opponentsOf(p)) {
       if (q.isKeeper || q.state === 'fallen' || q.airborne) continue;
+      // Shrug off big hits while the Gamebreaker drive is live.
+      if (q === this.gbPlayer && this.gbDriveShield) continue;
       const d = q.pos.distanceToXZ(p.pos);
       if (d < ACTION.hitRange && f.dot(Vec3.dirXZ(p.pos, q.pos)) > 0 && d < bd) {
         bd = d;
@@ -730,7 +792,8 @@ export class MatchSim {
     let prob = 0.45 + ((p.data.pow - best.data.pow) / 99) * 0.5;
     if (best.state === 'trick') prob -= 0.15;
     if (best.state === 'shoot' || best.state === 'pass') prob += 0.15;
-    if (!this.isUser(p)) prob *= this.difficulty.hitRate;
+    if (!this.isUser(p)) prob *= this.difficulty.hitRate * 1.25;
+    prob *= this.rubber[p.team];
     prob = clamp(prob, 0.15, 0.9);
     if (this.rng.chance(prob)) {
       const hadBall = this.ball.holder === best;
@@ -904,7 +967,12 @@ export class MatchSim {
     let aimY = ARENA.goalY + (this.rng.next() - 0.5) * ARENA.goalRadius * 1.1;
     // Accuracy error grows with distance and poor timing; good shooters tighten it.
     const acc = (p.data.sht / 99) * (gb ? 1.4 : 1) * (this.isUser(p) ? this.difficulty.userBonus : this.difficulty.shotAccuracy);
-    const err = (1 - quality) * 1.8 + dist * 0.19 - acc * 0.9 + (volley ? 0.2 : 0);
+    // Volleys are the highest-value finish in the game: tighter CPU volley error keeps the
+    // alley-oop special without letting it be a near-guaranteed goal, while player volleys keep
+    // a generous window so the skill still feels great.
+    const baseErr = volley ? (this.isUser(p) ? 1.35 : 1.0) : 1.35;
+    const shotBoost = this.offensePlayOf(p.team).shotBoost || 1;
+    const err = ((1 - quality) * 1.6 + dist * 0.17 - acc * 0.9 + baseErr * 0.42 + (volley ? 0.2 : 0)) / shotBoost;
     const e = Math.max(0.45, err);
     aimZ += (this.rng.next() - 0.5) * 2 * e * ARENA.goalRadius;
     aimY += (this.rng.next() - 0.5) * 2 * e * ARENA.goalRadius * 0.8;
@@ -974,6 +1042,7 @@ export class MatchSim {
     this.gb[p.team] = 0;
     this.state = 'gamebreaker';
     this.gbPlayer = p;
+    this.gbDriveShield = true; // the GB drive can't be tackled/hit into a fumble
     this.slowmo = 0.9;
     this.timeScale = ACTION.gbSlowmo;
     this.setState(p, 'gbwind', 0.7);
@@ -986,6 +1055,11 @@ export class MatchSim {
     }
     this.events.emit('gamebreaker', { team: p.team, player: p });
     return true;
+  }
+
+  /** Clear the gamebreaker drive shield when the GB play ends (goal, save, reset). */
+  clearGbShield() {
+    this.gbDriveShield = false;
   }
 
   startGbDrive(p) {
@@ -1109,7 +1183,7 @@ export class MatchSim {
       b.vel.scale(drag);
     }
     const prev = b.pos.clone();
-        b.pos.addScaled(b.vel, dt);
+    b.pos.addScaled(b.vel, dt);
     // Goal check
     if (f.kind === 'shot' || f.kind === 'loose') {
       const g = this.checkGoalCrossing(prev, b.pos);
@@ -1206,11 +1280,15 @@ export class MatchSim {
       const y = lerp(prev.y, cur.y, u);
       const z = lerp(prev.z, cur.z, u);
       const rr = Math.hypot(y - ARENA.goalY, z);
-      if (rr < ARENA.goalRadius - 0.08) return team;
+      if (rr < ARENA.goalRadius - 0.08) {
+        this.ringRattle(team);
+        return team;
+      }
       if (rr < ARENA.goalRadius + ARENA.postRadius + 0.1) {
         // Hit the ring: bounce back
         this.ball.vel.x *= -PHYS.wallRestitution;
         this.ball.pos.x = gx - Math.sign(gx) * 0.2;
+        this.ringRattle(team);
         this.events.emit('post', { pos: this.ball.pos.clone(), hard: true });
         const f = this.ball.flight;
         if (f && f.kind === 'shot') {
@@ -1221,6 +1299,25 @@ export class MatchSim {
       }
     }
     return null;
+  }
+
+  /**
+   * Score-state bookkeeping for one goal: anti-blowout rubber band plus the goal-ring visual
+   * pulse consumed by the renderer (see `this.rungPulse`).
+   */
+  ringRattle(team) {
+    // Anti-blowout rubber band: the side that trails on the scoreboard earns assistance.
+    const diff = this.score[0] - this.score[1];
+    if (Math.abs(diff) >= this.rules.rubberLead) {
+      const trailing = diff < 0 ? 0 : 1;
+      this.rubber[trailing] = Math.min(this.rules.rubberCap, 1 + (Math.abs(diff) - this.rules.rubberLead + 1) * this.rules.rubberPerGoal);
+      this.rubber[1 - trailing] = 1;
+    } else {
+      this.rubber[0] = 1;
+      this.rubber[1] = 1;
+    }
+    this.rungPulse[team] = 1;
+    this.events.emit('goalring', { team });
   }
 
   checkKeeperSave() {
@@ -1240,8 +1337,9 @@ export class MatchSim {
     let prob = 1.0 - (within / (reach + 0.6)) * 0.5;
     prob -= (f.quality - 0.6) * 0.4;
     prob -= (b.vel.length() - 16) * 0.022;
-    prob *= this.difficulty.keeperSkill * (this.userTeam !== null && keeper.team === this.userTeam ? 1 : 1);
+    prob *= this.difficulty.keeperSkill * (this.userTeam !== null && keeper.team === this.userTeam ? 1.18 : 1);
     prob += (keeper.data.blk / 99) * 0.15;
+    prob *= this.rubber[keeper.team];
     if (f.gb) prob = 0.04;
     if (this.momentum[f.shooter.team] >= this.rules.onFireGoals) prob *= 0.75;
     if (this.overtime && this.otTime > this.rules.overtimeFatigueAfter) prob *= 0.4;
@@ -1286,10 +1384,11 @@ export class MatchSim {
       const top = 0.9 + q.y + (q.airborne ? 1.1 : 0.7);
       if (horiz < ACTION.blockRadius && b.pos.y < top && b.pos.y > -0.2) {
         f.checked.add(q.id);
-        let prob = q.airborne ? 0.38 : 0.05;
-        prob += ((q.data.tkl - 60) / 99) * 0.25;
+        let prob = (q.airborne ? 0.42 : 0.06) + ((q.data.tkl - 60) / 99) * 0.25;
         if (f.gb) prob = 0;
         if (!this.isUser(q)) prob *= this.difficulty.tackleRate;
+        prob *= this.rubber[q.team];
+        prob *= this.defenseMods(q.team).block || 1;
         if (this.rng.chance(clamp(prob, 0, 0.7))) {
           q.stats.blk++;
           const dir = Vec3.dirXZ(f.shooter.pos, q.pos);
@@ -1318,11 +1417,16 @@ export class MatchSim {
       if (horiz < reach && vertical) {
         f.checked.add(q.id);
         const active = q.state === 'tackle' || q.airborne;
-        let prob = active ? 0.45 + ((q.data.tkl - 50) / 99) * 0.35 : 0.06 + ((q.data.tkl - 50) / 99) * 0.08;
+        let prob = active ? 0.5 + ((q.data.tkl - 50) / 99) * 0.35 : 0.09 + ((q.data.tkl - 50) / 99) * 0.08;
         if (q.isKeeper) prob = 0.7 + (q.data.cat / 99) * 0.25;
-        if (f.kind === 'lob') prob *= 0.55;
+        if (f.kind === 'lob') prob *= 0.6;
         if (f.t < 0.1) prob *= 0.3;
-        if (!this.isUser(q) && !q.isKeeper) prob *= this.difficulty.tackleRate * 0.8;
+        if (!this.isUser(q) && !q.isKeeper) prob *= this.difficulty.tackleRate * 0.9;
+        prob *= this.rubber[q.team];
+        // PASS ACC: offense plays that open lanes make interceptions less likely
+        prob /= this.offensePlayOf(f.passer.team).passAcc || 1;
+        // LANE: defense plays that hunt passing lanes jump more
+        prob *= this.defenseMods(q.team).lane || 1;
         if (this.rng.chance(clamp(prob, 0.02, 0.9))) {
           b.flight = null;
           f.passer.stats.to++;
@@ -1527,4 +1631,4 @@ function turnToward(a, target, maxDelta) {
   while (d < -Math.PI) d += Math.PI * 2;
   if (Math.abs(d) <= maxDelta) return target;
   return a + Math.sign(d) * maxDelta;
-          }
+}

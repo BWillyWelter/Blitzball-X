@@ -3,11 +3,12 @@ import { makeCanvas, canvasTexture } from './materials.js';
 
 /**
  * Lightweight particle / decal effects: dust puffs, impact bursts, ball trail,
- * shockwave rings, confetti for gamebreakers.
+ * shockwave rings, confetti for gamebreakers. (FX layer.)
  */
 export class FXSystem {
-  constructor(scene) {
+  constructor(scene, camera = null) {
     this.scene = scene;
+    this.camera = camera;
     this.particles = [];
     this.max = 600;
     this.geo = new THREE.BufferGeometry();
@@ -28,7 +29,8 @@ export class FXSystem {
         void main(){ vec4 t = texture2D(map, gl_PointCoord); if (t.a < 0.05) discard; gl_FragColor = vec4(vColor, t.a); }`,
       transparent: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
+      // Additive makes bubbles/sparks/confetti glow against the dark water instead of sitting on it.
+      blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(this.geo, mat);
     this.points.frustumCulled = false;
@@ -41,17 +43,29 @@ export class FXSystem {
   }
 
   setupTrail() {
-    const n = 24;
+    const n = 26;
     this.trailN = n;
-    this.trailPts = new Float32Array(n * 3);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.trailPts, 3));
-    const m = new THREE.LineBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.0, linewidth: 2 });
-    this.trail = new THREE.Line(g, m);
-    this.trail.frustumCulled = false;
-    this.scene.add(this.trail);
     this.trailHistory = [];
     this.trailColor = new THREE.Color(0xffd23f);
+    // Camera-facing ribbon instead of a 1px line (browsers ignore `linewidth`, so the old trail
+    // rendered hairline-thin and effectively invisible). Vertex colours fade to black along the
+    // tail; additive blending makes black contribute nothing, which reads as a smooth fade-out.
+    const g = new THREE.BufferGeometry();
+    this.trailPts = new Float32Array(n * 2 * 3);
+    this.trailCol = new Float32Array(n * 2 * 3);
+    g.setAttribute('position', new THREE.BufferAttribute(this.trailPts, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(this.trailCol, 3));
+    const idx = [];
+    for (let i = 0; i < n - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    g.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    this.trail = new THREE.Mesh(g, m);
+    this.trail.frustumCulled = false;
+    this.trail.renderOrder = 2;
+    this.scene.add(this.trail);
   }
 
   spawn(pos, vel, color, size, life, opts = {}) {
@@ -108,6 +122,40 @@ export class FXSystem {
     }
   }
 
+  /** Continuous emitter: glowing embers rising off ON FIRE / gamebreaker players. */
+  embers(pos, color, dt, rate = 26) {
+    this._emberAcc = (this._emberAcc || 0) + rate * dt;
+    const c = new THREE.Color(color);
+    const baseY = pos.y ?? 0;
+    while (this._emberAcc >= 1) {
+      this._emberAcc -= 1;
+      this.spawn(
+        { x: pos.x + (Math.random() - 0.5) * 0.55, y: baseY + 0.15 + Math.random() * 0.95, z: pos.z + (Math.random() - 0.5) * 0.55 },
+        { x: (Math.random() - 0.5) * 0.5, y: 1.3 + Math.random() * 1.7, z: (Math.random() - 0.5) * 0.5 },
+        c, 0.09 + Math.random() * 0.13, 0.4 + Math.random() * 0.55,
+        { gravity: 2.0, drag: 0.96, floor: false },
+      );
+    }
+  }
+
+  /** Continuous emitter: spray wake kicked up behind a turbo swimmer. */
+  wake(pos, facing, dt, rate = 34) {
+    this._wakeAcc = (this._wakeAcc || 0) + rate * dt;
+    const c = new THREE.Color(0xdff3ff);
+    const sin = Math.sin(facing);
+    const cos = Math.cos(facing);
+    while (this._wakeAcc >= 1) {
+      this._wakeAcc -= 1;
+      const s = 0.7 + Math.random() * 1.3;
+      this.spawn(
+        { x: pos.x - sin * 0.35 + (Math.random() - 0.5) * 0.3, y: (pos.y ?? 0) + 0.04, z: pos.z - cos * 0.35 + (Math.random() - 0.5) * 0.3 },
+        { x: -sin * s + (Math.random() - 0.5) * 0.6, y: 0.7 + Math.random() * 1.1, z: -cos * s + (Math.random() - 0.5) * 0.6 },
+        c, 0.09 + Math.random() * 0.15, 0.3 + Math.random() * 0.35,
+        { gravity: -2.4, drag: 0.95 },
+      );
+    }
+  }
+
   burst(pos, color, count = 24, speed = 4, size = 0.22) {
     const c = new THREE.Color(color);
     for (let i = 0; i < count; i++) {
@@ -147,23 +195,73 @@ export class FXSystem {
   }
 
   updateTrail(ballPos, active, color) {
+    const m = this.trail.material;
+    if (color) this.trailColor.set(color);
     if (active) {
       this.trailHistory.push([ballPos.x, ballPos.y, ballPos.z]);
       if (this.trailHistory.length > this.trailN) this.trailHistory.shift();
-      if (color) this.trail.material.color.set(color);
-      this.trail.material.opacity += (0.9 - this.trail.material.opacity) * 0.3;
+      m.opacity += (0.95 - m.opacity) * 0.3;
     } else {
       if (this.trailHistory.length) this.trailHistory.shift();
-      this.trail.material.opacity *= 0.85;
+      m.opacity *= 0.85;
     }
-    const n = this.trailHistory.length;
+    // Rebuild the ribbon: vertex pairs straddle the trail path, pushed onto the plane facing the
+    // camera; width and brightness taper to nothing toward the tail.
+    const cam = this.camera;
+    const hist = this.trailHistory;
+    const nPts = hist.length;
+    const cx = cam ? cam.position.x : 0;
+    const cy = cam ? cam.position.y : 30;
+    const cz = cam ? cam.position.z : 0;
+    const c = this.trailColor;
+    const maxI = this.trailN - 1;
     for (let i = 0; i < this.trailN; i++) {
-      const src = this.trailHistory[Math.min(i, n - 1)] || [0, -10, 0];
-      this.trailPts[i * 3] = src[0];
-      this.trailPts[i * 3 + 1] = src[1];
-      this.trailPts[i * 3 + 2] = src[2];
+      const j = nPts - 1 - i;
+      const ji = Math.max(0, j);
+      const p = j >= 0 ? hist[j] : [ballPos.x, ballPos.y, ballPos.z];
+      const fade = Math.max(0, 1 - i / maxI);
+      const pn = hist[Math.max(0, ji - 1)] || p;
+      const pp = hist[Math.min(nPts - 1, ji + 1)] || p;
+      let tx = pp[0] - pn[0];
+      let ty = pp[1] - pn[1];
+      let tz = pp[2] - pn[2];
+      const tl = Math.hypot(tx, ty, tz);
+      if (tl > 1e-5) {
+        tx /= tl;
+        ty /= tl;
+        tz /= tl;
+      }
+      // side = tangent x (camera - point), normalised; degenerate when the trail is a single point.
+      let sx = ty * (cz - p[2]) - tz * (cy - p[1]);
+      let sy = tz * (cx - p[0]) - tx * (cz - p[2]);
+      let sz = tx * (cy - p[1]) - ty * (cx - p[0]);
+      const sl = Math.hypot(sx, sy, sz);
+      let halfW = 0.085 * (0.12 + 0.88 * fade);
+      if (sl > 1e-5) {
+        sx /= sl;
+        sy /= sl;
+        sz /= sl;
+      } else halfW = 0;
+      const o = i * 6;
+      this.trailPts[o] = p[0] + sx * halfW;
+      this.trailPts[o + 1] = p[1] + sy * halfW;
+      this.trailPts[o + 2] = p[2] + sz * halfW;
+      this.trailPts[o + 3] = p[0] - sx * halfW;
+      this.trailPts[o + 4] = p[1] - sy * halfW;
+      this.trailPts[o + 5] = p[2] - sz * halfW;
+      const b = fade * fade * 0.9;
+      const cr = c.r * b;
+      const cg = c.g * b;
+      const cb = c.b * b;
+      this.trailCol[o] = cr;
+      this.trailCol[o + 1] = cg;
+      this.trailCol[o + 2] = cb;
+      this.trailCol[o + 3] = cr;
+      this.trailCol[o + 4] = cg;
+      this.trailCol[o + 5] = cb;
     }
     this.trail.geometry.attributes.position.needsUpdate = true;
+    this.trail.geometry.attributes.color.needsUpdate = true;
   }
 
   update(dt) {
@@ -192,12 +290,13 @@ export class FXSystem {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
       const u = p.life / p.maxLife;
+      const f = u * u * (3 - 2 * u); // smoothstep fade so additive particles dissolve, not pop
       this.positions[n * 3] = p.x;
       this.positions[n * 3 + 1] = p.y;
       this.positions[n * 3 + 2] = p.z;
-      this.colors[n * 3] = p.r;
-      this.colors[n * 3 + 1] = p.g;
-      this.colors[n * 3 + 2] = p.b;
+      this.colors[n * 3] = p.r * f;
+      this.colors[n * 3 + 1] = p.g * f;
+      this.colors[n * 3 + 2] = p.b * f;
       this.sizes[n] = p.size * (0.3 + u * 0.7);
       n++;
     }

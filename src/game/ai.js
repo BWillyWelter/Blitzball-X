@@ -1,5 +1,5 @@
 import { Vec3, clamp } from '../core/vec3.js';
-import { ARENA, ACTION, MOVE } from '../data/constants.js';
+import { ARENA, ACTION, MOVE, RULES } from '../data/constants.js';
 
 /**
  * CPU brains for Blitzball. Called once per sim step for every non-user-controlled player.
@@ -27,6 +27,11 @@ export function updateAI(sim, p, dt) {
   const roll = ai.rollTimer <= 0;
   if (roll) ai.rollTimer = 0.25;
   if (p.state === 'fallen' || p.state === 'stumble' || sim.state !== 'live' && sim.state !== 'gamebreaker') return;
+
+  // Team playcalling: any outfielder rolls for it (state is team-level, so it doesn't matter
+  // which player's roll fires). Uses the dedicated play-RNG so calling plays never shifts the
+  // main deterministic stream that gameplay rolls, tests and balance sims depend on.
+  if (roll && !p.isKeeper) cpuCallPlay(sim, p, sim.playRng);
 
   if (p.isKeeper) return keeperAI(sim, p, dt, roll);
   const ball = sim.ball;
@@ -83,6 +88,34 @@ function shotLaneOpen(sim, p) {
 }
 
 // ---------------------------------------------------------------------------
+// CPU playcalling
+// ---------------------------------------------------------------------------
+
+/**
+ * CPU teams run their own playbook: presses/zones situationally on defense, iso/spread on
+ * offense. Calls are infrequent (plays "stick" once set) so the sim's baseline balance —
+ * which assumes the neutral default plays — barely moves.
+ */
+function cpuCallPlay(sim, p, rng) {
+  const team = p.team;
+  const attacking = sim.possession === team;
+  const deficit = sim.score[1 - team] - sim.score[team]; // positive = we trail
+  const cur = attacking ? sim.offPlay[team] : sim.defPlay[team];
+  // Plays stick: entering a look is uncommon, and abandoning a called one is rarer still,
+  // so a play typically holds for ~20-40s before the team re-evaluates.
+  if (!rng.chance(cur === 0 ? 0.02 : 0.006)) return;
+  if (attacking) {
+    // Trailing late? Isolation and let the star go to work. Otherwise mix in Spread.
+    const i = deficit >= 2 && sim.time > RULES.halfLength ? 2 : rng.chance(0.2) ? 1 : 0;
+    if (i !== cur) sim.callPlay('offense', i, team);
+  } else {
+    // Trailing? Full Press to hunt turnovers. Otherwise occasional Drop Zone.
+    const i = deficit >= 1 ? 2 : rng.chance(0.2) ? 1 : 0;
+    if (i !== cur) sim.callPlay('defense', i, team);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Ball carrier
 // ---------------------------------------------------------------------------
 
@@ -115,8 +148,8 @@ function carrierAI(sim, p, dt, roll) {
   const goodRange = dist < 6.5;
   let shootDesire = 0;
   if (inRange) {
-    shootDesire = goodRange ? 0.14 : 0.04;
-    if (laneOpen) shootDesire += goodRange ? 0.14 : 0.05;
+    shootDesire = goodRange ? 0.12 : 0.04;
+    if (laneOpen) shootDesire += goodRange ? 0.12 : 0.05;
     if (pressure) shootDesire += 0.1;
     if (clockLow) shootDesire += 0.6;
     if (sim.momentum[p.team] >= 2) shootDesire += 0.12;
@@ -141,7 +174,7 @@ function carrierAI(sim, p, dt, roll) {
     const open = nearestOpponentDist(sim, q).d;
     let s = (dist - qd) * 0.9 + Math.min(open, 4) * 1.2;
     if (q.ai.cutting) s += 3;
-    if (qd < 6 && open > 2) s += 3;
+    if (qd < 6 && open > 1.4) s += 3;
     if (s > bestScore) {
       bestScore = s;
       bestMate = q;
@@ -230,15 +263,18 @@ function offBallOffenseAI(sim, p, dt, roll) {
     ai.cutTimer -= dt;
     if (ai.cutTimer <= 0) ai.cutting = false;
   }
-  // Spacing: two lanes (wide left / wide right) and a spot near the crease.
+  // Spacing: two lanes (wide left / wide right) and a spot near the crease. The lanes sit a
+  // little closer to the goal than before so volleys come from inside the strike zone instead
+  // of from the edge of it. SPREAD FLOOR widens the whole shape for safer passing lanes.
+  const spacing = sim.offensePlayOf(p.team).spacing || 1;
   const slotIdx = (p.slot + (holder.slot || 0)) % 3;
   const spots = [
-    new Vec3(g.x - dir * 4.5, 0, 4.0),
-    new Vec3(g.x - dir * 4.5, 0, -4.0),
-    new Vec3(g.x - dir * 7.5, 0, 0),
+    new Vec3(g.x - dir * 4.8, 0, 3.4 * spacing),
+    new Vec3(g.x - dir * 4.8, 0, -3.4 * spacing),
+    new Vec3(g.x - dir * (5.5 + 2 * spacing), 0, 0),
   ];
   let spot = spots[slotIdx];
-  if (ai.cutting) spot = new Vec3(g.x - dir * 3.2, 0, (p.pos.z > 0 ? 1 : -1) * 1.6);
+  if (ai.cutting) spot = new Vec3(g.x - dir * 3.8, 0, (p.pos.z > 0 ? 1 : -1) * 1.6);
   // Occasional cut to the crease
   if (roll && !ai.cutting && holder.pos.distanceToXZ(g) < 9 && rng.chance(0.12)) {
     ai.cutting = true;
@@ -274,15 +310,15 @@ function defenseAI(sim, p, dt, roll) {
 
   if (p === presser) {
     const dHolder = p.pos.distanceToXZ(holder.pos);
-    // Get goal-side of the carrier
+    // Get goal-side of the carrier (FULL PRESS collapses the cushion and sits on their hip)
     const toGoal = Vec3.dirXZ(holder.pos, ownGoal);
-    const cushion = holder.state === 'trick' ? 1.6 : 1.0;
+    const cushion = (holder.state === 'trick' ? 1.3 : 0.9) * (sim.defenseMods(p.team).cushion || 1);
     const target = new Vec3(holder.pos.x + toGoal.x * cushion, 0, holder.pos.z + toGoal.z * cushion);
     moveToward(p, target, 1, dHolder > 3 && p.turbo > 25 && rng.next() < diff.aiTurbo);
     if (roll) {
-      // Tackle attempt
+      // Tackle attempt (more aggressive than before: defenders should actually win the ball)
       if (dHolder < ACTION.tackleRange + 0.1 && p.cd.tackle <= 0 && !holder.airborne) {
-        let pTackle = 0.1 + diff.tackleRate * 0.12;
+        let pTackle = 0.16 + diff.tackleRate * 0.16;
         if (holder.state === 'idle' && holder.stateTime > 0.8) pTackle *= 1.8;
         if (holder.state === 'trick') pTackle *= 0.35;
         if (holder.state === 'shoot') pTackle *= 1.5;
@@ -309,7 +345,12 @@ function defenseAI(sim, p, dt, roll) {
   const mark = attackers.sort((a, b) => a.pos.distanceToXZ(ownGoal) - b.pos.distanceToXZ(ownGoal))[idx] || attackers[0];
   if (mark) {
     const toGoal = Vec3.dirXZ(mark.pos, ownGoal);
-    const target = new Vec3(mark.pos.x + toGoal.x * 1.2, 0, mark.pos.z + toGoal.z * 1.2);
+    let target = new Vec3(mark.pos.x + toGoal.x * 1.2, 0, mark.pos.z + toGoal.z * 1.2);
+    // DROP ZONE: sag off the mark toward the crease, clogging the middle of the pool
+    if (sim.defenseMods(p.team).block) {
+      const crease = new Vec3(ownGoal.x + dir * 3.2, 0, mark.pos.z * 0.35);
+      target = new Vec3(target.x + (crease.x - target.x) * 0.45, 0, target.z + (crease.z - target.z) * 0.45);
+    }
     // Pass lane awareness: if a pass is coming to our mark, step into it
     if (f && f.kind === 'pass' && f.target === mark && sim.ball.pos.distanceToXZ(p.pos) < 1.6 && p.cd.tackle <= 0 && roll && rng.chance(0.4 * diff.tackleRate)) p.input.trick = true;
     moveToward(p, target, 0.95, false);
@@ -337,7 +378,7 @@ function looseBallAI(sim, p, dt, roll) {
     if (f.passer.team !== p.team) {
       // Jump the lane if I'm close
       const d = p.pos.distanceToXZ(b.pos);
-      if (d < 1.6 && p.cd.tackle <= 0 && roll && p.ai.lungedFor !== f && rng.chance(0.4 * sim.difficulty.tackleRate)) {
+      if (d < 1.6 && p.cd.tackle <= 0 && roll && p.ai.lungedFor !== f && rng.chance(0.4 * sim.difficulty.tackleRate * (sim.defenseMods(p.team).lane || 1))) {
         p.ai.lungedFor = f;
         p.input.trick = true;
       }
@@ -383,7 +424,7 @@ function looseBallAI(sim, p, dt, roll) {
     // Supporting the chase: stay open, ahead of the ball and on our shooting side.
     moveToward(p, new Vec3(g.x - sim.attackDir(p.team) * 5, 0, p.pos.z > 0 ? 3.5 : -3.5), 0.85, false);
   } else {
-    moveToward(p, new Vec3((b.pos.x + ownGoal.x) / 2, 0, b.pos.z * 0.5), 0.9, false);
+    moveToward(p, new Vec3((b.pos.x + ownGoal.x) / 2, 0, b.pos.z * 0.5), 0.9, p.turbo > 25);
   }
 }
 
@@ -448,8 +489,9 @@ function keeperAI(sim, p, dt, roll) {
     targetY = b.pos.y + b.vel.y * t - ARENA.goalY;
   }
   // Mirroring is deliberately lazy: the keeper always trails the true target a little, so a
-  // well-placed or late-moving shot still beats it.
-  const react = clamp(3.6 * diff.aiReaction, 1, 9);
+  // well-placed or late-moving shot still beats it. (Slightly sharper than before — keepers
+  // now save the straight shots but remain beatable by aiming away from them.)
+  const react = clamp(4.4 * diff.aiReaction, 1, 9);
   ai.trackZ = ai.trackZ === undefined ? b.pos.z : ai.trackZ + (targetZ - ai.trackZ) * Math.min(1, react * dt);
   ai.trackZ = clamp(ai.trackZ, -ARENA.keeperMaxZ, ARENA.keeperMaxZ);
 

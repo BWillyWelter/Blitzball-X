@@ -438,14 +438,13 @@ function buildSurroundings(theme) {
     g.add(arm);
   }
 
-  // Stands: ring of tiered seats around the equator, outside the sphere
-  const crowd = new THREE.Group();
-  crowd.name = 'crowd';
+  // Stands: ring of tiered seats around the equator, outside the sphere. The whole crowd is
+  // two InstancedMeshes (bodies + heads): the old per-person meshes meant ~1400 draw calls;
+  // instancing keeps the identical look at 2.
   const crowdColors = ['#ff2ea6', '#5cf2ff', '#ffd23f', '#f5f0e6', '#7bff6b', '#ff6a1f', theme.accent, '#c026ff', '#2c2c30', '#8a8f99'];
   const skin = ['#f1c27d', '#c68642', '#8d5524', '#5c3a21'];
-  const bodyGeo = new THREE.CapsuleGeometry(0.28, 0.6, 3, 6);
-  const headGeo = new THREE.SphereGeometry(0.2, 7, 6);
   const tiers = 5;
+  const seats = [];
   for (let t = 0; t < tiers; t++) {
     const rr = R + 4 + t * 1.6;
     const y = -3.5 + t * 1.1;
@@ -457,20 +456,51 @@ function buildSurroundings(theme) {
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       if (noise2(i * 1.7, t) < 0.22) continue;
-      const person = new THREE.Group();
-      const bm = toon(crowdColors[Math.floor(noise2(i, t * 7) * crowdColors.length)]);
-      const body = new THREE.Mesh(bodyGeo, bm);
-      body.position.y = 0.55;
-      const head = new THREE.Mesh(headGeo, toon(skin[Math.floor(noise2(i * 2, t) * skin.length)]));
-      head.position.y = 1.2;
-      person.add(body, head);
-      person.position.set(Math.cos(a) * rr, y + 0.6, Math.sin(a) * rr);
-      person.lookAt(0, y, 0);
-      person.userData.baseY = person.position.y;
-      person.userData.phase = noise2(i, t * 3) * Math.PI * 2;
-      crowd.add(person);
+      seats.push({
+        x: Math.cos(a) * rr,
+        y: y + 0.6,
+        z: Math.sin(a) * rr,
+        shirt: new THREE.Color(crowdColors[Math.floor(noise2(i, t * 7) * crowdColors.length)]),
+        skin: new THREE.Color(skin[Math.floor(noise2(i * 2, t) * skin.length)]),
+        phase: noise2(i, t * 3) * Math.PI * 2,
+      });
     }
   }
+  const crowd = new THREE.Group();
+  crowd.name = 'crowd';
+  // Fresh (uncached) materials: per-instance colours multiply the base white, and the shared
+  // toon cache must not hand out a material another mesh is already tinting.
+  const crowdMat = () => new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: toonGradient() });
+  const bodies = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.28, 0.6, 3, 6), crowdMat(), seats.length);
+  const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.2, 7, 6), crowdMat(), seats.length);
+  bodies.frustumCulled = false;
+  heads.frustumCulled = false;
+  const m4 = new THREE.Matrix4();
+  for (let i = 0; i < seats.length; i++) {
+    const s = seats[i];
+    m4.makeTranslation(s.x, s.y + 0.55, s.z);
+    bodies.setMatrixAt(i, m4);
+    bodies.setColorAt(i, s.shirt);
+    m4.makeTranslation(s.x, s.y + 1.2, s.z);
+    heads.setMatrixAt(i, m4);
+    heads.setColorAt(i, s.skin);
+  }
+  // Per-frame bounce writes just the Y column of each instance matrix.
+  const bodyArr = bodies.instanceMatrix.array;
+  const headArr = heads.instanceMatrix.array;
+  crowd.userData.update = (time, energy) => {
+    const amp = 0.05 + energy * 0.35;
+    const speed = 4 + energy * 6;
+    for (let i = 0; i < seats.length; i++) {
+      const s = seats[i];
+      const bounce = Math.max(0, Math.sin(time * speed + s.phase)) * amp;
+      bodyArr[i * 16 + 13] = s.y + 0.55 + bounce;
+      headArr[i * 16 + 13] = s.y + 1.2 + bounce;
+    }
+    bodies.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+  };
+  crowd.add(bodies, heads);
   g.add(crowd);
   g.userData.crowd = crowd;
 

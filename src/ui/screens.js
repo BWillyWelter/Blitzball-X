@@ -325,13 +325,23 @@ export function HowToScreen(app) {
             <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td></tr>
             <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td></tr>
             <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td></tr>
+            <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td></tr>
             <tr><td>Pause</td><td>ESC</td><td>START</td></tr>
           </table>
+          <h2>PLAYCALLING</h2>
+          <ul>
+            <li><b>1 / 2 / 3</b> set your offense: <b>Drive &amp; Kick</b> (balanced), <b>Spread Floor</b> (safe lanes, crisp passing), <b>Isolation</b> (clear out your star — faster carry, sharper shots, riskier passes).</li>
+            <li><b>7 / 8 / 9</b> set your defense: <b>Tight Man</b> (balanced), <b>Drop Zone</b> (pack the crease, swat passes), <b>Full Press</b> (hunt turnovers — burns turbo fast).</li>
+            <li>The active play glows on the chip bottom-left. The CPU runs its own playbook — watch the ticker.</li>
+            <li>Plays apply only while you're on that side of the ball; your offense play is live when your chip is lit.</li>
+          </ul>
           <h2>TIPS</h2>
           <ul>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>
+            <li>Watch the <b>holographic ring</b> on the water — it marks where an incoming pass will land.</li>
+            <li>Trailing late? <b>Full Press</b> on defense + <b>Isolation</b> on offense. Protecting a lead? <b>Drop Zone</b>.</li>
             <li>Defenders tackle. Strikers shoot. Keepers save. Play your crew.</li>
           </ul>
         </div>
@@ -363,6 +373,8 @@ export function SettingsScreen(app, params = {}) {
         ${row('sfxVolume', 'SFX & CROWD', 'range')}
         ${row('quality', 'GRAPHICS', 'select', [['low', 'LOW (no shadows / bloom)'], ['medium', 'MEDIUM'], ['high', 'HIGH']])}
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
+        ${row('camera', 'CAMERA', 'select', [['broadcast', 'BROADCAST (default)'], ['firstPerson', 'FIRST-PERSON SWIM']])}
+        ${row('cameraAngle', 'BROADCAST ANGLE', 'select', [['corner', 'CORNER (3D depth)'], ['side', 'SIDE (classic)']])}
         ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}

@@ -23,6 +23,8 @@ export class GameCamera {
     this.focus = null;
     this.focusGoal = 1;
     this.firstPerson = !!opts.firstPerson;
+    // 'corner' = elevated three-quarter view (reads the arena in 3D); 'side' = classic side-on.
+    this.angle = opts.angle === 'side' ? 'side' : 'corner';
   }
 
   punch(amount = 0.4) {
@@ -93,11 +95,15 @@ export class GameCamera {
         break;
       }
       default: {
-        // Broadcast: high on the +z side, sliding along x with the play; leans toward the goal under attack.
-        const lateral = THREE.MathUtils.clamp(focusX * 0.85 + goalX * 0.1, -9.5, 9.5);
+        // Broadcast views. 'corner': elevated three-quarter angle — pulling the camera higher and
+        // shifting the look target toward the far wall turns the side-on profile into an angled
+        // corner view, so the arena's depth (both goal rings, the far stands) reads as 3D space.
+        // 'side': the original flatter profile.
+        const lateral = THREE.MathUtils.clamp(focusX * 0.7 + goalX * 0.12, -11, 11);
         const depth = THREE.MathUtils.clamp(focusZ, -5, 5);
-        desiredPos = new THREE.Vector3(lateral, 6.6 + Math.abs(depth) * 0.1, 14.5 + depth * 0.45);
-        desiredLook = new THREE.Vector3(focusX * 0.9 + goalX * 0.08, 0.7 + ball.y * 0.25, focusZ * 0.6 - 0.8);
+        const corner = this.angle === 'corner';
+        desiredPos = new THREE.Vector3(lateral, corner ? 8.4 + Math.abs(depth) * 0.12 : 6.6 + Math.abs(depth) * 0.1, corner ? 15.8 + depth * 0.3 : 14.5 + depth * 0.45);
+        desiredLook = new THREE.Vector3(focusX * 0.88 + goalX * 0.1, 0.6 + ball.y * 0.22, focusZ * (corner ? 0.55 : 0.6) - (corner ? 1.7 : 0.8));
         let spread = 0;
         for (const p of players) if (!p.isKeeper) spread = Math.max(spread, Math.abs(p.pos.x - focusX));
         desiredFov = 40 + THREE.MathUtils.clamp((spread - 5) * 1.4, 0, 10);

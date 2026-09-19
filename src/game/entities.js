@@ -63,6 +63,7 @@ export function emptyInput() {
     moveX: 0,
     moveZ: 0,
     turbo: false,
+    playcall: 0, // one-shot numeric: 1-3 offense play, 7-9 defense play, 0 none
     shoot: false, // held
     shootPressed: false,
     shootReleased: false,
@@ -95,6 +96,7 @@ export function copyInput(dst, src) {
   dst.breach = src.breach;
   dst.switchPlayer = src.switchPlayer;
   dst.gamebreaker = src.gamebreaker;
+  dst.playcall = src.playcall;
   return dst;
 }
 

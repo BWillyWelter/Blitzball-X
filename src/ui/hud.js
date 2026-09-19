@@ -1,4 +1,5 @@
 import { RULES } from '../data/constants.js';
+import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 
 /**
  * In-match HUD: scoreboard, game clock + possession clock, gamebreaker meters, turbo bar,
@@ -39,6 +40,7 @@ export class HUD {
       combo: this.$('.combo'),
       heat: this.$('.heat'),
       timing: this.$('.timing'),
+      plays: this.$('.plays'),
     };
     const [h, a] = sim.teams;
     this.els.homeName.textContent = h.abbr;
@@ -52,6 +54,7 @@ export class HUD {
     this.tickerQueue = [];
     this.lastScore = [0, 0];
     this.bind();
+    this.renderPlays();
   }
 
   template() {
@@ -88,6 +91,10 @@ export class HUD {
         </div>
       </div>
       <div class="ticker"><span class="ticker-mic">🎙</span><span class="ticker-text"></span></div>
+      <div class="plays">
+        <div class="play t0" data-side="offense"><span class="play-key">1·2·3</span><span class="play-name"></span></div>
+        <div class="play t1" data-side="defense"><span class="play-key">7·8·9</span><span class="play-name"></span></div>
+      </div>
       <div class="hint"></div>
     `;
   }
@@ -138,6 +145,14 @@ export class HUD {
       if (this.sim.momentum[1 - team] === 0) this.showHeat(false);
     });
     ev.on('timing', ({ label, good }) => this.showTiming(label, good));
+    ev.on('playcall', ({ team, side, play }) => {
+      if (this.sim.userTeam !== null && team !== this.sim.userTeam) {
+        // CPU play calls aren't visible anywhere else; surface them on the ticker.
+        this.ticker(`${side === 'offense' ? 'OFFENSE' : 'DEFENSE'}: ${play.name} — ${this.sim.teams[team].name.toUpperCase()}`, 1);
+        return;
+      }
+      this.banner(play.name, side === 'offense' ? 'OFFENSE' : 'DEFENSE', team, 1100);
+    });
     ev.on('gameover', ({ winner }) => this.banner('GAME', `${this.sim.teams[winner].city.toUpperCase()} ${this.sim.teams[winner].name.toUpperCase()} WIN`, winner, 5000, true));
   }
 
@@ -214,8 +229,24 @@ export class HUD {
     }, 2600);
   }
 
+  /** Keep the play chips in sync with the sim's live play state (CPU calls included). */
+  renderPlays() {
+    const sim = this.sim;
+    const myTeam = sim.userTeam ?? 0;
+    const key = `${sim.offPlay[myTeam]}|${sim.defPlay[myTeam]}|${sim.possession === myTeam}`;
+    if (key === this._playKey) return;
+    this._playKey = key;
+    const set = (el, play, active) => {
+      el.querySelector('.play-name').textContent = play.name;
+      el.classList.toggle('active', active);
+    };
+    set(this.root.querySelector('.play.t0'), sim.offensePlayOf(myTeam), sim.possession === myTeam);
+    set(this.root.querySelector('.play.t1'), sim.defensePlayOf(myTeam), sim.possession !== myTeam);
+  }
+
   update() {
     const sim = this.sim;
+    this.renderPlays();
     const [h, a] = sim.score;
     this.els.homeScore.textContent = h;
     this.els.awayScore.textContent = a;

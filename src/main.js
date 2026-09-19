@@ -142,7 +142,7 @@ class App {
     const sim = new MatchSim({ home: mode === 'career' ? away : home, away: mode === 'career' ? home : away, difficulty, seed, userTeam: mode === 'career' ? 1 : userTeam });
     let renderer;
     try {
-      renderer = new MatchRenderer(canvas, sim, { ...this.state.settings, firstPerson: mode === 'career' });
+      renderer = new MatchRenderer(canvas, sim, { ...this.state.settings, firstPerson: this.state.settings.camera === 'firstPerson' });
     } catch (e) {
       console.error(e);
       wrap.remove();
@@ -167,7 +167,7 @@ class App {
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
           ? 'LEFT STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters'
-          : 'WASD move · SHIFT turbo · J hold/release shoot · K pass (SHIFT+K lob) · L trick/tackle · I hit · U breach · E gamebreaker',
+          : 'WASD move · SHIFT turbo · J shoot · K pass · L trick/tackle · I hit · U breach · E gamebreaker · 1-3/7-9 call plays',
     );
     this.bindMatchAudio(sim, renderer);
     if (this.audio.unlocked) {
@@ -397,6 +397,7 @@ class App {
         input.breach = false;
         input.switchPlayer = false;
         input.gamebreaker = false;
+        input.playcall = 0;
       }
       // Only release latched edges once a step has actually consumed them, otherwise a tap that
       // lands on a frame with no fixed step (120 Hz displays) is silently dropped.

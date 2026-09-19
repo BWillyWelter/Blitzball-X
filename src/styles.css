@@ -1713,3 +1713,57 @@ select {
     transform: scale(0.86);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Playbook chips (bottom-left): current offense / defense play + keys
+--------------------------------------------------------------------------- */
+.plays {
+  position: absolute;
+  left: 16px;
+  bottom: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+.play {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 6px;
+  background: rgba(11, 11, 18, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 4px solid var(--home-accent, #5cf2ff);
+  opacity: 0.55;
+  transition: opacity 0.2s, transform 0.2s, border-color 0.2s;
+  font-family: var(--font-display);
+}
+.play .play-key {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.play .play-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+}
+.play.active {
+  opacity: 1;
+  transform: translateX(4px);
+  border-left-color: #ffd23f;
+  box-shadow: 0 0 14px rgba(255, 210, 63, 0.25);
+}
+.play.t1 {
+  border-left-color: var(--away-accent, #ff2ea6);
+}
+.play.t1.active {
+  border-left-color: #ffd23f;
+}

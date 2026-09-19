@@ -12,6 +12,16 @@ import { emptyInput } from '../game/entities.js';
 /** One-shot input fields: true for a single fixed step, then consumed. */
 const ONE_SHOT = ['shootPressed', 'shootReleased', 'pass', 'trick', 'hit', 'breach', 'switchPlayer', 'gamebreaker'];
 
+/** Digit keys that call plays: 1-3 offense, 7-9 defense (sim maps them via inp.playcall). */
+const PLAY_KEYS = {
+  Digit1: 1,
+  Digit2: 2,
+  Digit3: 3,
+  Digit7: 7,
+  Digit8: 8,
+  Digit9: 9,
+};
+
 /** Touch action name -> input field it drives. */
 const TOUCH_EDGE = {
   shoot: 'shootPressed',
@@ -40,6 +50,7 @@ export class InputManager {
     // latch an edge is lost whenever a rendered frame runs *no* fixed step, which is every other
     // frame on a 120 Hz phone or 144 Hz monitor — taps and key presses would feel unresponsive.
     this.pending = new Set();
+    this.pendingPlaycall = 0; // see `pending`: same latch, numeric field
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -92,6 +103,8 @@ export class InputManager {
     let breach = this.justPressed('KeyU');
     let switchPlayer = this.justPressed('KeyQ', 'Tab');
     let gamebreaker = this.justPressed('KeyE');
+    let playcall = 0;
+    for (const code in PLAY_KEYS) if (this.justPressed(code)) playcall = PLAY_KEYS[code];
     let pause = false;
 
     // Touch overlay
@@ -190,6 +203,7 @@ export class InputManager {
     i.breach = breach;
     i.switchPlayer = switchPlayer;
     i.gamebreaker = gamebreaker;
+    i.playcall = playcall;
     i.shootPressed = shootPressed;
     i.shootReleased = shootReleased;
 
@@ -198,6 +212,8 @@ export class InputManager {
       if (i[k]) this.pending.add(k);
       else if (this.pending.has(k)) i[k] = true;
     }
+    if (i.playcall) this.pendingPlaycall = i.playcall;
+    else if (this.pendingPlaycall) i.playcall = this.pendingPlaycall;
 
     this.pressed.clear();
     this.released.clear();
@@ -211,6 +227,7 @@ export class InputManager {
    */
   flushOneShots() {
     this.pending.clear();
+    this.pendingPlaycall = 0;
   }
 
   /** Menu navigation helpers (edge-triggered). */

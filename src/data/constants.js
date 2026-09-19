@@ -36,8 +36,11 @@ export const RULES = {
   goalPoints: 1,
   gbPoints: 2,
   gbSteal: 1,
-  gamebreakerMeterMax: 3000,
+  gamebreakerMeterMax: 4500, // ~1 GB per team per match (was 3000 ≈ 1.8, spammy)
   onFireGoals: 2, // consecutive goals to catch fire
+  rubberLead: 2.5, // lead (goals) at which anti-blowout assistance kicks in
+  rubberPerGoal: 0.06, // per-goal multiplier step for the trailing team
+  rubberCap: 1.25, // max trailing-team multiplier
   resetDuration: 1.7,
   goalDeadTime: 2.6,
   halftimeDuration: 3.2,
@@ -107,11 +110,11 @@ export const STYLE = {
   trick: 40,
   trickTurbo: 30,
   washed: 150,
-  tackle: 90,
+  tackle: 105,
   hit: 80,
-  block: 130,
-  save: 35,
-  saveBig: 90,
+  block: 150,
+  save: 45,
+  saveBig: 110,
   goal: 120,
   goalLong: 220,
   goalVolley: 260,

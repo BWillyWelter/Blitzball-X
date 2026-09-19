@@ -10,7 +10,32 @@ import { CharacterView } from './character.js';
 import { FXSystem } from './fx.js';
 import { GameCamera } from './camera.js';
 import { toon, withOutline, makeCanvas, canvasTexture } from './materials.js';
-import { ARENA } from '../data/constants.js';
+import { ARENA, MOVE } from '../data/constants.js';
+import { buildLandingRing } from './depth.js';
+
+/** Vignette + animated chromatic aberration. offset.x animates in for impacts/gamebreakers. */
+const VignetteChromaShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    offset: { value: 0 },
+    strength: { value: 0.55 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float offset; uniform float strength; varying vec2 vUv;
+    void main() {
+      vec2 uv = vUv;
+      vec2 fromCenter = uv - 0.5;
+      vec2 dir = fromCenter * offset;
+      vec4 c;
+      c.r = texture2D(tDiffuse, uv + dir).r;
+      c.g = texture2D(tDiffuse, uv).g;
+      c.b = texture2D(tDiffuse, uv - dir).b;
+      c.a = 1.0;
+      float vig = smoothstep(0.95, 0.25, length(fromCenter) * (1.0 + strength));
+      gl_FragColor = vec4(c.rgb * mix(1.0, vig, strength), c.a);
+    }`,
+};
 
 /**
  * Three.js presentation layer. Reads from MatchSim every frame; never mutates it.
@@ -35,7 +60,7 @@ export class MatchRenderer {
     this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.007);
 
     this.camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 400);
-    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson });
+    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle });
 
     this.setupLights(theme);
     this.court = buildCourt(this.scene, theme);
@@ -54,7 +79,8 @@ export class MatchRenderer {
     }
     this.ball = this.buildBall();
     this.scene.add(this.ball);
-    this.fx = new FXSystem(this.scene);
+    this.fx = new FXSystem(this.scene, this.camera);
+    this.downT = new Map(); // player id → seconds until they're back up (drives ember flare)
     this.tmp = new THREE.Vector3();
     this.crowdEnergy = 0.2;
     this.gbFlash = 0;
@@ -101,6 +127,10 @@ export class MatchRenderer {
     }
     this.fxaa = new ShaderPass(FXAAShader);
     composer.addPass(this.fxaa);
+    if (this.settings.quality !== 'low') {
+      this.vignette = new ShaderPass(VignetteChromaShader);
+      composer.addPass(this.vignette);
+    }
     composer.addPass(new OutputPass());
     this.composer = composer;
   }
@@ -156,6 +186,10 @@ export class MatchRenderer {
     this.ballShadow.rotation.x = -Math.PI / 2;
     this.ballShadow.renderOrder = 1;
     this.scene.add(this.ballShadow);
+    // Predictive landing marker: shows where a pass/lob arc will come down, which makes the
+    // vertical dimension playable instead of guesswork.
+    this.landingRing = buildLandingRing();
+    this.scene.add(this.landingRing);
     return g;
   }
 
@@ -176,6 +210,7 @@ export class MatchRenderer {
     });
     on('post', ({ pos, hard }) => {
       this.fx.sparks(pos, '#ffd23f', hard ? 16 : 8);
+      if (this.settings.screenShake === false) return;
       this.gameCam.punch(hard ? 0.35 : 0.15);
     });
     on('score', ({ player, gb, team: t }) => {
@@ -186,7 +221,9 @@ export class MatchRenderer {
       this.fx.shockwave({ x: gx, y: ARENA.goalY, z: 0 }, team(t).accent, 6, 0.7, { vertical: true });
       this.fx.burst({ x: gx, y: ARENA.goalY, z: 0 }, team(t).accent, 30, 4, 0.22);
       this.crowdEnergy = 1;
+      this.flash(0.0016);
       if (gb) {
+        this.flash(0.005);
         this.fx.confetti({ x: gx * 0.6, y: 3.0, z: 0 }, [team(t).primary, team(t).accent, '#ffffff'], 160);
         this.gameCam.punch(1.2);
       } else this.gameCam.punch(0.5);
@@ -200,6 +237,8 @@ export class MatchRenderer {
     on('knockdown', ({ victim, reason }) => {
       this.fx.bubbles(victim.pos, 14, 1.4, 0.5);
       this.gameCam.punch(reason === 'hit' ? 0.5 : 0.3);
+      // Remember how long the victim is down so their ember trail can flare while grounded.
+      this.downT.set(victim.id, reason === 'fallen' ? MOVE.fallenDuration : MOVE.stumbleDuration);
     });
     on('washed', ({ player, victim }) => {
       this.fx.burst({ x: victim.pos.x, y: 0.8, z: victim.pos.z }, team(player.team).accent, 26, 3.5, 0.18);
@@ -217,6 +256,7 @@ export class MatchRenderer {
     });
     on('bighit', ({ player, victim }) => {
       this.gameCam.punch(0.7);
+      this.flash(0.003);
       this.fx.burst({ x: victim.pos.x, y: 1.0, z: victim.pos.z }, '#ffffff', 16, 3, 0.16);
       this.fx.shockwave(victim.pos, team(player.team).accent, 2.5, 0.35);
       this.crowdEnergy = Math.max(this.crowdEnergy, 0.8);
@@ -239,6 +279,7 @@ export class MatchRenderer {
     on('gamebreaker', ({ player }) => {
       this.gameCam.setMode('gamebreaker', 3.0, player);
       this.gbFlash = 1;
+      this.flash(0.004);
       this.fx.shockwave(player.pos, team(player.team).accent, 7, 0.8);
       this.crowdEnergy = 1;
     });
@@ -254,6 +295,12 @@ export class MatchRenderer {
     if (!this._unsubs) return;
     for (const off of this._unsubs) off();
     this._unsubs = [];
+  }
+
+  /** Kick a chromatic-aberration flash (screen-space UV shift at the frame edges). */
+  flash(strength) {
+    if (!this.vignette) return;
+    this.vignette.uniforms.offset.value = Math.max(this.vignette.uniforms.offset.value, strength);
   }
 
   resize() {
@@ -307,6 +354,18 @@ export class MatchRenderer {
     this.ballShadow.scale.setScalar(bs);
     this.ballShadow.material.opacity = 0.5 * bs;
 
+    // Landing ring under the ball's arc (pass / lob / keeper throw)
+    const f = b.flight;
+    if (f && f.kind !== 'shot' && f.to) {
+      const u = Math.max(0, f.t / f.dur);
+      this.landingRing.position.set(f.to.x, 0.02, f.to.z);
+      const s = 0.5 + u * 1.3;
+      this.landingRing.scale.setScalar(s);
+      this.landingRing.material.opacity = 0.55 * Math.sin(Math.min(1, u * 1.15) * Math.PI);
+    } else {
+      this.landingRing.material.opacity = 0;
+    }
+
     // Ball aura: on-fire team or gamebreaker
     const hotTeam = holder ? holder.team : b.lastTeam;
     const hot = sim.momentum[hotTeam] >= sim.rules.onFireGoals || sim.state === 'gamebreaker';
@@ -335,16 +394,21 @@ export class MatchRenderer {
     if (this.bubbles && this.bubbles.userData.update) this.bubbles.userData.update(dt);
     if (this.arcaneAccents && this.arcaneAccents.userData.update) this.arcaneAccents.userData.update(this.elapsed);
 
-    // Crowd bounce
+    // Crowd bounce (one instanced-buffer write for the whole stadium)
     this.crowdEnergy += (0.2 - this.crowdEnergy) * Math.min(1, dt * 0.6);
-    if (this.crowd) {
-      const t = this.elapsed;
-      const e = this.crowdEnergy;
-      const kids = this.crowd.children;
-      for (let i = 0; i < kids.length; i++) {
-        const k = kids[i];
-        const ph = k.userData.phase;
-        k.position.y = k.userData.baseY + Math.max(0, Math.sin(t * (4 + e * 6) + ph)) * (0.05 + e * 0.35);
+    if (this.crowd?.userData.update) this.crowd.userData.update(this.elapsed, this.crowdEnergy);
+
+    // Per-player status FX: ON FIRE embers, turbo wakes, GB glow.
+    for (const p of sim.players) {
+      const v = this.views.get(p.id);
+      const onFire = sim.momentum[p.team] >= sim.rules.onFireGoals;
+      const gb = sim.state === 'gamebreaker' && sim.gamebreaker && sim.gamebreaker.player === p;
+      if (onFire || gb) this.fx.embers(p.pos, gb ? this.sim.teams[p.team].accent : '#ff8c1f', dt, gb ? 34 : 20);
+      const downT = this.downT.get(p.id) || 0;
+      if (downT > 0) this.downT.set(p.id, downT - dt);
+      if (onFire && downT > 0) this.fx.embers(p.pos, '#ffd23f', dt, 26);
+      if (p.turboActive && (p.state === 'swim' || p.airborne) && p.speedNorm > 0.4) {
+        this.fx.wake(p.pos, p.facing, dt, 26 + p.speedNorm * 20);
       }
     }
 
@@ -353,6 +417,9 @@ export class MatchRenderer {
     if (this.bloom) {
       this.gbFlash = Math.max(0, this.gbFlash - dt * 0.8);
       this.bloom.strength = 0.4 + this.gbFlash * 0.9 + (sim.state === 'gamebreaker' ? 0.3 : 0);
+    }
+    if (this.vignette) {
+      this.vignette.uniforms.offset.value = Math.max(0, this.vignette.uniforms.offset.value - dt * 0.02);
     }
   }
 
