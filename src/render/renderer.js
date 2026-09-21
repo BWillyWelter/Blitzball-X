@@ -964,4 +964,43 @@ function skyTexture(colors) {
     256
   );
 
-  gradie
+    const gradient = ctx.createLinearGradient(
+    0,
+    0,
+    0,
+    256
+  );
+
+  gradient.addColorStop(
+    0,
+    colors[0]
+  );
+
+  gradient.addColorStop(
+    0.55,
+    colors[1]
+  );
+
+  gradient.addColorStop(
+    1,
+    colors[2]
+  );
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(
+    0,
+    0,
+    512,
+    256
+  );
+
+  const texture = canvasTexture(canvas);
+
+  texture.mapping =
+    THREE.EquirectangularReflectionMapping;
+
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
