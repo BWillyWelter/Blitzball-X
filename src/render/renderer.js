@@ -50,14 +50,14 @@ export class MatchRenderer {
     this.renderer.shadowMap.enabled = settings.quality !== 'low';
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.92;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
     const theme = themeFor(sim.teams[0]);
     this.theme = theme;
     this.scene.background = skyTexture(theme.sky);
-    this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.007);
+    this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.012);
 
     this.camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 400);
     this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle, playerCam: settings.playerCam });
@@ -68,6 +68,7 @@ export class MatchRenderer {
     this.water = this.court.getObjectByName('water');
     this.bubbles = this.court.getObjectByName('bubbles');
     this.arcaneAccents = this.court.getObjectByName('arcaneAccents');
+    this.machinery = this.court.getObjectByName('machinery');
     this.goals = [this.court.getObjectByName('goalPos'), this.court.getObjectByName('goalNeg')];
     this.goalPulse = [0, 0];
 
@@ -96,7 +97,7 @@ export class MatchRenderer {
   setupLights(theme) {
     const hemi = new THREE.HemisphereLight(new THREE.Color(theme.water).lerp(new THREE.Color(0xffffff), 0.55), new THREE.Color(theme.deep), 1.1);
     this.scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xeaf8ff, 2.2);
+    const key = new THREE.DirectionalLight(0xdceaff, 1.55);
     key.position.set(6, 18, 8);
     key.castShadow = this.settings.quality !== 'low';
     key.shadow.mapSize.set(this.settings.quality === 'high' ? 2048 : 1024, this.settings.quality === 'high' ? 2048 : 1024);
@@ -399,10 +400,11 @@ export class MatchRenderer {
       }
     }
 
-    // Water + bubbles
+    // Water + bubbles + hanging machinery
     if (this.water && this.water.userData.update) this.water.userData.update(this.elapsed);
     if (this.bubbles && this.bubbles.userData.update) this.bubbles.userData.update(dt);
     if (this.arcaneAccents && this.arcaneAccents.userData.update) this.arcaneAccents.userData.update(this.elapsed);
+    if (this.machinery && this.machinery.userData.update) this.machinery.userData.update(this.elapsed);
 
     // Crowd bounce (one instanced-buffer write for the whole stadium)
     this.crowdEnergy += (0.2 - this.crowdEnergy) * Math.min(1, dt * 0.6);

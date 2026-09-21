@@ -13,6 +13,7 @@ export function buildCourt(scene, theme) {
   group.add(buildWaterSphere(theme));
   group.add(buildPlayingDisc(theme));
   group.add(buildArcaneAccents(theme));
+  group.add(buildMachinery(theme));
   group.add(buildGoal(1, theme));
   group.add(buildGoal(-1, theme));
   group.add(buildBubbles(theme));
@@ -24,21 +25,8 @@ export function buildCourt(scene, theme) {
 function buildArcaneAccents(theme) {
   const g = new THREE.Group();
   g.name = 'arcaneAccents';
-  const lineMat = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending });
-  const accentMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
-
-  // A suspended sigil gives the court a high-fantasy broadcast identity without obscuring play.
-  const sigil = new THREE.Group();
-  sigil.position.y = 0.18;
-  for (const radius of [1.0, 1.28, 1.55]) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.018, 6, 64), lineMat);
-    ring.rotation.x = -Math.PI / 2;
-    sigil.add(ring);
-  }
-  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 1), accentMat);
-  crystal.position.y = 0.35;
-  sigil.add(crystal);
-  g.add(sigil);
+  const lineMat = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending });
+  const accentMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending });
 
   // Energy lanes point toward both goals and make the playable space legible at a glance.
   for (const sign of [-1, 1]) {
@@ -61,10 +49,7 @@ function buildArcaneAccents(theme) {
     g.add(pylon);
   }
   g.userData.update = (time) => {
-    sigil.rotation.y = time * 0.18;
-    crystal.rotation.x = time * 1.6;
-    crystal.rotation.z = time * 1.1;
-    const pulse = 0.62 + Math.sin(time * 3.5) * 0.2;
+    const pulse = 0.38 + Math.sin(time * 3.5) * 0.12;
     for (let i = 0; i < pylons.length; i++) {
       pylons[i].material.opacity = pulse + Math.sin(time * 4 + i) * 0.1;
       pylons[i].scale.x = 0.85 + Math.sin(time * 3 + i) * 0.12;
@@ -75,7 +60,7 @@ function buildArcaneAccents(theme) {
 }
 
 const THEMES = {
-  harbor: { water: '#0f6f8f', deep: '#062a44', line: '#8ff7ff', sky: ['#0a1d33', '#0d5f78', '#f5a86b'], wall: '#1b2a3a', accent: '#12b5b0', fog: '#0a2436' },
+  harbor: { water: '#0c3050', deep: '#02060f', line: '#7fd4ff', sky: ['#020408', '#06121f', '#0a2436'], wall: '#0b141f', accent: '#12b5b0', fog: '#04080f' },
   chapel: { water: '#5b4b1f', deep: '#1c1608', line: '#ffe27a', sky: ['#120d2a', '#5c2a6b', '#ff7e5f'], wall: '#2a2426', accent: '#f2c230', fog: '#231a2a' },
   foundry: { water: '#7a3b1b', deep: '#2a120a', line: '#ffd9c2', sky: ['#1a0f0a', '#5a2a12', '#ff8c42'], wall: '#2b2320', accent: '#ff6a1f', fog: '#2a1a12' },
   neon: { water: '#3a1a7a', deep: '#0e0630', line: '#5cf2ff', sky: ['#05030f', '#2a0a55', '#ff2ea6'], wall: '#150d2a', accent: '#c026ff', fog: '#150a2a' },
@@ -102,8 +87,8 @@ function buildWaterSphere(theme) {
     new THREE.SphereGeometry(R, 48, 32),
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
-      transparent: true,
-      depthWrite: false,
+      transparent: false,
+      depthWrite: true,
       uniforms: {
         uTime: { value: 0 },
         uWater: { value: new THREE.Color(theme.water) },
@@ -133,21 +118,22 @@ function buildWaterSphere(theme) {
         void main() {
           vec3 n = normalize(vPos);
           float up = n.y * 0.5 + 0.5;
-          vec3 base = mix(uDeep, uWater, smoothstep(0.1, 0.9, up));
-          // caustics
+          // Dark enclosed dome: near-black overhead, deep blue at the horizon.
+          vec3 base = mix(uDeep, uWater, smoothstep(0.05, 0.7, up)) * 0.4;
+          // caustics (faint — texture for the dark, not a light show)
           vec2 uv = vec2(atan(n.z, n.x) * 4.0, n.y * 6.0);
           float c1 = vnoise(uv * 1.7 + uTime * 0.3);
           float c2 = vnoise(uv * 3.1 - uTime * 0.22 + 5.0);
           float caustic = pow(max(0.0, 1.0 - abs(c1 - c2) * 4.0), 4.0);
-          base += uLine * caustic * 0.2 * (0.3 + up * 0.7);
-          // god rays from above
+          base += uLine * caustic * 0.05 * (0.3 + up * 0.7);
+          // god rays from above, dimmed to a hint
           float ray = pow(max(0.0, n.y), 6.0) * (0.6 + 0.4 * sin(atan(n.z, n.x) * 14.0 + uTime * 0.6));
-          base += vec3(0.9, 0.95, 1.0) * ray * 0.35;
+          base += vec3(0.5, 0.6, 0.7) * ray * 0.08;
           // cel banding
           float lum = dot(base, vec3(0.299, 0.587, 0.114));
           float band = floor(lum * 5.0) / 5.0;
           base *= 0.7 + band * 0.5;
-          gl_FragColor = vec4(base, 0.92);
+          gl_FragColor = vec4(base, 1.0);
         }
       `,
     })
@@ -209,30 +195,26 @@ function buildPlayingDisc(theme) {
   ctx.beginPath();
   ctx.arc(cx, cz, R * px, 0, Math.PI * 2);
   ctx.fill();
-  // hex grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.lineWidth = 2;
-  const hs = 38;
-  for (let y = -R * px; y < R * px; y += hs * 1.5) {
-    for (let x = -R * px; x < R * px; x += hs * Math.sqrt(3)) {
-      const ox = ((y / (hs * 1.5)) | 0) % 2 ? (hs * Math.sqrt(3)) / 2 : 0;
-      const hx = cx + x + ox;
-      const hy = cz + y;
-      if (Math.hypot(hx - cx, hy - cz) > R * px - 20) continue;
-      ctx.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const a = (Math.PI / 3) * k + Math.PI / 6;
-        const X = hx + Math.cos(a) * hs * 0.9;
-        const Y = hy + Math.sin(a) * hs * 0.9;
-        if (k === 0) ctx.moveTo(X, Y);
-        else ctx.lineTo(X, Y);
-      }
-      ctx.closePath();
-      ctx.stroke();
-    }
+  // Mown-turf stripes: alternating luminous blue bands across the whole disc, clipped to the
+  // playing circle. This is the Rematch signature look — the pitch itself is the light source.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cz, R * px, 0, Math.PI * 2);
+  ctx.clip();
+  const stripeW = Math.round(px * 1.45);
+  for (let i = -Math.ceil(R / 1.45); i * stripeW + cx < c.width; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(96,170,255,0.28)' : 'rgba(8,20,52,0.34)';
+    ctx.fillRect(cx + i * stripeW, cz - R * px, stripeW, R * 2 * px);
   }
+  // soft luminous wash so the stripes glow under bloom
+  const glowGrad = ctx.createRadialGradient(cx, cz, 0, cx, cz, R * px);
+  glowGrad.addColorStop(0, 'rgba(120,190,255,0.20)');
+  glowGrad.addColorStop(1, 'rgba(20,40,110,0.05)');
+  ctx.fillStyle = glowGrad;
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.restore();
   // outer boundary
-  ctx.strokeStyle = theme.line;
+  ctx.strokeStyle = 'rgba(210,235,255,0.85)';
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.arc(cx, cz, ARENA.fieldRadius * px, 0, Math.PI * 2);
@@ -303,7 +285,7 @@ function buildGoal(sign, theme) {
   const g = new THREE.Group();
   g.name = sign > 0 ? 'goalPos' : 'goalNeg';
   const x = ARENA.goalX * sign;
-  const ringMat = toon('#ffd23f');
+  const ringMat = toon('#d92632');
   const ring = new THREE.Mesh(new THREE.TorusGeometry(ARENA.goalRadius, ARENA.postRadius, 12, 48), ringMat);
   ring.rotation.y = Math.PI / 2;
   ring.position.set(x, ARENA.goalY, 0);
@@ -369,6 +351,63 @@ function buildGoal(sign, theme) {
   banner.position.set(x + sign * 6, ARENA.goalY + 4.2, 0);
   banner.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
   g.add(banner);
+  return g;
+}
+
+const MACHINERY = [
+  // [cx, cz, y, scale] — cranes/gantries hanging above and beside the pitch
+  [-15.5, -6.5, 11.5, 1.15],
+  [16.5, -7.5, 12.5, 1.0],
+  [12.0, 10.0, 10.5, 0.85],
+  [-13.0, 9.5, 12.0, 0.95],
+  [0.0, -16.0, 13.5, 1.2],
+  [-2.5, 15.5, 11.0, 0.9],
+];
+
+/** Dark industrial gantries suspended inside the dome — Rematch's enclosed-factory silhouette. */
+function buildMachinery(theme) {
+  const g = new THREE.Group();
+  g.name = 'machinery';
+  const steel = new THREE.MeshToonMaterial({ color: 0x10141d, gradientMap: toonGradient() });
+  const warm = new THREE.MeshBasicMaterial({ color: 0xffc466, transparent: true, opacity: 0.9 });
+  const cyan = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.55 });
+  for (const [cxp, czp, y, sc] of MACHINERY) {
+    const unit = new THREE.Group();
+    // main beam grid (crossed box beams)
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(7.5 * sc, 0.5 * sc, 1.1 * sc), steel);
+    unit.add(beam);
+    const beam2 = new THREE.Mesh(new THREE.BoxGeometry(1.1 * sc, 0.5 * sc, 5.5 * sc), steel);
+    beam2.position.set(2.6 * sc, 0.8 * sc, 1.6 * sc);
+    unit.add(beam2);
+    for (let i = -2; i <= 2; i++) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.35 * sc, 1.7 * sc, 0.35 * sc), steel);
+      rib.position.set(i * 1.7 * sc, -0.9 * sc, 0);
+      unit.add(rib);
+    }
+    // hanging hook + cable
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6 * sc, 5), steel);
+    cable.position.set(-1.5 * sc, -1.9 * sc, 0);
+    unit.add(cable);
+    const hook = new THREE.Mesh(new THREE.BoxGeometry(0.85 * sc, 0.7 * sc, 0.85 * sc), steel);
+    hook.position.set(-1.5 * sc, -3.2 * sc, 0);
+    unit.add(hook);
+    // warning lights: tiny warm + cyan strips that sell the scale
+    const l1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.18), warm);
+    l1.position.set(1.2 * sc, 0.35 * sc, 0.6 * sc);
+    unit.add(l1);
+    const l2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.15), cyan);
+    l2.position.set(-3.0 * sc, 0.3 * sc, -0.5 * sc);
+    unit.add(l2);
+    unit.position.set(cxp, y, czp);
+    unit.rotation.y = noise2(cxp, czp) * Math.PI;
+    g.add(unit);
+  }
+  // slow drift so the silhouettes feel suspended in water, not pasted on
+  g.userData.update = (time) => {
+    for (let i = 0; i < g.children.length; i++) {
+      g.children[i].position.y = MACHINERY[i][2] + Math.sin(time * 0.4 + i * 1.7) * 0.35;
+    }
+  };
   return g;
 }
 

@@ -238,6 +238,14 @@ export class CharacterView {
     this.turboGlow.position.y = 0.03;
     this.turboGlow.renderOrder = 2;
     this.root.add(this.turboGlow);
+
+    // Floating nametag (Rematch-style identifier over every swimmer). Depth-test off so it
+    // never sinks into bodies or nets; sprites face the camera for free.
+    this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tagTexture(), transparent: true, depthWrite: false, depthTest: false }));
+    this.tag.scale.set(1.7, 0.42, 1);
+    this.tag.position.y = 2.4;
+    this.tag.renderOrder = 20;
+    this.root.add(this.tag);
   }
 
   numberTexture() {
@@ -252,6 +260,27 @@ export class CharacterView {
     ctx.strokeText(String(this.data.number), 64, 70);
     ctx.fillStyle = this.team.accent;
     ctx.fillText(String(this.data.number), 64, 70);
+    return canvasTexture(c);
+  }
+
+  /** Small dark chip with the swimmer's nickname and a team-colour accent bar. */
+  tagTexture() {
+    const c = makeCanvas(256, 64);
+    const ctx = c.getContext('2d');
+    const label = String(this.data.nick || this.data.name).toUpperCase();
+    ctx.font = '700 34px "Barlow Condensed", Impact, sans-serif';
+    const w = Math.min(246, ctx.measureText(label).width + 44);
+    const x0 = 128 - w / 2;
+    ctx.fillStyle = 'rgba(8,12,20,0.72)';
+    ctx.beginPath();
+    ctx.roundRect(128 - w / 2, 8, w, 44, 8);
+    ctx.fill();
+    ctx.fillStyle = this.team.primary;
+    ctx.fillRect(x0 + 8, 16, 4, 28);
+    ctx.fillStyle = '#f2f6fa';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 132, 31);
     return canvasTexture(c);
   }
 

@@ -67,8 +67,8 @@ export class GameCamera {
     else if (this.mode === 'play' && this.preferPlayer) this.mode = 'player';
 
     if (this.mode === 'player' && sim.controlled) {
-      // Third-person player lock: float behind the controlled swimmer, yaw easing toward the
-      // attack direction so "up on the stick" generally means "toward their goal".
+      // Rematch-style shoulder cam: low, tight, slightly offset off-axis. The horizon sits low
+      // in frame so the pitch and the far machinery read as a real place.
       const p = sim.controlled;
       const dir = sim.attackDir(p.team);
       this.pPos.lerp(new THREE.Vector3(p.pos.x, p.y, p.pos.z), 1 - Math.exp(-dt * 10));
@@ -78,10 +78,11 @@ export class GameCamera {
       if (d < -Math.PI) d += Math.PI * 2;
       this.pYaw += d * (1 - Math.exp(-dt * 4.5));
       const back = new THREE.Vector3(-Math.sin(this.pYaw), 0, -Math.cos(this.pYaw));
-      desiredPos = this.pPos.clone().addScaledVector(back, 5.4).add(new THREE.Vector3(0, 3.1, 0));
-      desiredLook = this.pPos.clone().addScaledVector(new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw)), 4.5).add(new THREE.Vector3(0, 0.9, 0));
+      const right = new THREE.Vector3(Math.cos(this.pYaw), 0, -Math.sin(this.pYaw));
+      desiredPos = this.pPos.clone().addScaledVector(back, 3.5).addScaledVector(right, 0.55).add(new THREE.Vector3(0, 1.7, 0));
+      desiredLook = this.pPos.clone().addScaledVector(new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw)), 6).addScaledVector(right, 0.3).add(new THREE.Vector3(0, 1.3, 0));
       // FLOW widens the view slightly — speed you can feel.
-      desiredFov = sim.flow && sim.flow[p.team] ? 70 : 62;
+      desiredFov = sim.flow && sim.flow[p.team] ? 72 : 64;
     } else if (this.firstPerson && sim.controlled) {
       const p = sim.controlled;
       const forward = new THREE.Vector3(Math.sin(p.facing), 0, Math.cos(p.facing));
