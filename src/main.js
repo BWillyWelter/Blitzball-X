@@ -167,7 +167,7 @@ class App {
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
           ? 'LEFT STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters'
-          : 'WASD move · SHIFT turbo · J shoot · K pass · L trick/tackle · I hit · U breach · E gamebreaker · 1-3/7-9 call plays',
+          : 'WASD move & aim · SHIFT turbo · J shoot · K pass/call · L slide tackle · I hit · U breach · E gamebreaker · Q switch · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim, renderer);
     if (this.audio.unlocked) {

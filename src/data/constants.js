@@ -38,6 +38,8 @@ export const RULES = {
   gbSteal: 1,
   gamebreakerMeterMax: 4500, // ~1 GB per team per match (was 3000 ≈ 1.8, spammy)
   onFireGoals: 2, // consecutive goals to catch fire
+  flowCombo: 3, // style combo that triggers FLOW (Blue Lock hero window)
+  flowDuration: 10, // seconds of FLOW once triggered
   rubberLead: 2.5, // lead (goals) at which anti-blowout assistance kicks in
   rubberPerGoal: 0.06, // per-goal multiplier step for the trailing team
   rubberCap: 1.25, // max trailing-team multiplier
@@ -120,6 +122,7 @@ export const STYLE = {
   goalVolley: 260,
   goalPerfect: 50,
   assist: 60,
+  dribble: 45, // beaten a slide tackle while carrying (glue-dribble duel reward)
   breachCatch: 20,
   lossOnTurnover: 60,
   comboWindow: 2.2,

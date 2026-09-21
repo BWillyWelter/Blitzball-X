@@ -1292,6 +1292,51 @@ select {
   }
 }
 
+/* FLOW chip — live countdown for the zone, team-colored via --flow-color */
+.flowchip {
+  position: absolute;
+  left: 28px;
+  bottom: 30px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--font-display);
+  color: var(--flow-color, #8ff7ff);
+  text-shadow: 2px 2px 0 var(--ink), 0 0 22px var(--flow-color, #8ff7ff);
+  opacity: 0;
+  transform: translateY(20px) scale(0.92);
+  transition: all 0.25s;
+  pointer-events: none;
+}
+.flowchip.show {
+  opacity: 1;
+  transform: none;
+  animation: flowpulse 0.9s ease-in-out infinite alternate;
+}
+.flowchip-label {
+  font-size: 40px;
+  letter-spacing: 4px;
+}
+.flowchip-time {
+  font-size: 22px;
+  letter-spacing: 1px;
+  opacity: 0.85;
+}
+.flowchip.enemy .flowchip-label::after {
+  content: ' · ENEMY';
+  font-size: 18px;
+  letter-spacing: 2px;
+  opacity: 0.9;
+}
+@keyframes flowpulse {
+  from {
+    filter: drop-shadow(0 0 4px var(--flow-color, #8ff7ff));
+  }
+  to {
+    filter: drop-shadow(0 0 16px var(--flow-color, #8ff7ff));
+  }
+}
+
 /* Ticker */
 .ticker {
   position: absolute;

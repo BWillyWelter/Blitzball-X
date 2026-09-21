@@ -40,6 +40,7 @@ export class HUD {
       combo: this.$('.combo'),
       heat: this.$('.heat'),
       timing: this.$('.timing'),
+      flow: this.$('.flowchip'),
       plays: this.$('.plays'),
     };
     const [h, a] = sim.teams;
@@ -82,6 +83,7 @@ export class HUD {
       <div class="timing"></div>
       <div class="combo"></div>
       <div class="heat">ON FIRE</div>
+      <div class="flowchip"><span class="flowchip-label">FLOW</span><span class="flowchip-time"></span></div>
       <div class="pcard">
         <div class="pcard-num">00</div>
         <div class="pcard-info">
@@ -136,6 +138,13 @@ export class HUD {
     ev.on('shotclock', ({ team }) => this.banner('POSSESSION CLOCK', 'TURNOVER', 1 - team, 1500));
     ev.on('heating', ({ team }) => {
       if (this.sim.userTeam === null || team === this.sim.userTeam) this.showHeat(true);
+    });
+    ev.on('flowstart', ({ team }) => {
+      if (this.sim.userTeam === team) this.banner('FLOW', 'YOU ARE THE MOMENTUM', team, 2400, true);
+      else this.banner('FLOW', `${this.sim.teams[team].name.toUpperCase()} ENTERS THE ZONE`, team, 2000);
+    });
+    ev.on('callpass', ({ target }) => {
+      this.popup('CALLED', target.data.nick, target.team, false, 0);
     });
     ev.on('turnover', ({ reason, team }) => {
       if (reason !== 'POSSESSION CLOCK') this.banner(reason, 'TURNOVER', 1 - team, 1500);
@@ -266,6 +275,12 @@ export class HUD {
       this.els.period.textContent = period;
     }
     this.els.clear.classList.toggle('show', pclock <= 5 && sim.possession === sim.userTeam && sim.state === 'live');
+    // FLOW chip: a live countdown while anyone is in the zone (banner fades, the zone doesn't).
+    const ft = sim.flow ? (sim.flow[0] ? 0 : sim.flow[1] ? 1 : -1) : -1;
+    this.els.flow.classList.toggle('show', ft >= 0);
+    this.els.flow.classList.toggle('enemy', ft !== (sim.userTeam ?? 0));
+    this.els.flow.style.setProperty('--flow-color', ft >= 0 ? sim.teams[ft].accent : '#8ff7ff');
+    if (ft >= 0) this.els.flow.querySelector('.flowchip-time').textContent = `${Math.ceil(sim.flowTimer[ft])}s`;
     // Player card: the controlled player, or (spectating) whoever has the ball.
     const p = sim.controlled || sim.ball.holder || this._lastCard;
     if (p) {

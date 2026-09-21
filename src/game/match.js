@@ -63,6 +63,14 @@ export class MatchSim {
     this.rungPulse = [0, 0]; // visual: goal-ring pulse when a goal is conceded
     this.possession = 0;
     this.possessionClock = this.rules.possessionClock;
+    // --- Rematch-style player control state ---------------------------------
+    // The user always pilots one swimmer directly; teammates run support AI. The ball stays
+    // glued to the carrier's feet until they shoot/pass/slide-tackle (glue dribbling), the shot
+    // aim is steered with movement input, and teammates can be called to ask for the ball.
+    this.aimZ = 0; // user shot aim offset in the goal mouth (-1 left … +1 right)
+    this.callPassTimer = 0; // >0 right after a support AI flags "I'm open!"
+    this.flow = [false, false]; // per-team FLOW state (Blue Lock): ~10s of empowered play
+    this.flowTimer = [0, 0];
     this.mustClear = false; // unused in Blitzball; kept for HUD compatibility
     this.shotClock = this.possessionClock; // HUD alias
     this.half = 1;
@@ -231,7 +239,8 @@ export class MatchSim {
 
   switchControlled() {
     if (this.userTeam === null) return;
-    if (this.ball.holder && this.ball.holder.team === this.userTeam && !this.ball.holder.isKeeper) return; // carrier is always controlled
+    // Rematch-style: you can switch off the ball-carrier too — you always pilot exactly one
+    // swimmer, and off-ball carriers get reliable support AI.
     const mine = this.outfield(this.userTeam).filter((p) => p !== this.controlled);
     mine.sort((a, b) => a.pos.distanceToXZ(this.ball.pos) - b.pos.distanceToXZ(this.ball.pos));
     if (mine.length) {
@@ -240,6 +249,19 @@ export class MatchSim {
       mine[0].controlled = true;
       this.events.emit('switch', { player: this.controlled });
     }
+  }
+
+  /** Movement input as a world-space direction (Rematch-style aiming axis), or null if neutral. */
+  aimInputDir() {
+    const inp = this.userInput;
+    if (!inp || (inp.moveX === 0 && inp.moveZ === 0)) return null;
+    return new Vec3(inp.moveX, 0, inp.moveZ).normalize();
+  }
+
+  /** If a teammate is flagged "I'm open", hand them the next pass. */
+  callPassTarget(p) {
+    if (this.callPassTimer <= 0 || this.userTeam === null || p.team !== this.userTeam) return null;
+    return this.teammatesOf(p).find((q) => !q.isKeeper && q.callingForPass) || null;
   }
 
   setUserInput(input) {
@@ -292,6 +314,7 @@ export class MatchSim {
     p.hasBall = true;
     this.ball.lastTeam = p.team;
     this.ball.lastTouch = p;
+    p.dribbleTouch = 0; // glue dribbling: reset the touch streak on a new possession
     if (p.isKeeper) p.keeperHold = 0;
     if (p.team !== this.possession || prevTeam !== p.team) {
       const changed = p.team !== this.possession;
@@ -327,6 +350,16 @@ export class MatchSim {
     } else this.timeScale = 1;
     this.time += dt;
     if (this.userPlayTimer > 0) this.userPlayTimer -= dt;
+    if (this.callPassTimer > 0) this.callPassTimer -= dt;
+    // FLOW countdown ticks once per sim step (not once per player — that drained it 7x too fast).
+    for (const t of [0, 1]) {
+      if (!this.flow[t]) continue;
+      this.flowTimer[t] -= dt;
+      if (this.flowTimer[t] <= 0) {
+        this.flow[t] = false;
+        this.events.emit('flowend', { team: t });
+      }
+    }
     for (const p of this.players) this.tickCooldowns(p, dt);
     if (this.ball.releaseCooldown) {
       this.ball.releaseCooldown.t -= dt;
@@ -411,6 +444,7 @@ export class MatchSim {
     for (const p of this.players) this.updatePlayerPhysics(p, dt, false);
     this.separatePlayers();
     this.updateBall(dt, false);
+    this.updateGlueDribble(dt); // Rematch-style: the ball rides at the carrier's feet
     // 4. Rules
     this.updateRules(dt);
     // Consume one-shot flags
@@ -473,7 +507,10 @@ export class MatchSim {
       }
       if (inp.shootPressed && this.canAct(p)) this.tryShoot(p);
       if (inp.shootReleased && p.state === 'shoot' && p.shot && !p.shot.released) this.releaseShot(p);
-      if (inp.pass && this.canAct(p)) this.tryPass(p, null, inp.turbo);
+      if (inp.pass && this.canAct(p)) {
+        const called = this.callPassTarget(p);
+        this.tryPass(p, called, inp.turbo);
+      }
       if (inp.trick && this.canAct(p) && p.cd.trick <= 0 && !p.isKeeper) {
         const dir = new Vec3(inp.moveX, 0, inp.moveZ);
         this.tryTrick(p, dir.length() > 0.2 ? dir.normalize() : null, inp.turbo);
@@ -481,8 +518,18 @@ export class MatchSim {
       if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
     } else {
       if (inp.breach && this.canAct(p) && p.cd.breach <= 0) this.tryBreach(p);
-      if (inp.trick && this.canAct(p) && p.cd.tackle <= 0) this.tryTackle(p);
+      if (inp.trick && this.canAct(p) && p.cd.tackle <= 0) this.tryTackle(p); // poke/slide tackle (Rematch-style)
       if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
+      if (inp.pass && this.canAct(p) && this.ball.holder !== p && !p.isKeeper) {
+        // Call for the pass: flag the nearest supporting teammate so the carrier's next K
+        // releases to them.
+        const best = [...this.teammatesOf(p)].filter((q) => q !== this.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(p.pos) - b.pos.distanceToXZ(p.pos))[0];
+        if (best) {
+          for (const q of this.outfield(p.team)) q.callingForPass = q === best;
+          this.callPassTimer = 1.2;
+          this.events.emit('callpass', { player: p, target: best });
+        }
+      }
       if (inp.shootPressed && this.canAct(p) && !p.isKeeper) {
         // Volley attempt on a loose ball in the air / or a breach to block
         if (!this.tryVolley(p)) this.tryBreach(p);
@@ -510,8 +557,10 @@ export class MatchSim {
     const endur = 0.7 + (p.data.end / 99) * 0.6;
     const onDefense = this.possession !== p.team;
     const fatigue = onDefense ? this.defenseMods(p.team).fatigue || 1 : 1;
-    if (p.turboActive) p.turbo = Math.max(0, p.turbo - ((MOVE.turboDrain / endur) * fatigue) * dt);
+    // FLOW: sprinting costs nothing while the zone is live.
+    if (p.turboActive && !this.flow[p.team]) p.turbo = Math.max(0, p.turbo - ((MOVE.turboDrain / endur) * fatigue) * dt);
     else p.turbo = Math.min(100, p.turbo + (MOVE.turboRegen * endur / fatigue) * dt);
+    // FLOW: tight window, empowered movement, no turbo cost while it lasts (timer lives in step()).
 
     // Locomotion
     let maxSpeed = (p.isKeeper ? MOVE.keeperSpeed : MOVE.maxSpeed) * (0.82 + (p.data.spd / 99) * 0.36);
@@ -531,8 +580,9 @@ export class MatchSim {
       p.facing = Math.atan2(dir.x, dir.z);
     } else if (canMove && (inp.moveX !== 0 || inp.moveZ !== 0)) {
       const accel = MOVE.accel * (0.8 + (p.data.spd / 99) * 0.4);
-      const tx = inp.moveX * maxSpeed;
-      const tz = inp.moveZ * maxSpeed;
+      const flowBoost = this.flow[p.team] ? 1.12 : 1;
+      const tx = inp.moveX * maxSpeed * flowBoost;
+      const tz = inp.moveZ * maxSpeed * flowBoost;
       p.vel.x += (tx - p.vel.x) * Math.min(1, accel * dt / maxSpeed * 1.4);
       p.vel.z += (tz - p.vel.z) * Math.min(1, accel * dt / maxSpeed * 1.4);
       const target = Math.atan2(inp.moveX, inp.moveZ);
@@ -634,6 +684,23 @@ export class MatchSim {
         if (Math.sign(p.vel.x) === Math.sign(gx)) p.vel.x = 0;
       }
     }
+  }
+
+  /**
+   * Rematch-style glue dribbling: the ball rides just ahead of the carrier's feet and is only
+   * released by shooting, passing, or being poke/slide-tackled. A touch counter drives style;
+   * a FLOW carrier can't be poked at all.
+   */
+  updateGlueDribble(dt) {
+    const holder = this.ball.holder;
+    if (!holder) return;
+    const f = this.forwardOf(holder);
+    const ahead = 0.55 + Math.min(0.5, holder.vel.lengthXZ() * 0.09);
+    this.ball.pos.x = holder.pos.x + f.x * ahead;
+    this.ball.pos.z = holder.pos.z + f.z * ahead;
+    this.ball.pos.y = 0.5 + Math.sin(this.time * 9) * 0.06;
+    this.ball.vel.set(holder.vel.x, 0, holder.vel.z);
+    holder.dribbleTouch += dt;
   }
 
   separatePlayers() {
@@ -739,6 +806,11 @@ export class MatchSim {
     const facing = f.dot(Vec3.dirXZ(p.pos, carrier.pos)) > 0.1;
     if (!facing) return false;
     let prob = 0.22 + ((p.data.tkl - carrier.data.hnd) / 99) * 0.35;
+    // Glue dribbling means the ball is shielded at the carrier's feet — tackles are the whole
+    // contest now, so the base window is friendlier (FIFA/Rematch-style poke-and-slide).
+    prob *= 1.25;
+    // FLOW carriers can't be poked — beat them with position, not buttons.
+    if (this.flow[carrier.team]) return false;
     if (carrier.state === 'trick') prob *= carrier.trick && carrier.trick.turbo ? 0.3 : 0.55;
     if (carrier.state === 'idle' && carrier.stateTime > 1.0) prob += 0.14;
     if (carrier.state === 'pass' || carrier.state === 'shoot') prob += 0.12;
@@ -763,6 +835,13 @@ export class MatchSim {
       return true;
     }
     p.stun = ACTION.tackleWhiffRecovery;
+    // Beaten by the dribbler: style reward for carrying past pressure (Blue Lock flair).
+    // dribbleTouch both throttles and scales this — one award per sustained carry.
+    if (carrier.dribbleTouch >= 1.0) {
+      carrier.dribbleTouch = 0;
+      this.addStyle(carrier, STYLE.dribble, 'DRIBBLE', {});
+      this.events.emit('dribble', { player: carrier, beaten: p });
+    }
     return false;
   }
 
@@ -951,19 +1030,26 @@ export class MatchSim {
     }
     shot.quality = quality;
     if (this.isUser(p)) this.events.emit('timing', { label, good: quality >= 0.8 });
-    this.fireShot(p, quality, { gb: false, volley: shot.kind === 'volley', power: lerp(0.6, 1, u) });
+    // Rematch-style aiming: movement input steers the shot toward the far/near post, scaled by
+    // timing quality (a rushed shot barely goes where you point it).
+    const aim = this.isUser(p) ? this.aimInputDir() : null;
+    this.fireShot(p, quality, { gb: false, volley: shot.kind === 'volley', power: lerp(0.6, 1, u), aimDir: aim });
     this.setState(p, 'shoot', 0.3);
     p.shot = { ...shot, released: true };
   }
 
-  fireShot(p, quality, { gb = false, volley = false, power = 0.85 } = {}) {
+  fireShot(p, quality, { gb = false, volley = false, power = 0.85, aimDir = null } = {}) {
     const g = this.goalPos(p.team);
     const dist = p.pos.distanceToXZ(g);
     const keeper = this.keeperOf(1 - p.team);
-    // Aim: pick a target point in the goal mouth away from the keeper.
+    // Aim: pick a target point in the goal mouth away from the keeper. For the user, movement
+    // input steers the pick (Rematch-style); the CPU keeps its own targeting.
+    const aim = this.isUser(p) && aimDir ? Vec3.dirXZ(p.pos, g).x * aimDir.x + Vec3.dirXZ(p.pos, g).z * aimDir.z : 0;
     const side = keeper ? -Math.sign(keeper.pos.z || (this.rng.next() - 0.5)) : this.rng.chance(0.5) ? 1 : -1;
+    const steer = clamp(aim * 1.25, -0.85, 0.85);
     const spread = ARENA.goalRadius * 0.8;
     let aimZ = side * spread * (0.45 + this.rng.next() * 0.55);
+    if (steer !== 0) aimZ = steer * spread; // input overrides auto-side when actively steered
     let aimY = ARENA.goalY + (this.rng.next() - 0.5) * ARENA.goalRadius * 1.1;
     // Accuracy error grows with distance and poor timing; good shooters tighten it.
     const acc = (p.data.sht / 99) * (gb ? 1.4 : 1) * (this.isUser(p) ? this.difficulty.userBonus : this.difficulty.shotAccuracy);
@@ -971,7 +1057,7 @@ export class MatchSim {
     // alley-oop special without letting it be a near-guaranteed goal, while player volleys keep
     // a generous window so the skill still feels great.
     const baseErr = volley ? (this.isUser(p) ? 1.35 : 1.0) : 1.35;
-    const shotBoost = this.offensePlayOf(p.team).shotBoost || 1;
+    const shotBoost = (this.offensePlayOf(p.team).shotBoost || 1) * (this.flow[p.team] ? 1.35 : 1);
     const err = ((1 - quality) * 1.6 + dist * 0.17 - acc * 0.9 + baseErr * 0.42 + (volley ? 0.2 : 0)) / shotBoost;
     const e = Math.max(0.45, err);
     aimZ += (this.rng.next() - 0.5) * 2 * e * ARENA.goalRadius;
@@ -992,7 +1078,7 @@ export class MatchSim {
     this.ball.holder = null;
     this.ball.pos.copy(from);
     this.ball.vel.set(dir.x * speed, dir.y * speed, dir.z * speed);
-    this.ball.flight = { kind: 'shot', shooter: p, gb, volley, quality, dist, t: 0, checked: new Set(), name: p.shot ? p.shot.name : gb ? 'GAMEBREAKER' : 'VOLLEY' };
+    this.ball.flight = { kind: 'shot', shooter: p, gb, volley, quality, dist, aimZ, t: 0, checked: new Set(), name: p.shot ? p.shot.name : gb ? 'GAMEBREAKER' : 'VOLLEY' };
     this.ball.releaseCooldown = { player: p, t: 0.35 };
     this.ball.lastTeam = p.team;
     p.stats.shots++;
@@ -1081,6 +1167,7 @@ export class MatchSim {
     for (const q of this.players) this.updatePlayerPhysics(q, dt, false);
     this.separatePlayers();
     this.updateBall(dt, false);
+    this.updateGlueDribble(dt);
     if (p.state === 'gbdrive' && p.pos.distanceToXZ(p.gbTarget) < 0.6) this.gbShoot(p);
   }
 
@@ -1475,13 +1562,32 @@ export class MatchSim {
   }
 
   // ---------------------------------------------------------------------------
+  // FLOW (Blue Lock-style hero window)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Enter FLOW: a short, earned window where the carrier moves faster, cannot be
+   * poke-tackled, and the arena paints in team color. Either team can enter the zone; triggered
+   * when the style combo reaches the threshold while a team is attacking.
+   */
+  startFlow(team, player) {
+    if (this.flow[team]) return;
+    this.flow[team] = true;
+    this.flowTimer[team] = RULES.flowDuration;
+    this.events.emit('flowstart', { team, player: player || this.controlled });
+  }
+
+  // ---------------------------------------------------------------------------
   // Rules / clocks
   // ---------------------------------------------------------------------------
 
   updateRules(dt) {
     // Possession clock (arcade "shoot it" rule)
     const holder = this.ball.holder;
-    this.possessionClock -= dt;
+    // FLOW freezes the shot clock — time moves differently in the zone, and it would be
+    // cruel to have the arcade clock kill the hero window mid-duel.
+    if (this.flow[this.possession]) this.possessionClock = Math.max(this.possessionClock, 8);
+    else this.possessionClock -= dt;
     this.shotClock = this.possessionClock;
     if (this.possessionClock <= 0) {
       const team = this.possession;
@@ -1518,6 +1624,9 @@ export class MatchSim {
 
   addStyle(p, base, label, opts = {}) {
     const team = p.team;
+    // FLOW entry (Blue Lock): chain enough style while attacking and your striker enters the
+    // zone — user or CPU, the zone does not care who you are.
+    if (!this.flow[team] && this.possession === team && p.combo + 1 >= RULES.flowCombo) this.startFlow(team, p);
     p.combo = Math.min(p.combo + 1, 12);
     p.comboTimer = STYLE.comboWindow;
     const mult = Math.min(STYLE.comboMax, 1 + (p.combo - 1) * STYLE.comboStep);

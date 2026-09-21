@@ -60,7 +60,7 @@ export class MatchRenderer {
     this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.007);
 
     this.camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 400);
-    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle });
+    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle, playerCam: settings.playerCam });
 
     this.setupLights(theme);
     this.court = buildCourt(this.scene, theme);
@@ -364,6 +364,16 @@ export class MatchRenderer {
       this.landingRing.material.opacity = 0.55 * Math.sin(Math.min(1, u * 1.15) * Math.PI);
     } else {
       this.landingRing.material.opacity = 0;
+    }
+
+    // FLOW tint: the water and key light wash toward the user team's color while FLOW is live.
+    // Whichever team is in the zone paints the arena — a CPU FLOW should read as a threat.
+    const flowTeam = sim.flow ? (sim.flow[0] ? 0 : sim.flow[1] ? 1 : -1) : -1;
+    if (flowTeam >= 0 && this.keyLight) {
+      const c = sim.teams[flowTeam].accent;
+      this.keyLight.color.lerp(new THREE.Color(c), Math.min(1, dt * 4));
+    } else if (this.keyLight) {
+      this.keyLight.color.lerp(new THREE.Color(0xeaf8ff), Math.min(1, dt * 2));
     }
 
     // Ball aura: on-fire team or gamebreaker

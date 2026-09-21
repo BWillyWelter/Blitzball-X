@@ -304,12 +304,21 @@ export function HowToScreen(app) {
             <li><b>Mercy rule.</b> Go up by 8 in the second half and it's over.</li>
             <li><b>No refs.</b> Hit people. Wash defenders. Nobody's calling anything.</li>
           </ul>
-          <h2>STYLE & GAMEBREAKER</h2>
+          <h2>STYLE &amp; FLOW</h2>
           <ul>
-            <li>Tricks, washes, tackles, big hits, blocks, saves, volleys and long-range goals earn <b>Style</b>.</li>
-            <li>Chain moves fast for a <b>combo multiplier</b>. Turnovers drain the meter.</li>
+            <li>Dribble past tacklers, land slide tackles, big hits and perfect shots to earn <b>Style</b>.</li>
+            <li>Chain moves for a <b>combo multiplier</b>. Turnovers drain it.</li>
+            <li>Combo <b>×3</b> while attacking and your striker enters <b>FLOW</b>: ~10 seconds of faster swimming, unpokeable dribbling and far sharper shooting. This is your hero window — use it.</li>
             <li>Fill the meter and press <b>E</b> (LT+RT) with the ball to unleash a <b>GAMEBREAKER</b>: an unstoppable signature shot worth <b>2 goals that also takes 1 off their score</b>.</li>
             <li>Two straight goals and your crew is <b>ON FIRE</b>: sharper shooting, harder to tackle.</li>
+          </ul>
+          <h2>REMATCH-STYLE CONTROL</h2>
+          <ul>
+            <li>You always pilot <b>one swimmer</b>. The ball glues to their feet — shield it, spin off pressure, drive the lane.</li>
+            <li><b>Aim shots</b> by holding a direction as you release: steer toward the far post or the keeper's weak side.</li>
+            <li><b>K</b> passes to whoever you steer toward; off the ball, <b>K calls for the pass</b> — a teammate flags open and the carrier finds you.</li>
+            <li><b>L</b> is now a committed <b>slide tackle</b>: bigger lunge, real chance to win the ball, real punishment if you whiff.</li>
+            <li><b>Q</b> switches swimmers even while your team carries — take control of the support runner.</li>
           </ul>
         </div>
         <div class="howto-col">
@@ -320,7 +329,8 @@ export function HowToScreen(app) {
             <tr><td>Turbo</td><td>SHIFT</td><td>RT / RB</td></tr>
             <tr><td>Shoot (hold to charge, release on PERFECT)</td><td>J / SPACE</td><td>A / ✕</td></tr>
             <tr><td>Pass · Lob for a volley (hold turbo)</td><td>K</td><td>X / ▢</td></tr>
-            <tr><td>Trick (with ball) / Tackle (defense)</td><td>L</td><td>B / ○</td></tr>
+            <tr><td>Slide / poke tackle</td><td>L</td><td>B / ○</td></tr>
+            <tr><td>Call for the pass (off-ball)</td><td>K</td><td>X / ▢</td></tr>
             <tr><td>Big hit</td><td>I</td><td>Y / △</td></tr>
             <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td></tr>
             <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td></tr>
@@ -374,6 +384,7 @@ export function SettingsScreen(app, params = {}) {
         ${row('quality', 'GRAPHICS', 'select', [['low', 'LOW (no shadows / bloom)'], ['medium', 'MEDIUM'], ['high', 'HIGH']])}
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
         ${row('camera', 'CAMERA', 'select', [['broadcast', 'BROADCAST (default)'], ['firstPerson', 'FIRST-PERSON SWIM']])}
+        ${row('playerCam', 'PLAYER LOCK CAM', 'toggle')}
         ${row('cameraAngle', 'BROADCAST ANGLE', 'select', [['corner', 'CORNER (3D depth)'], ['side', 'SIDE (classic)']])}
         ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}

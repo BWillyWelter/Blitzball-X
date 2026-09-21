@@ -139,7 +139,8 @@ function carrierAI(sim, p, dt, roll) {
   // Shooting: keep the shot logic on the timing window like a human would.
   if (p.state === 'shoot' && p.shot && !p.shot.released) {
     const u = p.stateTime / p.shot.wind;
-    const target = ai.releaseAt || 0.77;
+    // In FLOW the striker's timing sharpens — release closer to perfect.
+    const target = sim.flow[p.team] ? 0.86 : (ai.releaseAt || 0.77);
     if (u >= target) p.input.shootReleased = true;
     return;
   }
@@ -153,6 +154,8 @@ function carrierAI(sim, p, dt, roll) {
     if (pressure) shootDesire += 0.1;
     if (clockLow) shootDesire += 0.6;
     if (sim.momentum[p.team] >= 2) shootDesire += 0.12;
+    // In the zone the CPU striker becomes an egoist: hunt the goal instead of recycling.
+    if (sim.flow[p.team]) shootDesire += 0.5;
     shootDesire *= 0.6 + (p.data.sht / 99) * 0.6;
   } else if (clockLow && dist < ACTION.shotMaxRange) shootDesire = 0.9;
 

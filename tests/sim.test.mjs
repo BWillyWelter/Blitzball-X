@@ -307,3 +307,121 @@ test('keepers dive vertically inside their box and never leave the pool', () => 
   }
   assert.ok(maxY - minY > 0.05, `keeper dived vertically (range ${(maxY - minY).toFixed(3)})`);
 });
+
+test('FLOW lasts its full configured duration and ends exactly once', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 777, userTeam: null });
+  let ends = 0;
+  sim.events.on('flowend', () => ends++);
+  while (sim.state !== 'live') sim.step(DT);
+  sim.possession = 0;
+  sim.startFlow(0, sim.players[0]);
+  let steps = 0;
+  while (sim.flow[0] && steps < 60 * (RULES.flowDuration + 2)) {
+    sim.step(DT);
+    steps++;
+  }
+  const elapsed = steps * DT;
+  assert.ok(Math.abs(elapsed - RULES.flowDuration) < 0.5, `flow lasted ${elapsed.toFixed(2)}s, expected ~${RULES.flowDuration}s`);
+  assert.equal(ends, 1, `flowend emitted ${ends} times, expected exactly 1`);
+  assert.ok(Math.abs(sim.flowTimer[0]) < 1e-9, `timer rests at zero after expiry (got ${sim.flowTimer[0]})`);
+});
+
+test('FLOW freezes the possession clock, which resumes after the zone ends', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 888, userTeam: null });
+  while (sim.state !== 'live') sim.step(DT);
+  sim.possession = 0;
+  sim.startFlow(0, sim.players[0]);
+  sim.possessionClock = 1; // would normally tick to zero and force a turnover
+  for (let i = 0; i < 120; i++) sim.step(DT);
+  assert.ok(sim.possessionClock >= 8 - 1e-6, `clock clamped up under flow (got ${sim.possessionClock.toFixed(2)})`);
+  assert.equal(sim.state, 'live', 'no spurious turnover during the freeze');
+  sim.flow[0] = false; // zone ends; clock must resume ticking down
+  const before = sim.possessionClock;
+  for (let i = 0; i < 30; i++) sim.step(DT);
+  assert.ok(sim.possessionClock < before, 'clock resumes ticking once flow ends');
+});
+
+test('CPU can trigger FLOW on its own (trigger is not user-gated)', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 999, userTeam: null });
+  const teams = new Set();
+  sim.events.on('flowstart', ({ team }) => teams.add(team));
+  let steps = 0;
+  while (sim.state !== 'over' && steps < 60 * 60 * 15) {
+    sim.step(DT);
+    steps++;
+  }
+  assert.ok(teams.size > 0, 'no FLOW ever started in a full CPU match');
+  for (const t of teams) assert.equal(sim.userTeam, null, 'flow fired with no user team');
+});
+
+test('steered shots: aim input flips the shot side symmetrically', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 31337, userTeam: 0 });
+  while (sim.state !== 'live') sim.step(DT);
+  const shooter = sim.controlled || sim.outfield(0)[0];
+  sim.giveBall(shooter);
+  shooter.pos.set(6, 0, -3); // off-axis so steering has a lateral component
+  const rngNext = sim.rng.next;
+  sim.rng.next = () => 0.5; // zero out the accuracy jitter for determinism
+  sim.userInput.moveX = 0;
+  sim.userInput.moveZ = 1;
+  sim.fireShot(shooter, 1, { aimDir: sim.aimInputDir() });
+  const z = sim.ball.flight.aimZ;
+  sim.userInput.moveZ = -1;
+  sim.fireShot(shooter, 1, { aimDir: sim.aimInputDir() });
+  const z2 = sim.ball.flight.aimZ;
+  sim.rng.next = rngNext;
+  assert.ok(Number.isFinite(z) && Number.isFinite(z2), 'aimZ recorded on both flights');
+  assert.ok(Math.sign(z) !== Math.sign(z2), `opposite inputs flip aim side (${z.toFixed(2)} vs ${z2.toFixed(2)})`);
+  assert.ok(Math.abs(z - z2) > 1, 'steering meaningfully moves the target');
+});
+
+test('glue dribbling: ball rides at the feet, releases on pass, style on beaten tackler', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 5150, userTeam: null });
+  while (sim.state !== 'live') sim.step(DT);
+  const carrier = sim.outfield(0)[0];
+  sim.giveBall(carrier);
+  for (let i = 0; i < 10; i++) sim.step(DT);
+  if (sim.ball.holder === carrier) {
+    assert.ok(sim.ball.pos.distanceToXZ(carrier.pos) < 1.6, 'ball glued near the carrier');
+    const mate = sim.teammatesOf(carrier).find((q) => !q.isKeeper && q.state !== 'fallen');
+    if (mate) {
+      sim.tryPass(carrier, mate, false);
+      assert.ok(sim.ball.flight && sim.ball.flight.target === mate, 'pass releases the glue to the mate');
+    }
+  } else {
+    assert.ok(sim.ball.flight, 'possession moved on through a real flight');
+  }
+  // Beaten-tackler dribble style.
+  sim.giveBall(carrier);
+  if (sim.ball.holder === carrier) {
+    carrier.dribbleTouch = 1.2;
+    const tackler = sim.opponentsOf(carrier).find((q) => !q.isKeeper && q.state !== 'fallen');
+    tackler.pos.set(carrier.pos.x + 1, 0, carrier.pos.z);
+    tackler.facing = Math.atan2(carrier.pos.x - tackler.pos.x, carrier.pos.z - tackler.pos.z);
+    const rngChance = sim.rng.chance;
+    sim.rng.chance = () => false; // tackle whiffs deterministically
+    const labels = [];
+    sim.events.on('style', (e) => labels.push(e.label));
+    sim.tryTackle(tackler);
+    sim.rng.chance = rngChance;
+    assert.ok(labels.includes('DRIBBLE'), 'beaten tackler awards DRIBBLE style');
+  }
+});
+
+test('call-for-pass routes the carrier pass to the flagged teammate', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 2024, userTeam: 0 });
+  while (sim.state !== 'live') sim.step(DT);
+  const carrier = sim.outfield(0)[1];
+  const caller = sim.outfield(0)[0];
+  sim.giveBall(carrier);
+  if (sim.ball.holder !== carrier) return; // possession churned; not this seed's day
+  caller.input.pass = true; // user, off the ball, calls for the pass
+  sim.processInput(caller, DT);
+  assert.ok(sim.callPassTimer > 0, 'call registered');
+  // The sim flags the nearest non-keeper, non-carrier teammate; the carrier must pass to them.
+  const expected = sim.teammatesOf(caller).filter((q) => q !== sim.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(caller.pos) - b.pos.distanceToXZ(caller.pos))[0];
+  assert.equal(sim.callPassTarget(carrier), expected, 'flagged teammate is the pass target');
+  carrier.input.pass = true;
+  sim.processInput(carrier, DT);
+  assert.ok(sim.ball.flight && sim.ball.flight.target === expected, 'carrier pass went to the flagged teammate');
+});

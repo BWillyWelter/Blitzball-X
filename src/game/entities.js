@@ -36,6 +36,8 @@ export function createPlayer(data, team, slot) {
     lastPassTime: -99,
     anim: { t: 0, phase: 0 },
     speedNorm: 0,
+    dribbleTouch: 0, // glue-dribble touch time (drives Dribble ×N style)
+    callingForPass: false, // set when a teammate calls for the pass (Rematch-style)
     knockDir: new Vec3(1, 0, 0),
   };
 }

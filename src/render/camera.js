@@ -25,6 +25,11 @@ export class GameCamera {
     this.firstPerson = !!opts.firstPerson;
     // 'corner' = elevated three-quarter view (reads the arena in 3D); 'side' = classic side-on.
     this.angle = opts.angle === 'side' ? 'side' : 'corner';
+    // Rematch-style player lock: camera rides behind the controlled swimmer.
+    this.preferPlayer = !!opts.playerCam;
+    if (this.preferPlayer) this.mode = 'player';
+    this.pPos = new THREE.Vector3();
+    this.pYaw = 0;
   }
 
   punch(amount = 0.4) {
@@ -58,9 +63,26 @@ export class GameCamera {
     let desiredFov = 40;
 
     if (this.modeTimer > 0) this.modeTimer -= dt;
-    else if (this.mode !== 'play') this.mode = 'play';
+    else if (this.mode !== 'play' && this.mode !== 'player') this.mode = this.preferPlayer ? 'player' : 'play';
+    else if (this.mode === 'play' && this.preferPlayer) this.mode = 'player';
 
-    if (this.firstPerson && sim.controlled) {
+    if (this.mode === 'player' && sim.controlled) {
+      // Third-person player lock: float behind the controlled swimmer, yaw easing toward the
+      // attack direction so "up on the stick" generally means "toward their goal".
+      const p = sim.controlled;
+      const dir = sim.attackDir(p.team);
+      this.pPos.lerp(new THREE.Vector3(p.pos.x, p.y, p.pos.z), 1 - Math.exp(-dt * 10));
+      const targetYaw = Math.atan2(dir, 0);
+      let d = (targetYaw - this.pYaw) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      this.pYaw += d * (1 - Math.exp(-dt * 4.5));
+      const back = new THREE.Vector3(-Math.sin(this.pYaw), 0, -Math.cos(this.pYaw));
+      desiredPos = this.pPos.clone().addScaledVector(back, 5.4).add(new THREE.Vector3(0, 3.1, 0));
+      desiredLook = this.pPos.clone().addScaledVector(new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw)), 4.5).add(new THREE.Vector3(0, 0.9, 0));
+      // FLOW widens the view slightly — speed you can feel.
+      desiredFov = sim.flow && sim.flow[p.team] ? 70 : 62;
+    } else if (this.firstPerson && sim.controlled) {
       const p = sim.controlled;
       const forward = new THREE.Vector3(Math.sin(p.facing), 0, Math.cos(p.facing));
       desiredPos = new THREE.Vector3(p.pos.x, p.y + 1.72, p.pos.z).addScaledVector(forward, 0.08);

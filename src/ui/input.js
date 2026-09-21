@@ -3,9 +3,9 @@ import { emptyInput } from '../game/entities.js';
 /**
  * Keyboard + gamepad input mapped into the sim's input struct.
  *
- * Keyboard:  WASD/Arrows move · SHIFT turbo · J/Space shoot (hold to charge, release on PERFECT) ·
- *            K pass (K+turbo = lob for a volley) · L trick / tackle · I big hit · U breach (jump/block) ·
- *            Q switch player · E gamebreaker · ESC pause
+ * Keyboard:  WASD/Arrows move (also steers shot aim) · SHIFT turbo · J/Space shoot (hold to charge) ·
+ *            K pass / call for pass off-ball (K+turbo = lob) · L slide/poke tackle · I big hit ·
+ *            U breach (jump/block) · Q switch player · E gamebreaker · ESC pause
  * Gamepad:   Left stick move · RT/RB turbo · A/Cross shoot · X/Square pass ·
  *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker · Start pause
  */

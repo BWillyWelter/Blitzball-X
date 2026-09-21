@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
   touchControls: 'auto', // auto | on | off — on-screen stick + buttons
   camera: 'broadcast', // broadcast | firstPerson — career no longer forces first-person
   cameraAngle: 'corner', // corner (3D three-quarter) | side (classic side-on)
+  playerCam: true, // Rematch-style player-lock third-person camera (broadcast when off)
 };
 
 export function defaultState() {
