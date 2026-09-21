@@ -1741,3 +1741,2385 @@ function turnToward(a, target, maxDelta) {
   if (Math.abs(d) <= maxDelta) return target;
   return a + Math.sign(d) * maxDelta;
 }
+  // ---------------------------------------------------------------------------
+  // Shooting
+  // ---------------------------------------------------------------------------
+
+  tryShoot(player) {
+    const distance =
+      this.distToGoal(player);
+
+    if (
+      distance > ACTION.shotMaxRange &&
+      player.isKeeper
+    ) {
+      return this.keeperThrow(player);
+    }
+
+    if (player.isKeeper) {
+      return this.keeperThrow(player);
+    }
+
+    const goal =
+      this.goalPos(player.team);
+
+    player.facing = Math.atan2(
+      goal.x - player.pos.x,
+      goal.z - player.pos.z
+    );
+
+    const wind =
+      ACTION.shotChargeTime;
+
+    player.shot = {
+      kind: 'shot',
+      charge: 0,
+      released: false,
+      wind,
+      dist: distance,
+      name:
+        SHOT_NAMES[
+          Math.min(
+            3,
+            Math.floor(distance / 4)
+          )
+        ],
+    };
+
+    this.setState(
+      player,
+      'shoot',
+      wind + 0.35
+    );
+
+    this.events.emit('shotstart', {
+      player,
+      type: 'shot',
+    });
+
+    return true;
+  }
+
+  keeperThrow(player) {
+    const target =
+      this.choosePassTarget(
+        player,
+        false
+      );
+
+    if (target) {
+      return this.tryPass(
+        player,
+        target,
+        false
+      );
+    }
+
+    return false;
+  }
+
+  releaseShot(player) {
+    const shot = player.shot;
+
+    if (!shot || shot.released) {
+      return;
+    }
+
+    shot.released = true;
+
+    const amount = clamp(
+      player.stateTime / shot.wind,
+      0,
+      1.3
+    );
+
+    let label = 'EARLY';
+    let quality = 0.55;
+
+    if (
+      amount >= ACTION.perfectLo &&
+      amount <= ACTION.perfectHi
+    ) {
+      label = 'PERFECT';
+      quality = 1;
+    } else if (
+      amount >= ACTION.goodLo &&
+      amount <= ACTION.goodHi
+    ) {
+      label = 'GOOD';
+      quality = 0.8;
+    } else if (
+      amount > ACTION.goodHi
+    ) {
+      label = 'LATE';
+      quality = 0.6;
+    }
+
+    shot.quality = quality;
+
+    if (this.isUser(player)) {
+      this.events.emit('timing', {
+        label,
+        good: quality >= 0.8,
+      });
+    }
+
+    const aim =
+      this.isUser(player)
+        ? this.aimInputDir()
+        : null;
+
+    this.fireShot(player, quality, {
+      gb: false,
+      volley: shot.kind === 'volley',
+      power: lerp(
+        0.6,
+        1,
+        amount
+      ),
+      aimDir: aim,
+    });
+
+    this.setState(
+      player,
+      'shoot',
+      0.3
+    );
+
+    player.shot = {
+      ...shot,
+      released: true,
+    };
+  }
+
+  fireShot(
+    player,
+    quality,
+    {
+      gb = false,
+      volley = false,
+      power = 0.85,
+      aimDir = null,
+    } = {}
+  ) {
+    const goal =
+      this.goalPos(player.team);
+
+    const distance =
+      player.pos.distanceToXZ(goal);
+
+    const keeper =
+      this.keeperOf(1 - player.team);
+
+    const aim =
+      this.isUser(player) &&
+      aimDir
+        ? Vec3.dirXZ(
+            player.pos,
+            goal
+          ).x *
+            aimDir.x +
+          Vec3.dirXZ(
+            player.pos,
+            goal
+          ).z *
+            aimDir.z
+        : 0;
+
+    const side = keeper
+      ? -Math.sign(
+          keeper.pos.z ||
+            (this.rng.next() - 0.5)
+        )
+      : this.rng.chance(0.5)
+        ? 1
+        : -1;
+
+    const steer = clamp(
+      aim * 1.25,
+      -0.85,
+      0.85
+    );
+
+    const spread =
+      ARENA.goalRadius * 0.8;
+
+    let aimZ =
+      side *
+      spread *
+      (
+        0.45 +
+        this.rng.next() * 0.55
+      );
+
+    if (steer !== 0) {
+      aimZ = steer * spread;
+    }
+
+    let aimY =
+      ARENA.goalY +
+      (
+        this.rng.next() - 0.5
+      ) *
+        ARENA.goalRadius *
+        1.1;
+
+    const accuracy =
+      (player.data.sht / 99) *
+      (gb ? 1.4 : 1) *
+      (
+        this.isUser(player)
+          ? this.difficulty.userBonus
+          : this.difficulty.shotAccuracy
+      );
+
+    const baseError = volley
+      ? this.isUser(player)
+        ? 1.35
+        : 1
+      : 1.35;
+
+    const shotBoost =
+      (
+        this.offensePlayOf(
+          player.team
+        ).shotBoost || 1
+      ) *
+      (
+        this.flow[player.team]
+          ? 1.35
+          : 1
+      );
+
+    const error =
+      (
+        (1 - quality) * 1.6 +
+        distance * 0.17 -
+        accuracy * 0.9 +
+        baseError * 0.42 +
+        (volley ? 0.2 : 0)
+      ) /
+      shotBoost;
+
+    const spreadAmount =
+      Math.max(0.45, error);
+
+    aimZ +=
+      (
+        this.rng.next() - 0.5
+      ) *
+      2 *
+      spreadAmount *
+      ARENA.goalRadius;
+
+    aimY +=
+      (
+        this.rng.next() - 0.5
+      ) *
+      2 *
+      spreadAmount *
+      ARENA.goalRadius *
+      0.8;
+
+    if (gb) {
+      aimZ =
+        side *
+        spread *
+        0.9;
+
+      aimY =
+        ARENA.goalY + 0.3;
+    }
+
+    if (
+      this.momentum[player.team] >=
+        this.rules.onFireGoals &&
+      !gb
+    ) {
+      aimZ *= 0.85;
+      aimY = lerp(
+        aimY,
+        ARENA.goalY,
+        0.3
+      );
+    }
+
+    const speed =
+      lerp(
+        ACTION.shotMinSpeed,
+        ACTION.shotMaxSpeed,
+        power *
+          (
+            0.75 +
+            (player.data.sht / 99) *
+              0.35
+          )
+      ) *
+      (gb ? 1.35 : 1) *
+      (volley ? 1.15 : 1);
+
+    const from = new Vec3(
+      player.pos.x,
+      0.9 + player.y,
+      player.pos.z
+    );
+
+    const to = new Vec3(
+      goal.x,
+      aimY,
+      aimZ
+    );
+
+    const direction = Vec3.sub(
+      to,
+      from
+    ).normalize();
+
+    player.hasBall = false;
+    this.ball.holder = null;
+    this.ball.pos.copy(from);
+
+    this.ball.vel.set(
+      direction.x * speed,
+      direction.y * speed,
+      direction.z * speed
+    );
+
+    this.ball.flight = {
+      kind: 'shot',
+      shooter: player,
+      gb,
+      volley,
+      quality,
+      dist: distance,
+      aimZ,
+      t: 0,
+      checked: new Set(),
+      name: player.shot
+        ? player.shot.name
+        : gb
+          ? 'GAMEBREAKER'
+          : 'VOLLEY',
+    };
+
+    this.ball.releaseCooldown = {
+      player,
+      t: 0.35,
+    };
+
+    this.ball.lastTeam = player.team;
+
+    player.stats.shots++;
+    this.stats.shots++;
+    this.possessionClock =
+      this.rules.possessionClock;
+
+    this.events.emit('shot', {
+      player,
+      gb,
+      volley,
+      quality,
+      dist: distance,
+      speed,
+    });
+
+    if (distance > 9 && !gb) {
+      this.addStyle(
+        player,
+        20,
+        'FROM DEEP'
+      );
+    }
+  }
+
+  tryVolley(player) {
+    const ball = this.ball;
+
+    if (
+      ball.holder ||
+      !ball.flight
+    ) {
+      return false;
+    }
+
+    const horizontalDistance =
+      player.pos.distanceToXZ(
+        ball.pos
+      );
+
+    const flight = ball.flight;
+
+    const wasLob =
+      flight.kind === 'lob' &&
+      flight.passer &&
+      flight.passer.team === player.team;
+
+    const reach =
+      wasLob ? 2 : 1.5;
+
+    if (
+      horizontalDistance > reach ||
+      ball.pos.y > 2.8 ||
+      ball.pos.y < 0.3
+    ) {
+      return false;
+    }
+
+    if (
+      this.distToGoal(player) >
+      ACTION.volleyRange + 3
+    ) {
+      return false;
+    }
+
+    player.airborne = true;
+    player.vy = 3.5;
+    player.y = Math.max(
+      player.y,
+      0.1
+    );
+
+    this.setState(
+      player,
+      'volley',
+      0.45
+    );
+
+    ball.flight = null;
+    player.hasBall = true;
+    ball.holder = player;
+
+    const quality =
+      wasLob ? 0.95 : 0.7;
+
+    this.fireShot(
+      player,
+      quality,
+      {
+        volley: true,
+        power: 0.95,
+      }
+    );
+
+    player.shot = {
+      kind: 'volley',
+      released: true,
+    };
+
+    player.stats.volleys++;
+    this.stats.volleys++;
+
+    if (wasLob) {
+      flight.passer.stats.ast++;
+
+      this.addStyle(
+        flight.passer,
+        STYLE.assist,
+        'SET UP'
+      );
+
+      this.events.emit('alleyoop', {
+        passer: flight.passer,
+        finisher: player,
+      });
+    }
+
+    this.events.emit('volleyshot', {
+      player,
+      lob: wasLob,
+    });
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gamebreaker
+  // ---------------------------------------------------------------------------
+
+  tryGamebreaker(player) {
+    if (
+      !this.gbReady[player.team] ||
+      this.state !== 'live'
+    ) {
+      return false;
+    }
+
+    this.gbReady[player.team] = false;
+    this.gb[player.team] = 0;
+    this.state = 'gamebreaker';
+    this.gbPlayer = player;
+    this.gbDriveShield = true;
+
+    this.slowmo = 0.9;
+    this.timeScale = ACTION.gbSlowmo;
+
+    this.setState(
+      player,
+      'gbwind',
+      0.7
+    );
+
+    player.vel.set(0, 0, 0);
+    player.stats.gb++;
+
+    for (
+      const opponent of
+      this.opponentsOf(player)
+    ) {
+      if (
+        opponent.isKeeper
+      ) {
+        continue;
+      }
+
+      if (
+        opponent.pos.distanceToXZ(
+          player.pos
+        ) < 3.2
+      ) {
+        this.knockDown(
+          opponent,
+          player,
+          'gamebreaker',
+          'fallen'
+        );
+      }
+    }
+
+    this.events.emit('gamebreaker', {
+      team: player.team,
+      player,
+    });
+
+    return true;
+  }
+
+  clearGbShield() {
+    this.gbDriveShield = false;
+  }
+
+  startGbDrive(player) {
+    const goal =
+      this.goalPos(player.team);
+
+    const direction = Vec3.dirXZ(
+      goal,
+      player.pos
+    );
+
+    const distance = Math.min(
+      this.distToGoal(player) - 0.5,
+      ACTION.gbShotRange
+    );
+
+    player.gbTarget = new Vec3(
+      goal.x +
+        direction.x *
+          Math.max(3.5, distance),
+      0,
+      goal.z +
+        direction.z *
+          Math.max(3.5, distance)
+    );
+
+    this.setState(
+      player,
+      'gbdrive',
+      ACTION.gbDriveTime
+    );
+
+    this.events.emit('gbdrive', {
+      player,
+    });
+  }
+
+  stepGamebreaker(dt) {
+    const player = this.gbPlayer;
+
+    for (const other of this.players) {
+      if (
+        other !== player &&
+        other.team !== player.team &&
+        !other.isKeeper
+      ) {
+        other.input = emptyInput();
+      } else if (other !== player) {
+        updateAI(this, other, dt);
+      }
+    }
+
+    for (const other of this.players) {
+      this.updatePlayerPhysics(
+        other,
+        dt,
+        false
+      );
+    }
+
+    this.separatePlayers();
+    this.updateBall(dt, false);
+    this.updateGlueDribble(dt);
+
+    if (
+      player.state === 'gbdrive' &&
+      player.pos.distanceToXZ(
+        player.gbTarget
+      ) < 0.6
+    ) {
+      this.gbShoot(player);
+    }
+  }
+
+  gbShoot(player) {
+    if (
+      this.ball.holder !== player
+    ) {
+      this.state = 'live';
+      return;
+    }
+
+    const goal =
+      this.goalPos(player.team);
+
+    player.facing = Math.atan2(
+      goal.x - player.pos.x,
+      goal.z - player.pos.z
+    );
+
+    this.slowmo = 0.5;
+    this.timeScale = 0.6;
+
+    this.setState(
+      player,
+      'shoot',
+      0.5
+    );
+
+    this.fireShot(
+      player,
+      1,
+      {
+        gb: true,
+        power: 1,
+      }
+    );
+
+    player.shot = {
+      kind: 'gb',
+      released: true,
+    };
+
+    this.events.emit('gbshot', {
+      player,
+      name: player.data.signature,
+    });
+
+    this.state = 'live';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ball
+  // ---------------------------------------------------------------------------
+
+  releaseLoose(from, velocity) {
+    const ball = this.ball;
+
+    if (ball.holder === from) {
+      from.hasBall = false;
+      ball.holder = null;
+    }
+
+    ball.pos.set(
+      from.pos.x,
+      0.9 + from.y,
+      from.pos.z
+    );
+
+    ball.vel.copy(velocity);
+
+    ball.flight = {
+      kind: 'loose',
+      t: 0,
+      checked: new Set(),
+    };
+
+    ball.releaseCooldown = {
+      player: from,
+      t: 0.4,
+    };
+  }
+
+  updateBall(dt, deadBall) {
+    const ball = this.ball;
+
+    if (ball.holder) {
+      const holder = ball.holder;
+      const forward =
+        this.forwardOf(holder);
+
+      ball.pos.set(
+        holder.pos.x +
+          forward.x * 0.42,
+        0.85 + holder.y,
+        holder.pos.z +
+          forward.z * 0.42
+      );
+
+      ball.vel.set(0, 0, 0);
+
+      if (
+        holder.isKeeper &&
+        !deadBall &&
+        this.state === 'live'
+      ) {
+        holder.keeperHold =
+          (holder.keeperHold || 0) +
+          dt;
+      }
+
+      return;
+    }
+
+    const flight = ball.flight;
+
+    if (!flight) {
+      this.integrateLoose(
+        ball,
+        dt
+      );
+
+      if (!deadBall) {
+        this.checkPickup();
+      }
+
+      return;
+    }
+
+    flight.t += dt;
+
+    if (
+      flight.kind === 'pass' ||
+      flight.kind === 'lob'
+    ) {
+      const amount = clamp(
+        flight.t / flight.dur,
+        0,
+        1
+      );
+
+      const previous =
+        this.ballPreviousPosition;
+
+      previous.copy(ball.pos);
+
+      ball.pos.x = lerp(
+        flight.from.x,
+        flight.to.x,
+        amount
+      );
+
+      ball.pos.z = lerp(
+        flight.from.z,
+        flight.to.z,
+        amount
+      );
+
+      ball.pos.y =
+        lerp(
+          flight.from.y,
+          flight.to.y,
+          amount
+        ) +
+        Math.sin(amount * Math.PI) *
+          flight.arc;
+
+      const inverseDt =
+        1 / Math.max(dt, 0.0001);
+
+      ball.vel.set(
+        (
+          ball.pos.x - previous.x
+        ) * inverseDt,
+        (
+          ball.pos.y - previous.y
+        ) * inverseDt,
+        (
+          ball.pos.z - previous.z
+        ) * inverseDt
+      );
+
+      if (!deadBall) {
+        this.checkInterceptions();
+      }
+
+      if (ball.flight !== flight) {
+        return;
+      }
+
+      if (amount >= 1) {
+        const target = flight.target;
+        const distance =
+          target.pos.distanceToXZ(
+            ball.pos
+          );
+
+        const reach =
+          flight.kind === 'lob'
+            ? 2
+            : 1.5;
+
+        if (
+          target.state !== 'fallen' &&
+          distance < reach &&
+          !deadBall
+        ) {
+          if (flight.kind === 'lob') {
+            if (!target.airborne) {
+              this.tryBreach(target);
+            }
+
+            if (!this.tryVolley(target)) {
+              ball.flight = null;
+              this.giveBall(target);
+
+              this.setState(
+                target,
+                'catch',
+                0.15
+              );
+            }
+          } else {
+            ball.flight = null;
+            this.giveBall(target);
+
+            this.setState(
+              target,
+              'catch',
+              0.15
+            );
+
+            this.events.emit('catch', {
+              player: target,
+            });
+          }
+        } else {
+          ball.flight = {
+            kind: 'loose',
+            t: 0,
+            checked: new Set(),
+          };
+
+          ball.vel.scale(0.35);
+        }
+      }
+
+      return;
+    }
+
+    if (flight.kind === 'shot') {
+      ball.vel.y +=
+        PHYS.gravityLoose *
+        0.4 *
+        dt;
+
+      ball.vel.scale(
+        Math.max(
+          0,
+          1 - 0.18 * dt
+        )
+      );
+    } else {
+      ball.vel.y +=
+        PHYS.gravityLoose * dt;
+
+      ball.vel.scale(
+        Math.max(
+          0,
+          1 -
+            PHYS.looseDrag * dt
+        )
+      );
+    }
+
+    const previous =
+      this.ballPreviousPosition;
+
+    previous.copy(ball.pos);
+
+    ball.pos.addScaled(
+      ball.vel,
+      dt
+    );
+
+    if (
+      flight.kind === 'shot' ||
+      flight.kind === 'loose'
+    ) {
+      const goal =
+        this.checkGoalCrossing(
+          previous,
+          ball.pos
+        );
+
+      if (goal !== null) {
+        const scorer =
+          flight.kind === 'shot'
+            ? flight.shooter
+            : ball.lastTouch ||
+              flight.shooter;
+
+        const scoringTeam = 1 - goal;
+
+        if (
+          scorer &&
+          scorer.team === scoringTeam
+        ) {
+          return this.scoreGoal(
+            scorer,
+            flight
+          );
+        }
+
+        const opponent =
+          this.outfield(scoringTeam)[0];
+
+        return this.scoreGoal(
+          opponent,
+          flight,
+          true
+        );
+      }
+
+      if (
+        !deadBall &&
+        flight.kind === 'shot'
+      ) {
+        this.checkKeeperSave();
+
+        if (ball.flight !== flight) {
+          return;
+        }
+
+        this.checkBlocks();
+
+        if (ball.flight !== flight) {
+          return;
+        }
+      }
+    }
+
+    this.bounceBall(
+      ball,
+      flight
+    );
+
+    if (
+      flight.kind === 'shot' &&
+      (
+        flight.t > 2.4 ||
+        ball.vel.length() < 4
+      )
+    ) {
+      flight.kind = 'loose';
+
+      this.events.emit('miss', {
+        player: flight.shooter,
+        type: flight.volley
+          ? 'volley'
+          : 'shot',
+      });
+
+      ball.flight = {
+        kind: 'loose',
+        t: 0,
+        checked: new Set(),
+        shooter: flight.shooter,
+      };
+    }
+
+    if (
+      flight.kind === 'loose' &&
+      !deadBall
+    ) {
+      this.checkPickup();
+    }
+  }
+     integrateLoose(ball, dt) {
+    ball.vel.y += PHYS.gravityLoose * dt;
+    ball.vel.scale(
+      Math.max(0, 1 - PHYS.looseDrag * dt)
+    );
+    ball.pos.addScaled(ball.vel, dt);
+    this.bounceBall(ball, null);
+  }
+
+  bounceBall(ball, flight) {
+    if (ball.pos.y > ARENA.ceilingY) {
+      ball.pos.y = ARENA.ceilingY;
+
+      if (ball.vel.y > 0) {
+        ball.vel.y *= -PHYS.wallRestitution;
+      }
+    }
+
+    if (ball.pos.y < ARENA.floorY) {
+      ball.pos.y = ARENA.floorY;
+
+      if (ball.vel.y < 0) {
+        ball.vel.y *= -PHYS.wallRestitution;
+      }
+    }
+
+    const behindGoal =
+      Math.abs(ball.pos.x) >
+      ARENA.goalX + 0.3;
+
+    if (behindGoal) {
+      const inMouth =
+        Math.hypot(
+          ball.pos.y - ARENA.goalY,
+          ball.pos.z
+        ) < ARENA.goalRadius;
+
+      if (
+        !inMouth ||
+        Math.abs(ball.pos.x) >
+          ARENA.goalX + 1.8
+      ) {
+        ball.pos.x =
+          Math.sign(ball.pos.x) *
+          (ARENA.goalX + 0.3);
+
+        ball.vel.x =
+          -Math.sign(ball.pos.x) *
+          Math.max(
+            Math.abs(ball.vel.x) *
+              PHYS.wallRestitution,
+            3.5
+          );
+
+        if (
+          flight &&
+          flight.kind === 'shot'
+        ) {
+          const nearRing =
+            Math.hypot(
+              ball.pos.y - ARENA.goalY,
+              ball.pos.z
+            ) <
+            ARENA.goalRadius + 0.6;
+
+          if (nearRing) {
+            this.events.emit('post', {
+              pos: ball.pos.clone(),
+              hard: Math.abs(ball.vel.x) > 10,
+            });
+          } else {
+            this.events.emit('wall', {
+              pos: ball.pos.clone(),
+              speed: Math.abs(ball.vel.x),
+            });
+          }
+
+          flight.kind = 'loose';
+
+          this.events.emit('miss', {
+            player: flight.shooter,
+            type: nearRing
+              ? 'post'
+              : 'wide',
+          });
+
+          this.ball.flight = {
+            kind: 'loose',
+            t: 0,
+            checked: new Set(),
+            shooter: flight.shooter,
+          };
+        }
+      }
+    }
+
+    const radius = ball.pos.lengthXZ();
+
+    if (
+      radius > ARENA.ballRadius &&
+      ball.wallCooldown <= 0
+    ) {
+      const nx = ball.pos.x / radius;
+      const nz = ball.pos.z / radius;
+
+      ball.pos.x =
+        nx * ARENA.ballRadius;
+
+      ball.pos.z =
+        nz * ARENA.ballRadius;
+
+      const normalVelocity =
+        ball.vel.x * nx +
+        ball.vel.z * nz;
+
+      if (normalVelocity > 0) {
+        ball.vel.x -=
+          (1 + PHYS.wallRestitution) *
+          normalVelocity *
+          nx;
+
+        ball.vel.z -=
+          (1 + PHYS.wallRestitution) *
+          normalVelocity *
+          nz;
+
+        ball.wallCooldown = 0.08;
+
+        this.events.emit('wall', {
+          pos: ball.pos.clone(),
+          speed: Math.abs(normalVelocity),
+        });
+
+        if (
+          flight &&
+          flight.kind === 'shot'
+        ) {
+          flight.kind = 'loose';
+
+          this.events.emit('miss', {
+            player: flight.shooter,
+            type: 'wide',
+          });
+
+          this.ball.flight = {
+            kind: 'loose',
+            t: 0,
+            checked: new Set(),
+            shooter: flight.shooter,
+          };
+        }
+      }
+    }
+  }
+
+  checkGoalCrossing(previous, current) {
+    for (const team of [0, 1]) {
+      const goalX =
+        -ARENA.goalX *
+        this.attackDir(team);
+
+      const crossed =
+        (
+          previous.x - goalX
+        ) *
+        (
+          current.x - goalX
+        ) <= 0 &&
+        Math.sign(
+          current.x - previous.x
+        ) === Math.sign(goalX) &&
+        Math.abs(
+          current.x - previous.x
+        ) > 0.000001;
+
+      if (!crossed) {
+        continue;
+      }
+
+      const amount =
+        (goalX - previous.x) /
+        (current.x - previous.x);
+
+      const y = lerp(
+        previous.y,
+        current.y,
+        amount
+      );
+
+      const z = lerp(
+        previous.z,
+        current.z,
+        amount
+      );
+
+      const distance =
+        Math.hypot(
+          y - ARENA.goalY,
+          z
+        );
+
+      if (
+        distance <
+        ARENA.goalRadius - 0.08
+      ) {
+        this.ringRattle(team);
+        return team;
+      }
+
+      if (
+        distance <
+        ARENA.goalRadius +
+          ARENA.postRadius +
+          0.1
+      ) {
+        this.ball.vel.x *=
+          -PHYS.wallRestitution;
+
+        this.ball.pos.x =
+          goalX -
+          Math.sign(goalX) * 0.2;
+
+        this.ringRattle(team);
+
+        this.events.emit('post', {
+          pos: this.ball.pos.clone(),
+          hard: true,
+        });
+
+        const flight =
+          this.ball.flight;
+
+        if (
+          flight &&
+          flight.kind === 'shot'
+        ) {
+          this.events.emit('miss', {
+            player: flight.shooter,
+            type: 'post',
+          });
+
+          this.ball.flight = {
+            kind: 'loose',
+            t: 0,
+            checked: new Set(),
+            shooter: flight.shooter,
+          };
+        }
+
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  ringRattle(team) {
+    const difference =
+      this.score[0] -
+      this.score[1];
+
+    if (
+      Math.abs(difference) >=
+      this.rules.rubberLead
+    ) {
+      const trailing =
+        difference < 0 ? 0 : 1;
+
+      this.rubber[trailing] =
+        Math.min(
+          this.rules.rubberCap,
+          1 +
+            (
+              Math.abs(difference) -
+              this.rules.rubberLead +
+              1
+            ) *
+              this.rules.rubberPerGoal
+        );
+
+      this.rubber[1 - trailing] = 1;
+    } else {
+      this.rubber[0] = 1;
+      this.rubber[1] = 1;
+    }
+
+    this.rungPulse[team] = 1;
+
+    this.events.emit('goalring', {
+      team,
+    });
+  }
+
+  checkKeeperSave() {
+    const ball = this.ball;
+    const flight = ball.flight;
+
+    if (
+      !flight ||
+      !flight.shooter
+    ) {
+      return;
+    }
+
+    const keeper =
+      this.keeperOf(
+        1 - flight.shooter.team
+      );
+
+    if (
+      !keeper ||
+      flight.checked.has(keeper.id)
+    ) {
+      return;
+    }
+
+    const dx = Math.abs(
+      ball.pos.x - keeper.pos.x
+    );
+
+    if (dx > 0.9) {
+      return;
+    }
+
+    const dz = Math.abs(
+      ball.pos.z - keeper.pos.z
+    );
+
+    const dy = Math.abs(
+      ball.pos.y -
+      (
+        ARENA.goalY +
+        keeper.y
+      )
+    );
+
+    const reach =
+      ACTION.keeperReach *
+      (
+        0.8 +
+        (keeper.data.cat / 99) *
+          0.5
+      ) +
+      (
+        keeper.state === 'save'
+          ? 0.55
+          : 0
+      );
+
+    if (
+      dz > reach + 0.6 ||
+      dy > reach + 0.5
+    ) {
+      return;
+    }
+
+    flight.checked.add(keeper.id);
+
+    const distance =
+      Math.hypot(dz, dy);
+
+    let probability =
+      1 -
+      (
+        distance /
+        (reach + 0.6)
+      ) *
+        0.5;
+
+    probability -=
+      (flight.quality - 0.6) *
+      0.4;
+
+    probability -=
+      (ball.vel.length() - 16) *
+      0.022;
+
+    probability *=
+      this.difficulty.keeperSkill *
+      (
+        this.userTeam !== null &&
+        keeper.team === this.userTeam
+          ? 1.18
+          : 1
+      );
+
+    probability +=
+      (keeper.data.blk / 99) *
+      0.15;
+
+    probability *=
+      this.rubber[keeper.team];
+
+    if (flight.gb) {
+      probability = 0.04;
+    }
+
+    if (
+      this.momentum[
+        flight.shooter.team
+      ] >= this.rules.onFireGoals
+    ) {
+      probability *= 0.75;
+    }
+
+    if (
+      this.overtime &&
+      this.otTime >
+        this.rules.overtimeFatigueAfter
+    ) {
+      probability *= 0.4;
+    }
+
+    if (
+      this.isUser(flight.shooter)
+    ) {
+      probability *=
+        2 - this.difficulty.userBonus;
+    }
+
+    probability = clamp(
+      probability,
+      0.03,
+      0.92
+    );
+
+    flight.shooter.stats.sog++;
+    flight.onGoal = true;
+
+    if (this.rng.chance(probability)) {
+      const catches =
+        this.rng.chance(
+          0.55 +
+            (keeper.data.cat / 99) *
+              0.3 -
+            (ball.vel.length() - 16) *
+              0.02
+        );
+
+      keeper.stats.saves++;
+      this.stats.saves++;
+
+      this.setState(
+        keeper,
+        'save',
+        0.55
+      );
+
+      keeper.knockDir.set(
+        0,
+        0,
+        Math.sign(
+          ball.pos.z - keeper.pos.z
+        ) || 1
+      );
+
+      const big =
+        distance > reach * 0.6 ||
+        ball.vel.length() > 20;
+
+      this.addStyle(
+        keeper,
+        big
+          ? STYLE.saveBig
+          : STYLE.save,
+        big
+          ? 'HUGE SAVE'
+          : 'SAVE',
+        { big }
+      );
+
+      this.events.emit('save', {
+        keeper,
+        shooter: flight.shooter,
+        big,
+        caught: catches,
+      });
+
+      this.loseStyle(
+        flight.shooter.team,
+        20
+      );
+
+      if (catches) {
+        ball.flight = null;
+        this.giveBall(keeper);
+        this.momentum[
+          flight.shooter.team
+        ] = 0;
+      } else {
+        const side =
+          Math.sign(
+            ball.pos.z - keeper.pos.z
+          ) ||
+          (
+            this.rng.chance(0.5)
+              ? 1
+              : -1
+          );
+
+        ball.vel.set(
+          -Math.sign(ball.vel.x) * 6,
+          2.5,
+          side * 7
+        );
+
+        ball.flight = {
+          kind: 'loose',
+          t: 0,
+          checked: new Set(),
+          shooter: flight.shooter,
+          parried: true,
+        };
+
+        ball.lastTouch = keeper;
+      }
+    } else {
+      keeper.knockDir.set(
+        0,
+        0,
+        Math.sign(
+          ball.pos.z - keeper.pos.z
+        ) || 1
+      );
+
+      this.setState(
+        keeper,
+        'save',
+        0.5
+      );
+    }
+  }
+
+  checkBlocks() {
+    const ball = this.ball;
+    const flight = ball.flight;
+
+    if (!flight) {
+      return;
+    }
+
+    for (const player of this.players) {
+      if (
+        player.team === flight.shooter.team ||
+        player.isKeeper ||
+        flight.checked.has(player.id)
+      ) {
+        continue;
+      }
+
+      const horizontal =
+        player.pos.distanceToXZ(
+          ball.pos
+        );
+
+      const top =
+        0.9 +
+        player.y +
+        (
+          player.airborne
+            ? 1.1
+            : 0.7
+        );
+
+      if (
+        horizontal <
+          ACTION.blockRadius &&
+        ball.pos.y < top &&
+        ball.pos.y > -0.2
+      ) {
+        flight.checked.add(
+          player.id
+        );
+
+        let probability =
+          (
+            player.airborne
+              ? 0.42
+              : 0.06
+          ) +
+          (
+            (player.data.tkl - 60) /
+            99
+          ) *
+            0.25;
+
+        if (flight.gb) {
+          probability = 0;
+        }
+
+        if (!this.isUser(player)) {
+          probability *=
+            this.difficulty.tackleRate;
+        }
+
+        probability *=
+          this.rubber[player.team];
+
+        probability *=
+          this.defenseMods(player.team)
+            .block || 1;
+
+        if (
+          this.rng.chance(
+            clamp(
+              probability,
+              0,
+              0.7
+            )
+          )
+        ) {
+          player.stats.blk++;
+
+          const direction =
+            Vec3.dirXZ(
+              flight.shooter.pos,
+              player.pos
+            );
+
+          ball.vel.set(
+            direction.x * 6 +
+              (
+                this.rng.next() - 0.5
+              ) *
+                3,
+            2.5,
+            direction.z * 6 +
+              (
+                this.rng.next() - 0.5
+              ) *
+                3
+          );
+
+          ball.flight = {
+            kind: 'loose',
+            t: 0,
+            checked: new Set(),
+            shooter: flight.shooter,
+          };
+
+          ball.lastTouch = player;
+
+          this.addStyle(
+            player,
+            STYLE.block,
+            'DENIED',
+            { big: true }
+          );
+
+          this.events.emit('block', {
+            blocker: player,
+            shooter: flight.shooter,
+          });
+
+          this.events.emit('miss', {
+            player: flight.shooter,
+            type: 'blocked',
+          });
+
+          return;
+        }
+      }
+    }
+  }
+
+  checkInterceptions() {
+    const ball = this.ball;
+    const flight = ball.flight;
+
+    if (
+      !flight ||
+      !flight.passer
+    ) {
+      return;
+    }
+
+    const passerTeam =
+      flight.passer.team;
+
+    for (const player of this.players) {
+      if (
+        player.team === passerTeam ||
+        flight.checked.has(player.id) ||
+        player.state === 'fallen'
+      ) {
+        continue;
+      }
+
+      const horizontal =
+        player.pos.distanceToXZ(
+          ball.pos
+        );
+
+      const reach =
+        player.isKeeper
+          ? 1.4
+          : 0.8;
+
+      const vertical =
+        Math.abs(
+          ball.pos.y -
+          (
+            0.9 +
+            player.y
+          )
+        ) <
+        (
+          player.airborne
+            ? 1.4
+            : 1
+        );
+
+      if (
+        horizontal >= reach ||
+        !vertical
+      ) {
+        continue;
+      }
+
+      flight.checked.add(
+        player.id
+      );
+
+      const active =
+        player.state === 'tackle' ||
+        player.airborne;
+
+      let probability =
+        active
+          ? 0.5 +
+            (
+              (player.data.tkl - 50) /
+              99
+            ) *
+              0.35
+          : 0.09 +
+            (
+              (player.data.tkl - 50) /
+              99
+            ) *
+              0.08;
+
+      if (player.isKeeper) {
+        probability =
+          0.7 +
+          (player.data.cat / 99) *
+            0.25;
+      }
+
+      if (flight.kind === 'lob') {
+        probability *= 0.6;
+      }
+
+      if (flight.t < 0.1) {
+        probability *= 0.3;
+      }
+
+      if (
+        !this.isUser(player) &&
+        !player.isKeeper
+      ) {
+        probability *=
+          this.difficulty.tackleRate *
+          0.9;
+      }
+
+      probability *=
+        this.rubber[player.team];
+
+      probability /=
+        this.offensePlayOf(
+          flight.passer.team
+        ).passAcc || 1;
+
+      probability *=
+        this.defenseMods(player.team)
+          .lane || 1;
+
+      if (
+        this.rng.chance(
+          clamp(
+            probability,
+            0.02,
+            0.9
+          )
+        )
+      ) {
+        ball.flight = null;
+        flight.passer.stats.to++;
+        player.stats.tkl++;
+
+        this.loseStyle(
+          passerTeam,
+          STYLE.lossOnTurnover
+        );
+
+        this.giveBall(player);
+
+        this.setState(
+          player,
+          'catch',
+          0.15
+        );
+
+        this.addStyle(
+          player,
+          STYLE.tackle,
+          'PICKED OFF',
+          { big: true }
+        );
+
+        this.events.emit('tackle', {
+          player,
+          victim: flight.passer,
+          pass: true,
+        });
+
+        return;
+      }
+    }
+  }
+
+  checkPickup() {
+    const ball = this.ball;
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const player of this.players) {
+      if (
+        player.state === 'fallen' ||
+        player.state === 'stumble'
+      ) {
+        continue;
+      }
+
+      if (
+        ball.releaseCooldown &&
+        ball.releaseCooldown.player === player
+      ) {
+        continue;
+      }
+
+      if (player.cd.catch > 0) {
+        continue;
+      }
+
+      const horizontal =
+        player.pos.distanceToXZ(
+          ball.pos
+        );
+
+      const vertical =
+        Math.abs(
+          ball.pos.y -
+          (
+            0.9 +
+            player.y
+          )
+        );
+
+      let radius =
+        player.isKeeper
+          ? ACTION.keeperPickupRadius
+          : ACTION.pickupRadius;
+
+      if (
+        player.ai.diving > 0 ||
+        player.state === 'tackle'
+      ) {
+        radius += 0.35;
+      }
+
+      if (player.airborne) {
+        radius += 0.3;
+      }
+
+      if (
+        horizontal < radius &&
+        vertical <
+          (
+            player.airborne
+              ? 1.5
+              : 1.1
+          )
+      ) {
+        const score =
+          horizontal -
+          (player.data.hnd / 99) *
+            0.2 -
+          (
+            player.airborne
+              ? 0.2
+              : 0
+          );
+
+        if (score < bestScore) {
+          bestScore = score;
+          best = player;
+        }
+      }
+    }
+
+    if (!best) {
+      return;
+    }
+
+    const previousTeam =
+      ball.lastTeam;
+
+    const wasShot =
+      ball.flight &&
+      (
+        ball.flight.shooter ||
+        ball.flight.parried
+      );
+
+    ball.flight = null;
+    this.giveBall(best);
+
+    if (best.state !== 'breach') {
+      this.setState(
+        best,
+        'catch',
+        0.12
+      );
+    }
+
+    if (wasShot) {
+      this.events.emit('recover', {
+        player: best,
+        defensive:
+          previousTeam !== best.team,
+      });
+    }
+
+    if (best.airborne) {
+      this.addStyle(
+        best,
+        STYLE.breachCatch,
+        'SNAG'
+      );
+    }
+  }
+
+  startFlow(team, player) {
+    if (this.flow[team]) {
+      return;
+    }
+
+    this.flow[team] = true;
+    this.flowTimer[team] =
+      RULES.flowDuration;
+
+    this.events.emit('flowstart', {
+      team,
+      player: player || this.controlled,
+    });
+  }
+
+  updateRules(dt) {
+    const holder = this.ball.holder;
+
+    if (this.flow[this.possession]) {
+      this.possessionClock =
+        Math.max(
+          this.possessionClock,
+          8
+        );
+    } else {
+      this.possessionClock -= dt;
+    }
+
+    this.shotClock =
+      this.possessionClock;
+
+    if (this.possessionClock <= 0) {
+      const team = this.possession;
+
+      this.events.emit('shotclock', {
+        team,
+      });
+
+      return this.turnover(
+        team,
+        'POSSESSION CLOCK'
+      );
+    }
+
+    if (
+      holder &&
+      holder.isKeeper &&
+      holder.keeperHold >
+        this.rules.keeperHold
+    ) {
+      this.events.emit('violation', {
+        reason: 'KEEPER HOLD',
+        team: holder.team,
+      });
+
+      if (
+        !this.keeperThrow(holder)
+      ) {
+        return this.turnover(
+          holder.team,
+          'KEEPER HOLD'
+        );
+      }
+    }
+  }
+
+  turnover(team, reason) {
+    this.loseStyle(
+      team,
+      STYLE.lossOnTurnover
+    );
+
+    this.events.emit('turnover', {
+      team,
+      reason,
+    });
+
+    this.deadReason = 'turnover';
+    this.pendingPossession = 1 - team;
+    this.state = 'dead';
+    this.stateTimer = 1;
+
+    if (this.ball.holder) {
+      this.ball.holder.hasBall = false;
+      this.ball.holder = null;
+    }
+
+    this.ball.flight = null;
+    this.ball.vel.set(0, 0, 0);
+  }
+
+  addStyle(player, base, label, options = {}) {
+    const team = player.team;
+
+    if (
+      !this.flow[team] &&
+      this.possession === team &&
+      player.combo + 1 >= RULES.flowCombo
+    ) {
+      this.startFlow(team, player);
+    }
+
+    player.combo = Math.min(
+      player.combo + 1,
+      12
+    );
+
+    player.comboTimer =
+      STYLE.comboWindow;
+
+    const multiplier = Math.min(
+      STYLE.comboMax,
+      1 +
+        (
+          player.combo - 1
+        ) *
+          STYLE.comboStep
+    );
+
+    const gamebreakerRate =
+      0.7 +
+      (player.data.gb / 99) *
+        0.7;
+
+    const points = Math.round(
+      base * multiplier
+    );
+
+    player.stats.style += points;
+
+    const wasReady =
+      this.gbReady[team];
+
+    let meterGain =
+      points * gamebreakerRate;
+
+    if (
+      this.userTeam !== null &&
+      team !== this.userTeam
+    ) {
+      meterGain *=
+        this.difficulty.aiGbRate;
+    }
+
+    this.gb[team] = Math.min(
+      this.rules.gamebreakerMeterMax,
+      this.gb[team] + meterGain
+    );
+
+    if (
+      this.gb[team] >=
+        this.rules.gamebreakerMeterMax &&
+      !wasReady
+    ) {
+      this.gbReady[team] = true;
+
+      this.events.emit('gbready', {
+        team,
+      });
+    }
+
+    this.events.emit('style', {
+      player,
+      points,
+      label,
+      combo: player.combo,
+      big: !!options.big,
+      team,
+    });
+  }
+
+  loseStyle(team, amount) {
+    if (this.gbReady[team]) {
+      return;
+    }
+
+    this.gb[team] = Math.max(
+      0,
+      this.gb[team] - amount
+    );
+  }
+
+  scoreGoal(player, flight, ownGoal = false) {
+    if (this.state === 'over') {
+      return;
+    }
+
+    const team = player.team;
+    const gamebreaker =
+      !!(
+        flight &&
+        flight.gb
+      );
+
+    const points = gamebreaker
+      ? this.rules.gbPoints
+      : this.rules.goalPoints;
+
+    this.score[team] += points;
+    player.stats.goals += points;
+
+    if (
+      !(flight && flight.onGoal)
+    ) {
+      player.stats.sog++;
+    }
+
+    let stolen = 0;
+
+    if (gamebreaker) {
+      stolen = Math.min(
+        this.score[1 - team],
+        this.rules.gbSteal
+      );
+
+      this.score[1 - team] -= stolen;
+    }
+
+    this.momentum[team]++;
+    this.momentum[1 - team] = 0;
+
+    const type = gamebreaker
+      ? 'gamebreaker'
+      : flight && flight.volley
+        ? 'volley'
+        : ownGoal
+          ? 'own'
+          : flight && flight.dist > 9
+            ? 'long'
+            : 'shot';
+
+    for (
+      const teammate of
+      this.teammatesOf(player)
+    ) {
+      if (
+        this.time -
+          teammate.lastPassTime <
+          2.5 &&
+        teammate.lastPassTime > 0
+      ) {
+        teammate.stats.ast++;
+        break;
+      }
+    }
+
+    if (!ownGoal) {
+      const base =
+        gamebreaker
+          ? 0
+          : type === 'volley'
+            ? STYLE.goalVolley
+            : type === 'long'
+              ? STYLE.goalLong
+              : STYLE.goal;
+
+      if (base) {
+        this.addStyle(
+          player,
+          base +
+            (
+              flight &&
+              flight.quality >= 1
+                ? STYLE.goalPerfect
+                : 0
+            ),
+          type === 'volley'
+            ? 'VOLLEY GOAL'
+            : type === 'long'
+              ? 'FROM DOWNTOWN'
+              : 'GOAL'
+        );
+      }
+    }
+
+    this.lastScorer = player;
+    this.lastGoalTime = this.time;
+    this.ball.flight = null;
+    this.ball.vel.set(0, 0, 0);
+
+    this.events.emit('score', {
+      team,
+      player,
+      points,
+      type,
+      gb: gamebreaker,
+      stolen,
+      score: [...this.score],
+      momentum: this.momentum[team],
+      ownGoal,
+    });
+
+    if (
+      this.momentum[team] ===
+      this.rules.onFireGoals
+    ) {
+      this.events.emit('heating', {
+        team,
+        player,
+      });
+    }
+
+    this.deadReason = 'goal';
+    this.pendingPossession = 1 - team;
+    this.state = 'dead';
+
+    this.stateTimer = gamebreaker
+      ? 3
+      : this.rules.goalDeadTime;
+
+    this.setState(
+      player,
+      'celebrate',
+      1.6
+    );
+
+    this.checkGameOver(true);
+  }
+
+  checkGameOver(deferReset = false) {
+    const [homeScore, awayScore] =
+      this.score;
+
+    let winner = null;
+
+    if (this.overtime) {
+      winner =
+        homeScore > awayScore
+          ? 0
+          : awayScore > homeScore
+            ? 1
+            : null;
+    } else if (
+      this.half === 2 &&
+      Math.abs(
+        homeScore - awayScore
+      ) >= this.rules.mercyLead
+    ) {
+      winner =
+        homeScore > awayScore
+          ? 0
+          : 1;
+    }
+
+    if (winner === null) {
+      return false;
+    }
+
+    if (
+      deferReset &&
+      this.state === 'dead'
+    ) {
+      this.pendingGameOver = winner;
+      this.stateTimer = Math.max(
+        this.stateTimer,
+        1.8
+      );
+
+      return false;
+    }
+
+    this.finishGame(winner);
+    return true;
+  }
+
+  finishGame(winner) {
+    if (this.state === 'over') {
+      return;
+    }
+
+    this.state = 'over';
+    this.winner = winner;
+
+    this.events.emit('gameover', {
+      winner,
+      score: [...this.score],
+      players: this.players,
+      overtime: this.overtime,
+    });
+  }
+
+  snapshot() {
+    return {
+      t: +this.time.toFixed(2),
+      state: this.state,
+      half: this.half,
+      clock: +this.clock.toFixed(1),
+      score: [...this.score],
+      gb: this.gb.map((value) =>
+        Math.round(value)
+      ),
+      poss: this.possession,
+      pclock: +this.possessionClock.toFixed(1),
+      holder: this.ball.holder
+        ? this.ball.holder.id
+        : null,
+      flight: this.ball.flight
+        ? this.ball.flight.kind
+        : null,
+      ball: [
+        +this.ball.pos.x.toFixed(2),
+        +this.ball.pos.y.toFixed(2),
+        +this.ball.pos.z.toFixed(2),
+      ],
+      ot: this.overtime,
+    };
+  }
+}
+
+function turnToward(
+  current,
+  target,
+  maxDelta
+) {
+  let delta = target - current;
+
+  while (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+
+  while (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+
+  if (Math.abs(delta) <= maxDelta) {
+    return target;
+  }
+
+  return (
+    current +
+    Math.sign(delta) *
+      maxDelta
+  );
+}
+ 
