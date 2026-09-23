@@ -1,3 +1,1009 @@
+  update(p, sim, dt, ballHeldByMe) {
+    const visualDt = Number.isFinite(dt)
+      ? Math.max(0, Math.min(MAX_VISUAL_DT, dt))
+      : 0;
+
+    this.t += visualDt;
+
+    const root = this.root;
+    root.position.set(
+      p.pos.x,
+      p.y,
+      p.pos.z
+    );
+    root.rotation.y = p.facing;
+
+    const speed = Math.max(
+      0,
+      Math.min(
+        1,
+        Number.isFinite(p.speedNorm)
+          ? p.speedNorm
+          : 0
+      )
+    );
+
+    const state = p.state || 'idle';
+    const time = Number.isFinite(p.anim?.t)
+      ? p.anim.t
+      : this.t;
+
+    const stateTime = Math.max(
+      0,
+      Number.isFinite(p.stateTime)
+        ? p.stateTime
+        : 0
+    );
+
+    const stateDuration = Math.max(
+      0.01,
+      Number.isFinite(p.stateDur)
+        ? p.stateDur
+        : 0.01
+    );
+
+    const arms = this.arms;
+    const legs = this.legs;
+    const joints = this.joints;
+
+    const previousBodyY = this.body.position.y;
+    const previousBodyZ = this.body.position.z;
+    const previousHipsY = this.hips.position.y;
+
+    const fromX = this.poseFromX;
+    const fromY = this.poseFromY;
+    const fromZ = this.poseFromZ;
+
+    // Capture the previous pose, then reuse the same rig objects
+    // for the new target pose. No arrays or pose objects are created here.
+    for (let i = 0; i < joints.length; i++) {
+      const joint = joints[i];
+
+      fromX[i] = joint.rotation.x;
+      fromY[i] = joint.rotation.y;
+      fromZ[i] = joint.rotation.z;
+
+      joint.rotation.set(0, 0, 0);
+    }
+
+    this.body.position.set(0, 0, 0);
+
+    let hipY = 1.0;
+
+    switch (state) {
+      case 'idle':
+      case 'swim':
+      case 'catch':
+      case 'gbdrive': {
+        const pitch = Math.min(
+          1.25,
+          speed * 1.6 +
+            (state === 'gbdrive' ? 1.2 : 0)
+        );
+
+        if (
+          speed > 0.06 ||
+          state === 'gbdrive'
+        ) {
+          this.applySwimCycle(
+            time,
+            0.5 + speed * 0.9,
+            6 + speed * 8,
+            pitch
+          );
+        } else {
+          hipY = this.applyTreadWater(time);
+        }
+
+        if (
+          ballHeldByMe ||
+          state === 'catch'
+        ) {
+          this.applyTuckBall();
+        }
+
+        if (state === 'catch') {
+          arms[0].shoulder.rotation.x = -1.6;
+          arms[0].elbow.rotation.x = -1.4;
+        }
+
+        break;
+      }
+
+      case 'gbwind': {
+        const u = Math.min(
+          1,
+          stateTime / 0.6
+        );
+
+        hipY = this.applyTreadWater(time);
+
+        this.body.rotation.x = -0.25 * u;
+        hipY = 1.0 + u * 0.2;
+
+        arms[0].shoulder.rotation.x = -2.9 * u;
+        arms[1].shoulder.rotation.x = -2.9 * u;
+
+        arms[0].shoulder.rotation.z = -0.4;
+        arms[1].shoulder.rotation.z = 0.4;
+
+        arms[0].elbow.rotation.x = -0.4;
+        arms[1].elbow.rotation.x = -0.4;
+
+        this.neck.rotation.x = -0.4 * u;
+
+        break;
+      }
+
+      case 'trick': {
+        const u = Math.min(
+          1,
+          stateTime / stateDuration
+        );
+
+        const trickId = p.trick?.def?.id ?? 0;
+
+        this.applySwimCycle(
+          time,
+          0.6,
+          12,
+          0.9
+        );
+
+        this.applyTuckBall();
+
+        switch (trickId) {
+          case 0:
+            // Spin.
+            this.body.rotation.y =
+              u * Math.PI * 2;
+            break;
+
+          case 1:
+            // Barrel roll.
+            this.body.rotation.z =
+              u * Math.PI * 2;
+            break;
+
+          case 2:
+            // Dolphin kick.
+            this.body.rotation.x =
+              0.9 +
+              Math.sin(u * Math.PI * 2) * 0.7;
+
+            legs[0].hip.rotation.x =
+              legs[1].hip.rotation.x =
+                Math.sin(u * Math.PI * 4) * 0.9;
+
+            legs[0].knee.rotation.x =
+              legs[1].knee.rotation.x =
+                Math.max(
+                  0,
+                  Math.cos(u * Math.PI * 4)
+                );
+
+            arms[0].shoulder.rotation.x =
+              arms[1].shoulder.rotation.x =
+                -Math.PI;
+
+            arms[0].elbow.rotation.x =
+              arms[1].elbow.rotation.x =
+                -0.1;
+
+            this.applyTuckBall();
+            break;
+
+          case 3:
+            // Corkscrew.
+            this.body.rotation.z =
+              u * Math.PI * 2;
+
+            this.body.rotation.y =
+              Math.sin(u * Math.PI) * 0.8;
+            break;
+
+          case 4:
+            // Back-flip feint.
+            this.body.rotation.x =
+              0.9 - u * Math.PI * 2;
+            break;
+
+          default:
+            // Jet stream.
+            this.body.rotation.x = 1.3;
+
+            legs[0].hip.rotation.x =
+              legs[1].hip.rotation.x =
+                Math.sin(time * 26) * 0.35;
+
+            arms[0].shoulder.rotation.x =
+              -Math.PI;
+
+            arms[0].elbow.rotation.x =
+              -0.05;
+
+            this.body.rotation.z =
+              Math.sin(u * Math.PI * 3) * 0.4;
+
+            break;
+        }
+
+        break;
+      }
+
+      case 'shoot': {
+        const wind =
+          p.shot &&
+          Number.isFinite(p.shot.wind)
+            ? Math.max(0.01, p.shot.wind)
+            : 0.75;
+
+        const u = Math.min(
+          1.2,
+          stateTime / wind
+        );
+
+        const released =
+          !!p.shot?.released;
+
+        hipY = this.applyTreadWater(time);
+
+        if (!released) {
+          const w = Math.min(1, u);
+
+          this.torso.rotation.y =
+            -0.6 * w;
+
+          this.body.rotation.x =
+            -0.15 * w;
+
+          arms[1].shoulder.rotation.x =
+            -2.4 - w * 0.6;
+
+          arms[1].shoulder.rotation.z =
+            0.5;
+
+          arms[1].elbow.rotation.x =
+            -1.8;
+
+          arms[0].shoulder.rotation.x =
+            -1.5;
+
+          arms[0].shoulder.rotation.z =
+            -0.2;
+
+          arms[0].elbow.rotation.x =
+            -0.2;
+
+          legs[1].hip.rotation.x =
+            -0.5 * w;
+
+          legs[0].hip.rotation.x =
+            0.4 * w;
+
+          hipY = 1.0 + w * 0.12;
+        } else {
+          const r = Math.min(
+            1,
+            stateTime / 0.3
+          );
+
+          this.torso.rotation.y =
+            0.5 * r;
+
+          this.body.rotation.x =
+            0.55 * r;
+
+          arms[1].shoulder.rotation.x =
+            -2.9 + r * 2.4;
+
+          arms[1].shoulder.rotation.z =
+            0.2;
+
+          arms[1].elbow.rotation.x =
+            -0.1;
+
+          arms[0].shoulder.rotation.x =
+            0.3;
+
+          arms[0].shoulder.rotation.z =
+            -0.9;
+
+          legs[0].hip.rotation.x =
+            -0.6 * r;
+
+          legs[1].hip.rotation.x =
+            0.7 * r;
+
+          legs[1].knee.rotation.x =
+            0.8 * r;
+
+          this.neck.rotation.x =
+            0.2 * r;
+        }
+
+        break;
+      }
+
+      case 'volley': {
+        const u = Math.min(
+          1,
+          stateTime / 0.45
+        );
+
+        const kick =
+          Math.sin(u * Math.PI);
+
+        this.body.rotation.x =
+          -0.4 + kick * 0.9;
+
+        legs[1].hip.rotation.x =
+          -1.8 * kick;
+
+        legs[1].knee.rotation.x =
+          0.2;
+
+        legs[0].hip.rotation.x =
+          0.9 * kick;
+
+        legs[0].knee.rotation.x =
+          1.2 * kick;
+
+        arms[0].shoulder.rotation.x =
+          -2.4;
+
+        arms[1].shoulder.rotation.x =
+          0.8;
+
+        arms[0].shoulder.rotation.z =
+          -0.5;
+
+        arms[1].shoulder.rotation.z =
+          0.7;
+
+        this.torso.rotation.y =
+          -0.4 * kick;
+
+        break;
+      }
+
+      case 'breach': {
+        const rising = p.vy > 0;
+        const stretch = rising ? 1 : 0.6;
+
+        this.body.rotation.x = -0.15;
+
+        arms[0].shoulder.rotation.x =
+          -Math.PI * stretch;
+
+        arms[1].shoulder.rotation.x =
+          -Math.PI * stretch;
+
+        arms[0].shoulder.rotation.z =
+          -0.15;
+
+        arms[1].shoulder.rotation.z =
+          0.15;
+
+        arms[0].elbow.rotation.x =
+          -0.1;
+
+        arms[1].elbow.rotation.x =
+          -0.1;
+
+        legs[0].hip.rotation.x = 0.1;
+        legs[1].hip.rotation.x = 0.1;
+
+        legs[0].knee.rotation.x =
+          rising ? 0.15 : 0.9;
+
+        legs[1].knee.rotation.x =
+          rising ? 0.15 : 0.9;
+
+        this.neck.rotation.x = -0.4;
+
+        if (ballHeldByMe) {
+          this.applyTuckBall();
+        }
+
+        break;
+      }
+
+      case 'pass': {
+        const u = Math.min(
+          1,
+          stateTime / 0.22
+        );
+
+        hipY = this.applyTreadWater(time);
+
+        this.body.rotation.x =
+          0.3 + u * 0.2;
+
+        arms[0].shoulder.rotation.x =
+          -1.5 - u * 0.3;
+
+        arms[1].shoulder.rotation.x =
+          -1.5 - u * 0.3;
+
+        arms[0].shoulder.rotation.z =
+          -0.2;
+
+        arms[1].shoulder.rotation.z =
+          0.2;
+
+        arms[0].elbow.rotation.x =
+          -1.3 + u * 1.3;
+
+        arms[1].elbow.rotation.x =
+          -1.3 + u * 1.3;
+
+        break;
+      }
+
+      case 'tackle': {
+        const u = Math.min(
+          1,
+          stateTime / 0.4
+        );
+
+        const lunge =
+          Math.sin(u * Math.PI);
+
+        this.body.rotation.x =
+          0.6 + lunge * 0.9;
+
+        this.body.position.y =
+          -lunge * 0.35;
+
+        this.body.position.z =
+          lunge * 0.3;
+
+        arms[1].shoulder.rotation.x =
+          -Math.PI + 0.2;
+
+        arms[1].elbow.rotation.x =
+          -0.1;
+
+        arms[0].shoulder.rotation.x =
+          -2.3;
+
+        arms[0].elbow.rotation.x =
+          -0.6;
+
+        legs[0].hip.rotation.x =
+          -0.5 * lunge;
+
+        legs[1].hip.rotation.x =
+          0.6 * lunge;
+
+        legs[1].knee.rotation.x =
+          0.6 * lunge;
+
+        this.neck.rotation.x =
+          -0.5;
+
+        break;
+      }
+
+      case 'hit': {
+        const u = Math.min(
+          1,
+          stateTime / 0.42
+        );
+
+        const push =
+          Math.sin(u * Math.PI);
+
+        this.body.rotation.x =
+          0.35 * push;
+
+        this.torso.rotation.y =
+          0.7 * push;
+
+        arms[1].shoulder.rotation.x =
+          -1.2 * push;
+
+        arms[1].shoulder.rotation.z =
+          0.9 * push;
+
+        arms[1].elbow.rotation.x =
+          -1.6;
+
+        arms[0].shoulder.rotation.x =
+          0.6 * push;
+
+        arms[0].shoulder.rotation.z =
+          -0.5;
+
+        legs[0].hip.rotation.x =
+          0.5 * push;
+
+        legs[1].hip.rotation.x =
+          -0.4 * push;
+
+        legs[0].knee.rotation.x =
+          0.8 * push;
+
+        break;
+      }
+
+      case 'save': {
+        const u = Math.min(
+          1,
+          stateTime / 0.55
+        );
+
+        const dive = Math.sin(
+          Math.min(1, u * 1.4) *
+            Math.PI *
+            0.5
+        );
+
+        const side =
+          (p.knockDir?.z ?? 0) >= 0
+            ? 1
+            : -1;
+
+        this.body.rotation.z =
+          side * dive * 1.3;
+
+        this.body.position.y =
+          dive * 0.2;
+
+        arms[0].shoulder.rotation.x =
+          -Math.PI + 0.1;
+
+        arms[1].shoulder.rotation.x =
+          -Math.PI + 0.1;
+
+        arms[0].shoulder.rotation.z =
+          -0.1;
+
+        arms[1].shoulder.rotation.z =
+          0.1;
+
+        arms[0].elbow.rotation.x =
+          -0.05;
+
+        arms[1].elbow.rotation.x =
+          -0.05;
+
+        legs[0].hip.rotation.x =
+          -0.2;
+
+        legs[1].hip.rotation.x =
+          0.4 * dive;
+
+        legs[1].knee.rotation.x =
+          0.7 * dive;
+
+        this.neck.rotation.x =
+          -0.3;
+
+        break;
+      }
+
+      case 'stumble': {
+        const u = Math.min(
+          1,
+          stateTime / stateDuration
+        );
+
+        hipY = this.applyTreadWater(time);
+
+        this.body.rotation.x =
+          0.8 * Math.sin(u * Math.PI);
+
+        this.body.rotation.z =
+          0.6 * Math.sin(u * Math.PI * 2);
+
+        this.body.rotation.y =
+          Math.sin(u * Math.PI) * 1.2;
+
+        arms[0].shoulder.rotation.z =
+          -1.6;
+
+        arms[1].shoulder.rotation.z =
+          1.6;
+
+        break;
+      }
+
+      case 'fallen': {
+        const u = Math.min(
+          1,
+          stateTime / stateDuration
+        );
+
+        const tumble = Math.min(
+          1,
+          u * 1.8
+        );
+
+        const recover =
+          u > 0.7
+            ? (u - 0.7) / 0.3
+            : 0;
+
+        this.body.rotation.x =
+          tumble * Math.PI * 2 *
+          (1 - recover);
+
+        this.body.rotation.z =
+          Math.sin(u * Math.PI) *
+          0.8 *
+          (1 - recover);
+
+        this.body.position.y =
+          -Math.sin(u * Math.PI) * 0.5;
+
+        arms[0].shoulder.rotation.z =
+          -1.4 * (1 - recover);
+
+        arms[1].shoulder.rotation.z =
+          1.4 * (1 - recover);
+
+        arms[0].shoulder.rotation.x =
+          -0.5;
+
+        arms[1].shoulder.rotation.x =
+          -0.5;
+
+        legs[0].hip.rotation.x =
+          -0.3;
+
+        legs[1].hip.rotation.x =
+          0.5;
+
+        legs[1].knee.rotation.x =
+          0.9;
+
+        legs[0].knee.rotation.x =
+          0.4;
+
+        if (recover > 0) {
+          hipY = this.applyTreadWater(time);
+        }
+
+        break;
+      }
+
+      case 'celebrate': {
+        const u = stateTime;
+        const bounce =
+          Math.abs(Math.sin(u * 7));
+
+        hipY = this.applyTreadWater(time);
+        hipY = 1.0 + bounce * 0.15;
+
+        arms[0].shoulder.rotation.x =
+          -2.8 + Math.sin(u * 9) * 0.3;
+
+        arms[1].shoulder.rotation.x =
+          -2.8 - Math.sin(u * 9) * 0.3;
+
+        arms[0].shoulder.rotation.z =
+          -0.5;
+
+        arms[1].shoulder.rotation.z =
+          0.5;
+
+        arms[0].elbow.rotation.x =
+          -0.6;
+
+        arms[1].elbow.rotation.x =
+          -0.6;
+
+        this.neck.rotation.x =
+          -0.35;
+
+        this.body.rotation.x =
+          -0.1;
+
+        break;
+      }
+
+      default:
+        hipY = this.applyTreadWater(time);
+        break;
+    }
+
+    this.hips.position.y = hipY;
+
+    if (
+      (state === 'swim' ||
+        state === 'idle') &&
+      speed > 0.2
+    ) {
+      let facingDelta =
+        p.facing -
+        (p.prevFacing ?? p.facing);
+
+      while (facingDelta > Math.PI) {
+        facingDelta -= Math.PI * 2;
+      }
+
+      while (facingDelta < -Math.PI) {
+        facingDelta += Math.PI * 2;
+      }
+
+      this.torso.rotation.z +=
+        -Math.sin(facingDelta) * 0.5;
+    }
+
+    // Keep the previous facing value for smooth turn banking.
+    p.prevFacing = p.facing;
+
+    const height = Number.isFinite(p.y)
+      ? p.y
+      : 0;
+
+    const shadowScale = Math.max(
+      0.35,
+      1 - height * 0.18
+    );
+
+    this.shadow.scale.setScalar(
+      shadowScale
+    );
+
+    this.shadow.position.y =
+      0.012 - height;
+
+    this.shadow.material.opacity =
+      0.4 * shadowScale;
+
+    this.ring.position.y =
+      0.02 - height;
+
+    this.turboGlow.position.y =
+      0.03 - height;
+
+    this.ring.visible =
+      !!p.controlled &&
+      sim.userTeam !== null &&
+      sim.userTeam === p.team;
+
+    if (this.ring.visible) {
+      const pulse =
+        0.85 +
+        Math.sin(this.t * 6) * 0.15;
+
+      this.ring.scale.setScalar(pulse);
+      this.ring.material.opacity = 0.75;
+    }
+
+    const turboMaterial =
+      this.turboGlow.material;
+
+    const turboTarget =
+      p.turboActive ||
+      state === 'gbdrive'
+        ? 0.85
+        : 0;
+
+    turboMaterial.opacity +=
+      (
+        turboTarget -
+        turboMaterial.opacity
+      ) *
+      smoothFactor(
+        visualDt,
+        10
+      );
+
+    this.turboGlow.rotation.z +=
+      visualDt * 4;
+
+    this.turboGlow.scale.setScalar(
+      1 +
+      Math.sin(this.t * 14) *
+        0.08
+    );
+
+    const firstPose = !this.poseReady;
+
+    const poseBlend = firstPose
+      ? 1
+      : smoothFactor(
+          visualDt,
+          18
+        );
+
+    for (let i = 0; i < joints.length; i++) {
+      const joint = joints[i];
+
+      joint.rotation.x = dampAngle(
+        fromX[i],
+        joint.rotation.x,
+        poseBlend
+      );
+
+      joint.rotation.y = dampAngle(
+        fromY[i],
+        joint.rotation.y,
+        poseBlend
+      );
+
+      joint.rotation.z = dampAngle(
+        fromZ[i],
+        joint.rotation.z,
+        poseBlend
+      );
+    }
+
+    const positionBlend = firstPose
+      ? 1
+      : smoothFactor(
+          visualDt,
+          14
+        );
+
+    this.body.position.y =
+      blendNumber(
+        previousBodyY,
+        this.body.position.y,
+        positionBlend
+      );
+
+    this.body.position.z =
+      blendNumber(
+        previousBodyZ,
+        this.body.position.z,
+        positionBlend
+      );
+
+    this.hips.position.y =
+      blendNumber(
+        previousHipsY,
+        hipY,
+        positionBlend
+      );
+
+    this.poseReady = true;
+  }
+
+  applySwimCycle(
+    time,
+    amplitude,
+    frequency,
+    pitch
+  ) {
+    const arms = this.arms;
+    const legs = this.legs;
+
+    const phase = time * frequency;
+    const sine = Math.sin(phase);
+    const cosine = Math.cos(phase);
+
+    this.body.rotation.x = pitch;
+    this.body.position.y =
+      -pitch * 0.35;
+
+    this.body.position.z =
+      pitch * 0.25;
+
+    legs[0].hip.rotation.x =
+      sine * amplitude * 0.5;
+
+    legs[1].hip.rotation.x =
+      -sine * amplitude * 0.5;
+
+    legs[0].knee.rotation.x =
+      Math.max(0, -cosine) *
+        amplitude *
+        0.6 +
+      0.1;
+
+    legs[1].knee.rotation.x =
+      Math.max(0, cosine) *
+        amplitude *
+        0.6 +
+      0.1;
+
+    const leftStroke =
+      phase * 0.5;
+
+    const rightStroke =
+      leftStroke + Math.PI;
+
+    const leftCosine =
+      Math.cos(leftStroke);
+
+    const rightCosine =
+      Math.cos(rightStroke);
+
+    arms[0].shoulder.rotation.x =
+      -Math.PI +
+      Math.sin(leftStroke) * 1.4;
+
+    arms[1].shoulder.rotation.x =
+      -Math.PI +
+      Math.sin(rightStroke) * 1.4;
+
+    arms[0].shoulder.rotation.z =
+      -0.35 -
+      Math.max(0, leftCosine) * 0.5;
+
+    arms[1].shoulder.rotation.z =
+      0.35 +
+      Math.max(0, rightCosine) * 0.5;
+
+    arms[0].elbow.rotation.x =
+      -0.3 -
+      Math.max(0, leftCosine) * 0.9;
+
+    arms[1].elbow.rotation.x =
+      -0.3 -
+      Math.max(0, rightCosine) * 0.9;
+
+    this.hips.rotation.y =
+      sine * 0.15 * amplitude;
+
+    this.torso.rotation.z =
+      Math.sin(leftStroke) * 0.15;
+
+    this.neck.rotation.x =
+      -pitch * 0.8;
+  }
+
+  applyTreadWater(time) {
+    const arms = this.arms;
+    const legs = this.legs;
+
+    const bob =
+      Math.sin(time * 2.2);
+
+    const kick =
+      Math.sin(time * 4);
+
+    const stroke =
+      Math.sin(time * 2.6);
+
+    this.body.rotation.x = 0.12;
+
+    legs[0].hip.rotation.x =
+      0.25 + kick * 0.2;
+
+    legs[1].hip.rotation.x =
+      0.25 - kick * 0.2;
+
+    legs[0].knee.rotation.x = 0.55;
+    legs[1].knee.rotation.x = 0.55;
+
+    legs[0].hip.rotation.z = 0.12;
+    legs[1].hip.rotation.z = -0.12;
+
+    arms[0].shoulder.rotation.z =
+      -1.1 + stroke * 0.15;
+
+    arms[1].shoulder.rotation.z =
+      1.1 - stroke * 0.15;
+
+    arms[0].shoulder.rotation.x = -0.4;
+    arms[1].shoulder.rotation.x = -0.4;
+
+    arms[0].elbow.rotation.x = -0.9;
+    arms[1].elbow.rotation.x = -0.9;
+
+    return 1.0 + bob * 0.03;
+  }
+
+  applyTuckBall() {
+    const rightArm = this.arms[1];
+
+    rightArm.shoulder.rotation.x =
+      -0.9;
+
+    rightArm.shoulder.rotation.z =
+      0.25;
+
+    rightArm.elbow.rotation.x =
+      -1.9;
+  }
+
+  // Chunk 3 starts here.
 import * as THREE from 'three';
 import { toon, withOutline, makeCanvas, canvasTexture, shade } from './materials.js';
 
@@ -700,4 +1706,92 @@ function blobShadowTexture() {
   ctx.fillRect(0, 0, 128, 128);
   _blob = canvasTexture(c);
   return _blob;
+}
+  handWorld(target) {
+    this.arms[1].hand.getWorldPosition(target);
+    return target;
+  }
+
+  leftHandWorld(target) {
+    this.arms[0].hand.getWorldPosition(target);
+    return target;
+  }
+}
+
+function dampAngle(from, to, blend) {
+  let delta = to - from;
+
+  while (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+
+  while (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+
+  return from + delta * blend;
+}
+
+function blendNumber(from, to, blend) {
+  return from + (to - from) * blend;
+}
+
+function smoothFactor(dt, rate) {
+  if (
+    !Number.isFinite(dt) ||
+    !Number.isFinite(rate) ||
+    dt <= 0 ||
+    rate <= 0
+  ) {
+    return 0;
+  }
+
+  return 1 - Math.exp(
+    -Math.min(dt, MAX_VISUAL_DT) * rate
+  );
+}
+
+function safeIndex(value, length) {
+  if (!Number.isFinite(value) || length <= 0) {
+    return 0;
+  }
+
+  const index = Math.trunc(value) % length;
+  return index < 0 ? index + length : index;
+}
+
+let sharedBlobShadowTexture = null;
+
+function blobShadowTexture() {
+  if (sharedBlobShadowTexture) {
+    return sharedBlobShadowTexture;
+  }
+
+  const canvas = makeCanvas(128, 128);
+  const ctx = canvas.getContext('2d');
+
+  const gradient = ctx.createRadialGradient(
+    64,
+    64,
+    10,
+    64,
+    64,
+    60
+  );
+
+  gradient.addColorStop(
+    0,
+    'rgba(0,0,0,0.9)'
+  );
+
+  gradient.addColorStop(
+    1,
+    'rgba(0,0,0,0)'
+  );
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+
+  sharedBlobShadowTexture = canvasTexture(canvas);
+  return sharedBlobShadowTexture;
 }
