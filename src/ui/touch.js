@@ -21,6 +21,59 @@ const BUTTONS = [
   { action: 'gamebreaker', label: 'GB', cls: 'gb', kind: 'tap' },
 ];
 
+// Compact layout: smaller footprint, tight gaps, perfectly centered labels.
+// Scoped under .touch-ui so it can't leak into the rest of the HUD, and the
+// <style> element is removed in dispose() so it never survives a rematch.
+const TOUCH_CSS = `
+.touch-ui .touch-actions {
+  gap: 8px;
+  right: 10px;
+  bottom: 12px;
+}
+.touch-ui .touch-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  font-size: 10px;
+  font-weight: 800;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.touch-ui .touch-btn span {
+  display: block;
+  transform: translateY(0.5px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.touch-ui .touch-btn.gb {
+  width: 44px;
+  height: 44px;
+}
+.touch-ui .touch-pause {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.touch-ui .touch-stick-zone {
+  width: 150px;
+  height: 150px;
+}
+`;
+
 export class TouchControls {
   constructor(container, input, { onPause } = {}) {
     this.input = input;
@@ -28,6 +81,11 @@ export class TouchControls {
     this.stickId = null;
     this.stickOrigin = { x: 0, y: 0 };
     this.buttons = new Map();
+
+    this.styleEl = document.createElement('style');
+    this.styleEl.textContent = TOUCH_CSS;
+    document.head.appendChild(this.styleEl);
+
     this.el = this.build();
     container.appendChild(this.el);
     this.el.querySelector('.touch-pause').addEventListener('pointerdown', (e) => {
@@ -86,92 +144,5 @@ export class TouchControls {
         t.active = false;
         return;
       }
-      // Rescale past the deadzone so the swimmer still reaches full speed at the rim.
-      const scale = Math.min(1, (mag - STICK_DEADZONE) / (1 - STICK_DEADZONE)) / mag;
-      t.moveX = nx * scale;
-      t.moveZ = ny * scale; // screen-down is +z, matching the camera looking down +z at the pool
-      t.active = true;
-    };
-    const end = (e) => {
-      if (e.pointerId !== this.stickId) return;
-      this.stickId = null;
-      t.moveX = 0;
-      t.moveZ = 0;
-      t.active = false;
-      this.nub.style.transform = 'translate(-50%, -50%)';
-      this.stick.classList.remove('engaged');
-    };
-    zone.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      if (this.stickId !== null) return;
-      this.stickId = e.pointerId;
-      this.stickOrigin = { x: e.clientX, y: e.clientY };
-      place(e.clientX, e.clientY);
-      this.stick.classList.add('engaged');
-      zone.setPointerCapture(e.pointerId);
-      move(e);
-    });
-    zone.addEventListener('pointermove', move);
-    zone.addEventListener('pointerup', end);
-    zone.addEventListener('pointercancel', end);
-    zone.addEventListener('lostpointercapture', end);
-  }
-
-  bindButton(btn) {
-    const action = btn.dataset.action;
-    const t = this.input.touch;
-    this.buttons.set(action, btn);
-    const press = (e) => {
-      e.preventDefault();
-      if (btn.classList.contains('down')) return;
-      btn.classList.add('down');
-      if (action === 'turbo') t.turbo = true;
-      else if (action === 'shoot') {
-        t.shootHeld = true;
-        t.edges.add('shoot');
-      } else t.edges.add(action);
-      btn.setPointerCapture?.(e.pointerId);
-    };
-    const release = (e) => {
-      e?.preventDefault?.();
-      if (!btn.classList.contains('down')) return;
-      btn.classList.remove('down');
-      if (action === 'turbo') t.turbo = false;
-      else if (action === 'shoot') {
-        t.shootHeld = false;
-        t.edges.add('shootRelease');
-      }
-    };
-    btn.addEventListener('pointerdown', press);
-    btn.addEventListener('pointerup', release);
-    btn.addEventListener('pointercancel', release);
-    btn.addEventListener('lostpointercapture', release);
-    btn.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
-
-  /** Highlight the Gamebreaker button when a meter is full. */
-  setGamebreakerReady(ready) {
-    const b = this.buttons.get('gamebreaker');
-    if (b) b.classList.toggle('ready', !!ready);
-  }
-
-  dispose() {
-    const t = this.input.touch;
-    t.moveX = 0;
-    t.moveZ = 0;
-    t.active = false;
-    t.turbo = false;
-    t.shootHeld = false;
-    t.edges.clear();
-    this.el.remove();
-  }
-}
-
-/** True when the primary pointing device is a finger (phones, tablets). */
-export function isTouchDevice() {
-  try {
-    return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
-  } catch (e) {
-    return false;
-  }
-}
+      // Rescale past the deadzone so the swimmer still reaches full speed at the rim
+      
