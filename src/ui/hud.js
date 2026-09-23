@@ -2,6 +2,117 @@ import { RULES } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 
 /**
+ * Compact HUD override. Injected once as a scoped <style>; !important guarantees it wins over
+ * the external stylesheet's selectors regardless of source order. Only sizes shrink — colors,
+ * positioning and layout structure from the base CSS are left alone.
+ */
+const HUD_CSS = `
+.hud-compact .scoreboard {
+  gap: 8px !important;
+}
+.hud-compact .sb-team {
+  padding: 4px 10px !important;
+  gap: 3px !important;
+}
+.hud-compact .sb-name {
+  font-size: 10px !important;
+  letter-spacing: 0.5px !important;
+}
+.hud-compact .sb-score {
+  font-size: 20px !important;
+  line-height: 1 !important;
+}
+.hud-compact .gb-meter {
+  height: 4px !important;
+  width: 54px !important;
+}
+.hud-compact .gb-label {
+  font-size: 8px !important;
+}
+.hud-compact .sb-mid {
+  gap: 2px !important;
+}
+.hud-compact .sb-title {
+  font-size: 9px !important;
+}
+.hud-compact .sb-clock {
+  font-size: 16px !important;
+  line-height: 1.1 !important;
+}
+.hud-compact .sb-pclock {
+  font-size: 10px !important;
+}
+.hud-compact .sb-clear {
+  font-size: 9px !important;
+  padding: 2px 6px !important;
+}
+.hud-compact .pcard {
+  padding: 5px 10px !important;
+  gap: 8px !important;
+}
+.hud-compact .pcard-num {
+  font-size: 16px !important;
+  line-height: 1 !important;
+}
+.hud-compact .pcard-nick {
+  font-size: 12px !important;
+}
+.hud-compact .pcard-name {
+  font-size: 9px !important;
+}
+.hud-compact .turbo {
+  height: 4px !important;
+}
+.hud-compact .turbo span {
+  font-size: 7px !important;
+}
+.hud-compact .ticker {
+  font-size: 11px !important;
+  padding: 3px 10px !important;
+}
+.hud-compact .ticker-mic {
+  font-size: 11px !important;
+}
+.hud-compact .plays {
+  gap: 6px !important;
+}
+.hud-compact .play {
+  font-size: 9px !important;
+  padding: 3px 8px !important;
+}
+.hud-compact .play-key {
+  font-size: 8px !important;
+}
+.hud-compact .heat {
+  font-size: 10px !important;
+  padding: 2px 8px !important;
+}
+.hud-compact .combo {
+  font-size: 12px !important;
+}
+.hud-compact .flowchip {
+  font-size: 9px !important;
+  padding: 2px 8px !important;
+}
+.hud-compact .banner-text {
+  font-size: 24px !important;
+}
+.hud-compact .banner-sub {
+  font-size: 11px !important;
+}
+`;
+
+let hudStyleEl = null;
+
+function ensureHudStyle() {
+  if (!hudStyleEl) {
+    hudStyleEl = document.createElement('style');
+    hudStyleEl.textContent = HUD_CSS;
+    document.head.appendChild(hudStyleEl);
+  }
+}
+
+/**
  * In-match HUD: scoreboard, game clock + possession clock, gamebreaker meters, turbo bar,
  * style popups, commentary ticker, banners (GAMEBREAKER / WASHED / HUGE SAVE), controls hint.
  */
@@ -9,6 +120,8 @@ export class HUD {
   constructor(root, sim) {
     this.root = root;
     this.sim = sim;
+    ensureHudStyle();
+    this.root.classList.add('hud-compact');
     this.root.innerHTML = this.template();
     this.$ = (s) => this.root.querySelector(s);
     this.els = {
@@ -304,4 +417,4 @@ function fmtClock(sec) {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
-}
+  }
