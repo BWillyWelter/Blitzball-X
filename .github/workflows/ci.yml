@@ -25,3 +25,20 @@ jobs:
         with:
           name: blitzball-x-dist
           path: dist
+
+  browser-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Production build
+        run: npm run build
+      - name: Serve dist and run touch-control QA (headless Chromium)
+        run: |
+          npx vite preview --port 4173 --host 127.0.0.1 &
+          sleep 3
+          npm run qa:touch -- http://127.0.0.1:4173/

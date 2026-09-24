@@ -1,7 +1,7 @@
 {
   "name": "blitzball-x",
   "version": "1.0.0",
-  "description": "BLITZBALL X \u2014 arcade underwater 3-on-3 Blitzball. Turbo, tricks, washes, big hits, keepers, Gamebreakers. Two halves, most goals wins.",
+  "description": "BLITZBALL X — arcade underwater 3-on-3 Blitzball. Turbo, tricks, washes, big hits, keepers, Gamebreakers. Two halves, most goals wins.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,9 @@
     "qa:screens": "node tools/screens.mjs",
     "qa:play": "node tools/playtest.mjs",
     "qa:shot": "node tools/shot.mjs",
-    "qa:probe": "node tools/probe.mjs"
+    "qa:probe": "node tools/probe.mjs",
+    "qa:touch": "node tools/touchtest.mjs",
+    "qa:perf": "node tools/perfshot.mjs"
   },
   "dependencies": {
     "@fontsource/bangers": "^5.3.0",
