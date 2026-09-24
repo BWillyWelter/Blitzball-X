@@ -373,10 +373,25 @@ export class InputManager {
 
       this.lastDevice = 'touch';
 
+      // Route through the same locals the keyboard and gamepad set: the final assignment block
+      // below overwrites output.* from these locals, so writing output here directly would be
+      // clobbered (touch PASS/SWAP/JUMP/… would silently do nothing).
       if (field === 'shootPressed') {
         shootPressed = true;
-      } else {
-        output[field] = true;
+      } else if (field === 'pass') {
+        pass = true;
+      } else if (field === 'trick') {
+        trick = true;
+      } else if (field === 'hit') {
+        hit = true;
+      } else if (field === 'breach') {
+        breach = true;
+      } else if (field === 'switchPlayer') {
+        switchPlayer = true;
+      } else if (field === 'gamebreaker') {
+        gamebreaker = true;
+      } else if (field === 'ballCamToggle') {
+        ballCamToggle = true;
       }
     }
 

@@ -177,6 +177,30 @@ const buttons = await page.evaluate(() => {
   out.trick = a.state === 'trick' || !!a.trick;
   out.trickDebug = `sim=${sim.state} p=${a.state} cd=${a.cd.trick.toFixed(2)}`;
 
+  // PASS — the carrier passes to a teammate (regression: touch pass edges were clobbered)
+  ensureLive();
+  const pa = fresh(sim.outfield(0)[0]);
+  tap('pass');
+  const pi = step(1);
+  out.passInp = `pass=${pi.pass} flight=${sim.ball.flight ? sim.ball.flight.kind : null}`;
+  out.pass = pi.pass === true && sim.ball.holder !== pa;
+  out.passDebug = `sim=${sim.state} holder=${sim.ball.holder ? sim.ball.holder.id : 'none'}`;
+
+  // SWAP — off the ball, the switch button hands control to another swimmer
+  ensureLive();
+  const beforeSwap = sim.controlled ? sim.controlled.id : null;
+  tap('switch');
+  const wi = step(1);
+  out.swap = wi.switchPlayer === true && sim.controlled && sim.controlled.id !== beforeSwap;
+  out.swapDebug = `before=${beforeSwap} after=${sim.controlled ? sim.controlled.id : null} sw=${wi.switchPlayer}`;
+
+  // CAM — the ball-cam toggle edge must survive the poll (routes to the game camera)
+  ensureLive();
+  tap('ballcam');
+  const ci = step(1);
+  out.cam = ci.ballCamToggle === true;
+  out.camDebug = `ballCamToggle=${ci.ballCamToggle}`;
+
   // JUMP (breach) — off the ball, so give possession to a team-mate but keep control on `b`.
   ensureLive();
   const b = sim.outfield(0)[1];
@@ -237,6 +261,9 @@ const buttons = await page.evaluate(() => {
   return out;
 });
 ok('TRICK button triggers a trick', buttons.trick === true, buttons.trickDebug);
+ok('PASS button fires a pass', buttons.pass === true, `${buttons.passDebug} | ${buttons.passInp}`);
+ok('SWAP button switches swimmer', buttons.swap === true, buttons.swapDebug);
+ok('CAM button toggles ball cam edge', buttons.cam === true, buttons.camDebug);
 ok('JUMP button breaches', buttons.breach === true, `${buttons.breachDebug} | immediate=${buttons.breachImmediate} | ${buttons.breachInp}`);
 ok('SHOOT button starts a wind-up', buttons.windup === true, `${buttons.shootDebug} | immediate=${buttons.shootImmediate} | ${buttons.shootInp}`);
 ok('SHOOT button holds (charge)', buttons.held === true);
