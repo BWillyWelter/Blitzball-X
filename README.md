@@ -39,6 +39,7 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 | Big hit | I | Y / Triangle |
 | Breach (leap) / Block / Volley a loose ball | U (or J on defense) | A / Cross on defense |
 | Switch swimmer | Q / Tab | LB |
+| Ball cam / player cam toggle | C | R3 (stick click) |
 | Gamebreaker | E | LT + RT |
 | Pause | Esc | Start |
 

@@ -75,6 +75,7 @@ export function emptyInput() {
     breach: false,
     switchPlayer: false,
     gamebreaker: false,
+    ballCamToggle: false, // one-shot: flips the player cam between ball lock and forward look
   };
 }
 
@@ -98,6 +99,7 @@ export function copyInput(dst, src) {
   dst.breach = src.breach;
   dst.switchPlayer = src.switchPlayer;
   dst.gamebreaker = src.gamebreaker;
+  dst.ballCamToggle = src.ballCamToggle;
   dst.playcall = src.playcall;
   return dst;
 }

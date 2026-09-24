@@ -60,7 +60,7 @@ export class MatchRenderer {
     this.scene.fog = new THREE.FogExp2(new THREE.Color(theme.fog), 0.012);
 
     this.camera = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 400);
-    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle, playerCam: settings.playerCam });
+    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle, playerCam: settings.playerCam, ballCam: settings.ballCam });
 
     this.setupLights(theme);
     this.court = buildCourt(this.scene, theme);

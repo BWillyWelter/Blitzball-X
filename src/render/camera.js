@@ -28,8 +28,19 @@ export class GameCamera {
     // Rematch-style player lock: camera rides behind the controlled swimmer.
     this.preferPlayer = !!opts.playerCam;
     if (this.preferPlayer) this.mode = 'player';
+    // BALL CAM (Rocket League style): when on, the camera's look target hard-locks onto the
+    // ball at all times while the boom still trails the controlled swimmer. When off, the
+    // camera looks where the swimmer is headed (auto-yaw toward the attack direction).
+    // Toggle-able in-match (KeyC / RS click / touch CAM); defaults from Settings.
+    this.ballCam = opts.ballCam !== false;
     this.pPos = new THREE.Vector3();
     this.pYaw = 0;
+  }
+
+  /** Toggle between ball-cam lock and forward-facing cam (KeyC / RS click / touch CAM). */
+  toggleBallCam() {
+    this.ballCam = !this.ballCam;
+    return this.ballCam;
   }
 
   punch(amount = 0.4) {
@@ -72,15 +83,45 @@ export class GameCamera {
       const p = sim.controlled;
       const dir = sim.attackDir(p.team);
       this.pPos.lerp(new THREE.Vector3(p.pos.x, p.y, p.pos.z), 1 - Math.exp(-dt * 10));
-      const targetYaw = Math.atan2(dir, 0);
+      // BALL CAM: yaw follows the direction from the swimmer to the ball, so the ball always
+      // stays framed. FORWARD CAM: yaw eases toward the swimmer's travel heading when they are
+      // actually moving, and drifts back toward the attack direction when idle — never spins.
+      let targetYaw;
+      if (this.ballCam) {
+        const bdx = sim.ball.pos.x - p.pos.x;
+        const bdz = sim.ball.pos.z - p.pos.z;
+        if (bdx * bdx + bdz * bdz < 0.25) targetYaw = Math.atan2(dir, 0);
+        else targetYaw = Math.atan2(bdx, bdz);
+      } else {
+        const spd = Math.hypot(p.vel.x, p.vel.z);
+        targetYaw = spd > 0.8 ? Math.atan2(p.vel.x, p.vel.z) : Math.atan2(dir, 0);
+      }
       let d = (targetYaw - this.pYaw) % (Math.PI * 2);
       if (d > Math.PI) d -= Math.PI * 2;
       if (d < -Math.PI) d += Math.PI * 2;
       this.pYaw += d * (1 - Math.exp(-dt * 4.5));
       const back = new THREE.Vector3(-Math.sin(this.pYaw), 0, -Math.cos(this.pYaw));
       const right = new THREE.Vector3(Math.cos(this.pYaw), 0, -Math.sin(this.pYaw));
-      desiredPos = this.pPos.clone().addScaledVector(back, 3.5).addScaledVector(right, 0.55).add(new THREE.Vector3(0, 1.7, 0));
-      desiredLook = this.pPos.clone().addScaledVector(new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw)), 6).addScaledVector(right, 0.3).add(new THREE.Vector3(0, 1.3, 0));
+      // Arena wall trim: gameplay happens entirely inside the water sphere, so the boom must
+      // never push the camera through the wall. Measure against the sphere's inner radius and
+      // also keep the camera above the playing disc — shortening the boom reads as the camera
+      // hugging the swimmer when they drift toward the rim, which is exactly what we want.
+      const boomBase = this.ballCam ? 4.6 : 3.5;
+      let boom = boomBase;
+      const headY = p.y + 1.7;
+      const rXZ = Math.hypot(this.pPos.x, this.pPos.z);
+      const rr = Math.hypot(this.pPos.x + back.x * boom, this.pPos.z + back.z * boom);
+      if (rr > ARENA.sphereRadius - 1.2) {
+        const maxStep = Math.max(0.6, ARENA.sphereRadius - 1.2 - rXZ);
+        boom = Math.min(boom, maxStep);
+      }
+      const camY = Math.max(headY, -ARENA.floorY);
+      desiredPos = this.pPos.clone().addScaledVector(back, boom).addScaledVector(right, 0.55).add(new THREE.Vector3(0, camY - p.y, 0));
+      if (this.ballCam) {
+        desiredLook = new THREE.Vector3(sim.ball.pos.x, sim.ball.pos.y * 0.8 + 0.2, sim.ball.pos.z);
+      } else {
+        desiredLook = this.pPos.clone().addScaledVector(new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw)), 6).addScaledVector(right, 0.3).add(new THREE.Vector3(0, 1.3, 0));
+      }
       // FLOW widens the view slightly — speed you can feel.
       desiredFov = sim.flow && sim.flow[p.team] ? 72 : 64;
     } else if (this.firstPerson && sim.controlled) {
@@ -135,6 +176,10 @@ export class GameCamera {
 
     const k = 1 - Math.exp(-dt * (this.mode === 'play' ? 3.0 : 5.5));
     this.pos.lerp(desiredPos, k);
+    // Sphere-wall clamp on the blended position too: fast swings (ball cam catching a pass
+    // across the rim) can lerp the camera outside the arena even when the desired position was
+    // trimmed, so the live position is clamped every frame.
+    if (this.pos.length() > ARENA.sphereRadius - 1.0) this.pos.setLength(ARENA.sphereRadius - 1.0);
     this.look.lerp(desiredLook, k * 1.3);
     this.fov += (desiredFov - this.fov) * k;
 

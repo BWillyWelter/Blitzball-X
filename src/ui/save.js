@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   camera: 'broadcast', // broadcast | firstPerson — career no longer forces first-person
   cameraAngle: 'corner', // corner (3D three-quarter) | side (classic side-on)
   playerCam: true, // Rematch-style player-lock third-person camera (broadcast when off)
+  ballCam: true, // player cam mode: true = hard-lock the ball, false = look where you swim
 };
 
 export function defaultState() {

@@ -167,7 +167,7 @@ class App {
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
           ? 'LEFT STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters'
-          : 'WASD move & aim · SHIFT turbo · J shoot · K pass/call · L slide tackle · I hit · U breach · E gamebreaker · Q switch · 1-3/7-9 plays',
+          : 'WASD move & aim · SHIFT turbo · J shoot · K pass/call · L slide tackle · I hit · U breach · E gamebreaker · Q switch · C ball cam · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim, renderer);
     if (this.audio.unlocked) {
@@ -298,12 +298,21 @@ class App {
   endMatch() {
     if (!this.match) return;
     this.match.touchControls?.dispose();
+    this.persistBallCam();
     this.match.renderer.dispose();
     this.match.wrap.remove();
     this.match = null;
     this.overlay = null;
     this.audio.stopCrowd();
     this.audio.resume();
+  }
+
+  /** Persist the in-match ball-cam toggle so the next match and Settings reflect it. */
+  persistBallCam() {
+    if (this.match?.renderer?.gameCam) {
+      this.state.settings.ballCam = this.match.renderer.gameCam.ballCam;
+      saveState(this.state);
+    }
   }
 
   finishMatch() {
@@ -342,6 +351,8 @@ class App {
       if (!this.match) return;
       const params = { sim, mode: m.mode, userTeam: m.userTeam, careerResult };
       this.match.touchControls?.dispose();
+      // A natural game end never goes through endMatch, so persist the toggle here too.
+      this.persistBallCam();
       this.match.renderer.dispose();
       this.match.wrap.remove();
       this.match = null;
@@ -379,6 +390,9 @@ class App {
         return;
       }
       const input = this.input.poll();
+      // Latch the ball-cam edge before the fixed-step loop zeroes the one-shots; it is consumed
+      // below only once a step has actually run, so no-step frames can't double-fire the toggle.
+      const ballCamEdge = input.ballCamToggle;
       if (m.userTeam !== null) m.sim.setUserInput(input);
       // Fixed-step simulation
       this.accum += dt;
@@ -397,11 +411,18 @@ class App {
         input.breach = false;
         input.switchPlayer = false;
         input.gamebreaker = false;
+        input.ballCamToggle = false;
         input.playcall = 0;
       }
       // Only release latched edges once a step has actually consumed them, otherwise a tap that
       // lands on a frame with no fixed step (120 Hz displays) is silently dropped.
       if (n > 0) this.input.flushOneShots();
+      // BALL CAM toggle (C / RS click / touch CAM): flips the player cam between hard-locking
+      // the ball and looking where the swimmer is headed. Popup feedback so the swap reads.
+      if (ballCamEdge && n > 0 && m.renderer.gameCam && m.sim.controlled) {
+        const on = m.renderer.gameCam.toggleBallCam();
+        m.hud.popup(on ? 'BALL CAM' : 'PLAYER CAM', on ? 'LOCKED ON' : 'LOOK AHEAD', m.sim.controlled.team, false, 0);
+      }
       // Light up the Gamebreaker button as soon as the controlled side's meter is full.
       if (m.touchControls && m.userTeam !== null) m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
       // Swim stroke sound for the controlled / carrying swimmer

@@ -319,6 +319,7 @@ export function HowToScreen(app) {
             <li><b>K</b> passes to whoever you steer toward; off the ball, <b>K calls for the pass</b> — a teammate flags open and the carrier finds you.</li>
             <li><b>L</b> is now a committed <b>slide tackle</b>: bigger lunge, real chance to win the ball, real punishment if you whiff.</li>
             <li><b>Q</b> switches swimmers even while your team carries — take control of the support runner.</li>
+            <li><b>C</b> toggles <b>ball cam</b>: locked onto the ball at all times, or looking where you swim. The camera trims against the arena wall so it never clips the sphere.</li>
           </ul>
         </div>
         <div class="howto-col">
@@ -334,6 +335,7 @@ export function HowToScreen(app) {
             <tr><td>Big hit</td><td>I</td><td>Y / △</td></tr>
             <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td></tr>
             <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td></tr>
+            <tr><td>Ball cam / player cam toggle</td><td>C</td><td>R3 (stick click)</td></tr>
             <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td></tr>
             <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td></tr>
             <tr><td>Pause</td><td>ESC</td><td>START</td></tr>
@@ -385,10 +387,12 @@ export function SettingsScreen(app, params = {}) {
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
         ${row('camera', 'CAMERA', 'select', [['broadcast', 'BROADCAST (default)'], ['firstPerson', 'FIRST-PERSON SWIM']])}
         ${row('playerCam', 'PLAYER LOCK CAM', 'toggle')}
+        ${row('ballCam', 'BALL CAM (player cam mode)', 'toggle')}
         ${row('cameraAngle', 'BROADCAST ANGLE', 'select', [['corner', 'CORNER (3D depth)'], ['side', 'SIDE (classic)']])}
         ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}
+        <div class="set-note">BALL CAM is also toggled in-match with <b>C</b> (gamepad R3 / touch CAM button).</div>
       </div>
       <div class="set-actions"><button class="btn danger reset-btn">RESET ALL DATA</button><button class="btn back-btn">BACK</button></div>
     </section>`);
@@ -401,8 +405,12 @@ export function SettingsScreen(app, params = {}) {
         r.querySelector('.set-val').textContent = `${Math.round(s[key] * 100)}%`;
         app.audio.applyVolumes();
         if (key !== 'musicVolume') app.audio.uiMove();
-      } else if (input.type === 'checkbox') s[key] = input.checked;
-      else s[key] = input.value;
+      } else if (input.type === 'checkbox') {
+        s[key] = input.checked;
+        // Live-apply the ball-cam toggle to an in-progress match so the change is felt
+        // immediately and the camera's persisted value at match end can't clobber this setting.
+        if (key === 'ballCam' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.ballCam = input.checked;
+      } else s[key] = input.value;
       app.save();
     });
   });
@@ -470,7 +478,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
         ])}
         <div class="pause-controls hidden">
           <div><b>WASD</b> swim · <b>SHIFT</b> turbo · <b>J/SPACE</b> shoot (hold, release on PERFECT) · <b>K</b> pass (<b>+SHIFT</b> lob for a volley)</div>
-          <div><b>L</b> trick / tackle · <b>I</b> big hit · <b>U</b> breach / block · <b>Q</b> switch · <b>E</b> Gamebreaker</div>
+          <div><b>L</b> trick / tackle · <b>I</b> big hit · <b>U</b> breach / block · <b>Q</b> switch · <b>C</b> ball cam · <b>E</b> Gamebreaker</div>
         </div>
       </div>
     </div>`);

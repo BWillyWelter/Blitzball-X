@@ -64,7 +64,7 @@ const ui = await page.evaluate(() => ({
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('8 action buttons + stick + pause rendered', ui.buttons === 8 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
+ok('9 action buttons + stick + pause rendered', ui.buttons === 9 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
 // ------------------------------------------------------------------- stick

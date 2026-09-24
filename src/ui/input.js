@@ -7,10 +7,11 @@ import { emptyInput } from '../game/entities.js';
  *            K pass / call for pass off-ball (K+turbo = lob) · L slide/poke tackle · I big hit ·
  *            U breach (jump/block) · Q switch player · E gamebreaker · ESC pause
  * Gamepad:   Left stick move · RT/RB turbo · A/Cross shoot · X/Square pass ·
- *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker · Start pause
+ *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker ·
+ *            R3 (right-stick click) ball cam · Start pause
  */
 /** One-shot input fields: true for a single fixed step, then consumed. */
-const ONE_SHOT = ['shootPressed', 'shootReleased', 'pass', 'trick', 'hit', 'breach', 'switchPlayer', 'gamebreaker'];
+const ONE_SHOT = ['shootPressed', 'shootReleased', 'pass', 'trick', 'hit', 'breach', 'switchPlayer', 'gamebreaker', 'ballCamToggle'];
 
 /** Digit keys that call plays: 1-3 offense, 7-9 defense (sim maps them via inp.playcall). */
 const PLAY_KEYS = {
@@ -31,6 +32,7 @@ const TOUCH_EDGE = {
   breach: 'breach',
   switch: 'switchPlayer',
   gamebreaker: 'gamebreaker',
+  ballcamToggle: 'ballCamToggle',
 };
 
 export class InputManager {
@@ -103,6 +105,7 @@ export class InputManager {
     let breach = this.justPressed('KeyU');
     let switchPlayer = this.justPressed('KeyQ', 'Tab');
     let gamebreaker = this.justPressed('KeyE');
+    let ballCamToggle = this.justPressed('KeyC');
     let playcall = 0;
     for (const code in PLAY_KEYS) if (this.justPressed(code)) playcall = PLAY_KEYS[code];
     let pause = false;
@@ -133,6 +136,7 @@ export class InputManager {
       else if (field === 'breach') breach = true;
       else if (field === 'switchPlayer') switchPlayer = true;
       else if (field === 'gamebreaker') gamebreaker = true;
+      else if (field === 'ballCamToggle') ballCamToggle = true;
     }
     if (t.edges.has('shootRelease')) {
       shootReleased = true;
@@ -176,6 +180,7 @@ export class InputManager {
       if (edge(4)) switchPlayer = true;
       if (b(6) && b(7) && edge(6)) gamebreaker = true;
       if (b(6) && edge(7)) gamebreaker = true;
+      if (edge(11)) ballCamToggle = true; // R3: right-stick click
       if (edge(9)) pause = true;
       if (b(12)) mz = -1;
       if (b(13)) mz = 1;
@@ -203,6 +208,7 @@ export class InputManager {
     i.breach = breach;
     i.switchPlayer = switchPlayer;
     i.gamebreaker = gamebreaker;
+    i.ballCamToggle = ballCamToggle;
     i.playcall = playcall;
     i.shootPressed = shootPressed;
     i.shootReleased = shootReleased;

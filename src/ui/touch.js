@@ -19,6 +19,8 @@ const BUTTONS = [
   { action: 'breach', label: 'JUMP', cls: 'breach', kind: 'tap' },
   { action: 'switch', label: 'SWAP', cls: 'swap', kind: 'tap' },
   { action: 'gamebreaker', label: 'GB', cls: 'gb', kind: 'tap' },
+  // CAM toggles ball-cam lock / forward look — writes a ballCamToggle edge (KeyC / RS click).
+  { action: 'ballcam', label: 'CAM', cls: 'cam', kind: 'tap' },
 ];
 
 export class TouchControls {
@@ -129,7 +131,7 @@ export class TouchControls {
       else if (action === 'shoot') {
         t.shootHeld = true;
         t.edges.add('shoot');
-      } else t.edges.add(action);
+      } else t.edges.add(action === 'ballcam' ? 'ballcamToggle' : action);
       btn.setPointerCapture?.(e.pointerId);
     };
     const release = (e) => {
