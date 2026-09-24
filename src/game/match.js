@@ -1,13 +1,15 @@
-import { Vec3, clamp, lerp } from '../core/vec3.js';
+import { Vec3, clamp } from '../core/vec3.js';
 import { RNG } from '../core/rng.js';
 import { EventBus } from '../core/events.js';
-import { ARENA, RULES, PHYS, MOVE, ACTION, STYLE, DIFFICULTY } from '../data/constants.js';
+import { ARENA, RULES, PHYS, MOVE, ACTION, DIFFICULTY } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { createPlayer, createBall, emptyInput, copyInput } from './entities.js';
 import { starters } from '../data/teams.js';
 import * as shooting from './shooting.js';
 import * as ballMod from './ball.js';
 import * as rulesMod from './rules.js';
+import * as combat from './combat.js';
+import * as passing from './passing.js';
 import { updateAI } from './ai.js';
 
 /**
@@ -24,14 +26,8 @@ import { updateAI } from './ai.js';
  * Coordinates: playing plane is x/z (x = length, team 0 attacks +x). `y` is vertical.
  */
 
-export const TRICKS = [
-  { id: 0, name: 'SPIN', dur: 0.42, dist: 1.6, washRange: 1.5, turbo: false },
-  { id: 1, name: 'BARREL ROLL', dur: 0.48, dist: 2.0, washRange: 1.7, turbo: false },
-  { id: 2, name: 'DOLPHIN KICK', dur: 0.5, dist: 2.4, washRange: 1.6, turbo: true, vertical: true },
-  { id: 3, name: 'CORKSCREW', dur: 0.55, dist: 2.6, washRange: 1.9, turbo: true },
-  { id: 4, name: 'BACK-FLIP FEINT', dur: 0.46, dist: 1.4, washRange: 2.0, turbo: false },
-  { id: 5, name: 'JET STREAM', dur: 0.6, dist: 3.2, washRange: 2.1, turbo: true },
-];
+// TRICKS lives in ./combat.js; re-exported for backwards compatibility.
+export { TRICKS } from './combat.js';
 
 
 export class MatchSim {
@@ -735,257 +731,20 @@ export class MatchSim {
   }
 
   // ---------------------------------------------------------------------------
-  // Tricks (washing defenders)
+  // Tricks / tackles / hits / breaches (see ./combat.js)
   // ---------------------------------------------------------------------------
-
-  tryTrick(p, dir, turbo) {
-    const useTurbo = turbo && p.turbo > 15;
-    const pool = TRICKS.filter((t) => !!t.turbo === !!useTurbo);
-    // Avoid repeating the same trick.
-    let def = this.rng.pick(pool);
-    if (pool.length > 1 && def.id === p.lastTrickId) def = pool[(pool.indexOf(def) + 1) % pool.length];
-    p.lastTrickId = def.id;
-    const d = dir || this.forwardOf(p);
-    p.trick = { def, dir: d, turbo: useTurbo, washed: new Set() };
-    if (useTurbo) p.turbo = Math.max(0, p.turbo - 18);
-    p.cd.trick = ACTION.trickCooldown + def.dur;
-    p.facing = Math.atan2(d.x, d.z);
-    this.setState(p, 'trick', def.dur);
-    this.stats.tricks++;
-    this.events.emit('trick', { player: p, name: def.name, turbo: useTurbo });
-    // Wash check: defenders in range that are facing us get spun / knocked off.
-    for (const q of this.opponentsOf(p)) {
-      if (q.isKeeper || q.state === 'fallen') continue;
-      const dist = q.pos.distanceToXZ(p.pos);
-      if (dist > def.washRange) continue;
-      const toMe = Vec3.dirXZ(q.pos, p.pos);
-      const facingMe = this.forwardOf(q).dot(toMe) > 0.2;
-      const closing = q.state === 'tackle' || q.state === 'swim';
-      let prob = 0.12 + ((p.data.hnd - q.data.tkl) / 99) * 0.35 + (useTurbo ? 0.18 : 0) + (q.state === 'tackle' ? 0.35 : 0);
-      if (!facingMe) prob *= 0.5;
-      if (!closing) prob *= 0.7;
-      if (this.isUser(p)) prob *= this.difficulty.userBonus;
-      prob = clamp(prob, 0.03, 0.75);
-      if (this.rng.chance(prob)) {
-        p.trick.washed.add(q.id);
-        this.knockDown(q, p, 'washed', q.state === 'tackle' ? 'fallen' : 'stumble');
-        p.stats.washed++;
-        this.addStyle(p, STYLE.washed, 'WASHED!', { big: true });
-        this.events.emit('washed', { player: p, victim: q, name: def.name });
-      }
-    }
-    this.addStyle(p, STYLE.trick + (useTurbo ? STYLE.trickTurbo : 0), def.name);
-    return true;
-  }
-
-  finishTrick(p) {
-    p.trick = null;
-    this.setState(p, 'swim');
-  }
+  tryTrick(player, dir, turbo) { return combat.tryTrick(this, player, dir, turbo); }
+  finishTrick(player) { return combat.finishTrick(this, player); }
+  tryTackle(player) { return combat.tryTackle(this, player); }
+  tryHit(player) { return combat.tryHit(this, player); }
+  knockDown(victim, by, reason, state) { return combat.knockDown(this, victim, by, reason, state); }
+  tryBreach(player) { return combat.tryBreach(this, player); }
 
   // ---------------------------------------------------------------------------
-  // Tackles / hits / breaches
+  // Passing (see ./passing.js)
   // ---------------------------------------------------------------------------
-
-  tryTackle(p) {
-    const carrier = this.ball.holder;
-    p.cd.tackle = ACTION.tackleCooldown;
-    this.setState(p, 'tackle', 0.4);
-    // lunge forward
-    const f = this.forwardOf(p);
-    p.vel.x += f.x * 3.2;
-    p.vel.z += f.z * 3.2;
-    this.events.emit('tackleattempt', { player: p });
-    if (!carrier || carrier.team === p.team) {
-      p.ai.diving = 0.3;
-      return false;
-    }
-    if (carrier.isKeeper) return false;
-    const d = p.pos.distanceToXZ(carrier.pos);
-    if (d > ACTION.tackleRange) return false;
-    if (carrier.airborne || carrier.state === 'shoot' && carrier.shot && carrier.shot.released) return false;
-    // A live Gamebreaker drive is untackleable — the payoff moment shouldn't end in a fumble.
-    if (carrier === this.gbPlayer && this.gbDriveShield) return false;
-    const facing = f.dot(Vec3.dirXZ(p.pos, carrier.pos)) > 0.1;
-    if (!facing) return false;
-    let prob = 0.22 + ((p.data.tkl - carrier.data.hnd) / 99) * 0.35;
-    // Glue dribbling means the ball is shielded at the carrier's feet — tackles are the whole
-    // contest now, so the base window is friendlier (FIFA/Rematch-style poke-and-slide).
-    prob *= 1.25;
-    // FLOW carriers can't be poked — beat them with position, not buttons.
-    if (this.flow[carrier.team]) return false;
-    if (carrier.state === 'trick') prob *= carrier.trick && carrier.trick.turbo ? 0.3 : 0.55;
-    if (carrier.state === 'idle' && carrier.stateTime > 1.0) prob += 0.14;
-    if (carrier.state === 'pass' || carrier.state === 'shoot') prob += 0.12;
-    if (!this.isUser(p)) prob *= this.difficulty.tackleRate * 1.5;
-    else prob *= 1.15 * this.difficulty.userBonus;
-    if (this.momentum[carrier.team] >= this.rules.onFireGoals) prob *= 0.8;
-    prob *= this.rubber[p.team];
-    prob *= this.defenseMods(p.team).tackle || 1;
-    prob = clamp(prob, 0.05, 0.78);
-    if (this.rng.chance(prob)) {
-      carrier.stats.to++;
-      p.stats.tkl++;
-      this.stats.tackles++;
-      this.loseStyle(carrier.team, STYLE.lossOnTurnover);
-      carrier.trick = null;
-      carrier.shot = null;
-      this.setState(carrier, 'stumble', MOVE.stumbleDuration * 0.7);
-      this.giveBall(p);
-      this.setState(p, 'catch', 0.14);
-      this.addStyle(p, STYLE.tackle, 'PICKED', { big: true });
-      this.events.emit('tackle', { player: p, victim: carrier });
-      return true;
-    }
-    p.stun = ACTION.tackleWhiffRecovery;
-    // Beaten by the dribbler: style reward for carrying past pressure (Blue Lock flair).
-    // dribbleTouch both throttles and scales this — one award per sustained carry.
-    if (carrier.dribbleTouch >= 1.0) {
-      carrier.dribbleTouch = 0;
-      this.addStyle(carrier, STYLE.dribble, 'DRIBBLE', {});
-      this.events.emit('dribble', { player: carrier, beaten: p });
-    }
-    return false;
-  }
-
-  tryHit(p) {
-    p.cd.hit = ACTION.hitCooldown;
-    this.setState(p, 'hit', 0.42);
-    const f = this.forwardOf(p);
-    p.vel.x += f.x * 2.6;
-    p.vel.z += f.z * 2.6;
-    this.events.emit('hitattempt', { player: p });
-    let best = null;
-    let bd = Infinity;
-    for (const q of this.opponentsOf(p)) {
-      if (q.isKeeper || q.state === 'fallen' || q.airborne) continue;
-      // Shrug off big hits while the Gamebreaker drive is live.
-      if (q === this.gbPlayer && this.gbDriveShield) continue;
-      const d = q.pos.distanceToXZ(p.pos);
-      if (d < ACTION.hitRange && f.dot(Vec3.dirXZ(p.pos, q.pos)) > 0 && d < bd) {
-        bd = d;
-        best = q;
-      }
-    }
-    if (!best) {
-      p.stun = ACTION.hitRecovery;
-      return false;
-    }
-    let prob = 0.45 + ((p.data.pow - best.data.pow) / 99) * 0.5;
-    if (best.state === 'trick') prob -= 0.15;
-    if (best.state === 'shoot' || best.state === 'pass') prob += 0.15;
-    if (!this.isUser(p)) prob *= this.difficulty.hitRate * 1.25;
-    prob *= this.rubber[p.team];
-    prob = clamp(prob, 0.15, 0.9);
-    if (this.rng.chance(prob)) {
-      const hadBall = this.ball.holder === best;
-      this.knockDown(best, p, 'hit', 'fallen');
-      p.stats.hits++;
-      this.stats.hits++;
-      if (hadBall) {
-        // ball pops loose
-        best.stats.to++;
-        this.loseStyle(best.team, STYLE.lossOnTurnover);
-        const dir = Vec3.dirXZ(p.pos, best.pos);
-        this.releaseLoose(best, new Vec3(dir.x * 4 + (this.rng.next() - 0.5) * 2, 2.2, dir.z * 4 + (this.rng.next() - 0.5) * 2));
-      }
-      this.addStyle(p, STYLE.hit, 'BIG HIT', { big: true });
-      this.events.emit('bighit', { player: p, victim: best, hadBall });
-      return true;
-    }
-    // bounced off
-    p.stun = ACTION.hitRecovery;
-    return false;
-  }
-
-  knockDown(victim, by, reason, state = 'fallen') {
-    victim.shot = null;
-    victim.trick = null;
-    victim.airborne = false;
-    this.setState(victim, state, state === 'fallen' ? MOVE.fallenDuration : MOVE.stumbleDuration);
-    const dir = Vec3.dirXZ(by.pos, victim.pos);
-    victim.knockDir.copy(dir);
-    victim.vel.set(dir.x * (state === 'fallen' ? 3.5 : 1.5), 0, dir.z * (state === 'fallen' ? 3.5 : 1.5));
-    this.events.emit('knockdown', { victim, by, reason, state });
-  }
-
-  tryBreach(p) {
-    p.cd.breach = MOVE.breachCooldown;
-    p.airborne = true;
-    p.vy = MOVE.breachVel * (0.9 + (p.data.spd / 99) * 0.25);
-    this.setState(p, 'breach', 0);
-    this.events.emit('breach', { player: p });
-    // Block check on shots in flight
-    const f = this.ball.flight;
-    if (f && (f.kind === 'shot' || f.kind === 'lob') && f.shooter && f.shooter.team !== p.team) {
-      p.ai.blockingFlight = f;
-    }
-    return true;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Passing
-  // ---------------------------------------------------------------------------
-
-  choosePassTarget(p, lob) {
-    const mates = this.teammatesOf(p).filter((q) => q.state !== 'fallen' && !q.isKeeper);
-    if (!mates.length) return null;
-    const inp = p.input;
-    const dir = new Vec3(inp.moveX, 0, inp.moveZ);
-    const hasDir = dir.length() > 0.3;
-    if (hasDir) dir.normalize();
-    let best = null;
-    let bs = -Infinity;
-    for (const q of mates) {
-      const d = p.pos.distanceToXZ(q.pos);
-      let s = 10 - d * 0.5;
-      if (hasDir) s += Vec3.dirXZ(p.pos, q.pos).dot(dir) * 8;
-      if (q.ai.cutting) s += 4;
-      if (lob && this.distToGoal(q) < 6) s += 3;
-      // open?
-      for (const o of this.opponentsOf(p)) if (o.pos.distanceToXZ(q.pos) < 1.6) s -= 3;
-      if (s > bs) {
-        bs = s;
-        best = q;
-      }
-    }
-    return best;
-  }
-
-  tryPass(p, targetOverride, lob) {
-    const target = targetOverride || this.choosePassTarget(p, lob);
-    if (!target) return false;
-    p.shot = null;
-    p.hasBall = false;
-    this.ball.holder = null;
-    p.lastPassTime = this.time;
-    p.facing = Math.atan2(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
-    this.setState(p, 'pass', 0.25);
-    const from = new Vec3(p.pos.x, 0.9 + p.y, p.pos.z);
-    const useLob = !!lob && this.distToGoal(target) < ACTION.volleyRange + 2;
-    if (useLob) {
-      // Lob toward a spot in front of the goal for a breach-volley finish.
-      const g = this.goalPos(p.team);
-      const dir = Vec3.dirXZ(target.pos, g);
-      const to = new Vec3(target.pos.x + dir.x * 1.2, ACTION.lobHeight + 0.6, target.pos.z + dir.z * 1.2);
-      const dist = from.distanceTo(to);
-      const dur = clamp(dist / ACTION.lobSpeed, 0.5, 1.2);
-      this.ball.flight = { kind: 'lob', from, to, t: 0, dur, arc: 1.6, passer: p, target, checked: new Set() };
-      target.ai.oop = { t: 0, dur };
-      this.ball.releaseCooldown = { player: p, t: 0.3 };
-      this.events.emit('pass', { from: p, to: target, alley: true });
-    } else {
-      const lead = target.vel.clone().scale(0.28);
-      const to = new Vec3(target.pos.x + lead.x, 0.9, target.pos.z + lead.z);
-      const dist = from.distanceTo(to);
-      const dur = clamp(dist / ACTION.passSpeed, 0.14, 0.95);
-      this.ball.flight = { kind: 'pass', from, to, t: 0, dur, arc: 0.25, passer: p, target, checked: new Set() };
-      this.ball.releaseCooldown = { player: p, t: 0.25 };
-      this.events.emit('pass', { from: p, to: target, alley: false });
-    }
-    this.ball.lastTeam = p.team;
-    return true;
-  }
+  choosePassTarget(player, lob) { return passing.choosePassTarget(this, player, lob); }
+  tryPass(player, targetOverride, lob) { return passing.tryPass(this, player, targetOverride, lob); }
   // ---------------------------------------------------------------------------
   // Shooting / volleys / Gamebreaker (see ./shooting.js)
   // ---------------------------------------------------------------------------
