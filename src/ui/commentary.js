@@ -1,34 +1,129 @@
 /**
  * Poolside-announcer commentary lines, keyed by sim events. Picked with the sim RNG so
- * headless tests don't diverge from the browser build.
+ * headless tests don't diverge from the browser build. Voice: two loud-ass street casters
+ * talking trash over a pickup run at the cage.
  */
 const LINES = {
-  goal: ['{p} BURIES it! GOAL!', 'GOAL! {p} rips it past the keeper!', '{p} finds the back of the net!', 'Top bins! {p} with the finish!', '{p} lets it fly and it\'s IN!'],
-  goal_long: ['FROM DOWNTOWN! {p} from way out!', 'ARE YOU KIDDING?! {p} from distance!', '{p} with a SCREAMER from the halfway line!'],
-  goal_volley: ['{p} meets it in the air... VOLLEY! GOAL!', 'OFF THE LOB! {p} hammers the volley home!', 'Bicycle! {p} with the acrobatic finish!'],
-  goal_perfect: ['PERFECT strike from {p}! The keeper never moved!', '{p} with a laser. Unstoppable.'],
-  save: ['{k} says NOT TODAY!', 'Big save from {k}!', '{k} gets a hand on it!', 'DENIED by the keeper! {k} stands tall!'],
-  save_big: ['WHAT A SAVE! {k} out of nowhere!', '{k} is a WALL! Unbelievable stop!', 'FULL STRETCH! {k} keeps it out!'],
-  washed: ['{v} got WASHED! {p} left him spinning!', 'OH NO! {v} is going in circles! {p} is nasty with it!', '{p} put {v} in the rinse cycle!', 'Somebody help {v}! {p} with the shake!'],
-  tackle: ['{p} picks his pocket!', 'STRIPPED! {p} takes it away!', '{p} with the sticky hands!', 'Turnover! {p} read it all the way.'],
-  block: ['DENIED! {p} gets in the way!', '{p} throws the body in front of it!', 'GET THAT OUTTA HERE! {p} with the block!'],
-  alleyoop: ['{a} lobs it up... {p} VOLLEYS IT HOME!', 'Lob city! {a} finds {p} in the air!', '{a} floats it, {p} SMASHES it!'],
-  gamebreaker: ['GAMEBREAKER! {p} is about to end somebody\'s night!', 'HERE IT COMES! {p} has the GAMEBREAKER!', 'IT\'S OVER! {p} GAMEBREAKER!'],
-  gbscore: ['GAMEBREAKER GOAL! Points for {t} AND points off the board!', 'DEVASTATING! {p} flips this match with the GAMEBREAKER!'],
-  miss: ['{p} can\'t find the target right now.', 'Off the ring! {p} will want that one back.', 'Wide from {p}.', 'Skied it! {p} was way off.'],
-  post: ['OFF THE RING! {p} was an inch away!', 'Clang! {p} rattles the post!'],
-  heating: ['{p} is HEATING UP!', '{t} is on FIRE!', 'Somebody cool {p} down! He\'s on fire!'],
-  bighit: ['{p} sends {v} tumbling!', 'No blood, no foul! {p} with the big hit!', '{p} says get off me!', 'BOOM! {v} felt that one from {p}!'],
-  turnover_clock: ['Possession clock! {t} took too long.', 'Too slow! Clock runs out on {t}.'],
-  keeperhold: ['The keeper has to get rid of it!'],
-  win: ['{t} WINS IT! WHAT A MATCH!', 'THAT\'S THE MATCH! {t} takes it!', 'Full time! {t} rule the pool!'],
-  blowout: ['{t} is running them out of the sphere!', 'This is getting ugly. {t} up big.'],
-  tip: ['Ball\'s in! {h} versus {aw}! Two halves, most goals wins!', 'Let\'s run it! {h} taking on {aw} in the sphere!'],
-  trick: ['{p} with the {tr}!', 'Ooh, {tr} from {p}!', '{p} is putting on a show! {tr}!'],
-  combo: ['{p} is COOKING! Combo x{c}!', '{p} won\'t stop! Combo x{c}!'],
-  halftime: ['That\'s the half! {h} {s0}, {aw} {s1}.', 'Halftime in the sphere. {h} {s0} - {aw} {s1}.'],
-  overtime: ['We\'re level! OVERTIME — next goal wins!', 'GOLDEN GOAL! Next one in takes it!'],
-  mercy: ['MERCY! {t} end it early!'],
+  goal: [
+    'OH SHIT! {p} just BURIED that thang!',
+    'GOOOOAL! {p} done cooked the whole defense, my boy!',
+    '{p} put that shit on a PLATTER! It\'s in!',
+    'TOP BINS, BABY! {p} showed ZERO respect for that keeper!',
+    '{p} let that mufucka FLY and it\'s IN! Ayy!',
+  ],
+  goal_long: [
+    'FROM DOWNTOWN?! {p} you dirty bastard, THAT\'S A BUCKET!',
+    'NAH he did NOT just shoot from there — {p} with the DAMN SCREAMER!',
+    '{p} dropped that from the moon and it still went IN! That\'s disrespectful!',
+  ],
+  goal_volley: [
+    'OFF THE LOB — {p} SMASHED that shit! GOAL!',
+    '{p} met it in the AIR and DEMOLISHED it! Get him a stretcher for that net!',
+    'ACROBATIC! {p} out here doing flips and shit — it\'s IN!',
+  ],
+  goal_perfect: [
+    'PERFECT strike from {p}! Keeper ain\'t even MOVE, that\'s embarrassing!',
+    '{p} hit a laser so filthy they gotta wash the goal. DAMN.',
+  ],
+  save: [
+    '{k} said NOT TODAY, get that shit OUTTA here!',
+    'Big ass save from {k}! Hands like glue, my boy!',
+    '{k} got a FINGERTIP on it! Sheesh!',
+    'DENIED! {k} standing on BUSINESS today!',
+  ],
+  save_big: [
+    'WHAT THE FUCK, {k}! Save of the YEAR outta nowhere!',
+    '{k} is a GODDAMN WALL! Ain\'t nothing getting past him!',
+    'FULL STRETCH! {k} just robbed dude BLIND! Sick!',
+  ],
+  washed: [
+    '{v} got WASHED! {p} had him spinning like a washing machine, damn!',
+    'OH HELL NO! {v} going in CIRCLES! {p} is NASTY with it!',
+    '{p} put {v} in the rinse cycle! Somebody check on him!',
+    '{v} shaking right now! {p} broke his ANKLES in the water, cold-blooded!',
+  ],
+  tackle: [
+    '{p} snatched his chain! PICKPOCKET!',
+    'STRIPPED! {p} took that shit like it was HIS!',
+    '{p} with the sticky ass hands! That\'s a felony!',
+    'Turnover! {p} read that pass like a bedtime story.',
+  ],
+  block: [
+    'DENIED! {p} put his whole BODY on the line!',
+    '{p} said ain\'t SHIT getting through! Get that outta here!',
+    'WALL MEET BALL! {p} with the rejection, no refund!',
+  ],
+  alleyoop: [
+    '{a} threw it UP... {p} put that shit on a TEE! DAMN!',
+    'LOB CITY BITCH! {a} to {p} in the AIR!',
+    '{a} floated it, {p} VAN GOGH\'d it! That\'s art!',
+  ],
+  gamebreaker: [
+    'GAMEBREAKER! {p} about to ruin somebody\'s WHOLE night!',
+    'OH IT\'S BAD! {p} got the GAMEBREAKER and he\'s HUNGRY!',
+    'IT\'S OVER! Pack it up! {p} got the GAMEBREAKER!',
+  ],
+  gbscore: [
+    'GAMEBREAKER GOAL! Points for {t} AND took some off the board! That\'s ROBBERY!',
+    'DEVASTATING! {p} just flipped this whole match, cold as ICE!',
+  ],
+  miss: [
+    '{p} couldn\'t hit water if he fell out the boat, damn!',
+    'Off the ring! {p} gon\' lose sleep over that one!',
+    'WIDE! {p} what the hell was that, cuz?!',
+    'SKIED IT! {p} put that shit in the STANDS!',
+  ],
+  post: [
+    'OFF THE RING! {p} was THIS damn close! Sheesh!',
+    'CLANG! {p} rattled that thing like a tip jar!',
+  ],
+  heating: [
+    '{p} is HEATING UP and it\'s a PROBLEM!',
+    '{t} on a RAMPAGE right now! Somebody call the FIRE department!',
+    'Don\'t leave {p} open! That man is COOKING!',
+  ],
+  bighit: [
+    'BOOM! {p} just sent {v} to the SHADOW REALM!',
+    'No blood, no foul! {p} laid the WOOD on {v}!',
+    '{p} said GET OFF ME! {v} felt that in his SOUL!',
+    'DAMN! {v} just got flattened! That\'s a hit you HEAR!',
+  ],
+  turnover_clock: [
+    'BEEP BEEP! {t} was out here sightseeing, clock caught \'em!',
+    'TOO SLOW! {t} stood around and LOST that shit!',
+  ],
+  keeperhold: ['Bro the keeper\'s cradling that thing like a BABY — LET IT GO!'],
+  win: [
+    '{t} WINS THE WHOLE THING! DROP the confetti!',
+    'THAT\'S THE MATCH, BABY! {t} ran the pool!',
+    'And STILL! {t} the baddest in the water!',
+  ],
+  blowout: [
+    '{t} out here running a CLINIC! This shit getting UGLY!',
+    'Somebody get a MERCY RULE! {t} up big and still bullying!',
+  ],
+  tip: [
+    'It\'s a sold-out cage! {h} versus {aw} — most goals WIN, no excuses!',
+    'LET\'S RUN IT! {h} taking on {aw} in the sphere tonight!',
+  ],
+  trick: [
+    '{p} pulled the {tr} out the BAG! Ohhh!',
+    'AYY, {tr} from {p}! That was NASTY, my boy!',
+    '{p} showing off now! {tr} in a live game?! DISRESPECTFUL!',
+  ],
+  combo: [
+    '{p} is COOKING! Combo x{c}! Leave the man alone!',
+    '{p} will NOT stop! Combo x{c}! He\'s HIM!',
+  ],
+  halftime: [
+    'That\'s the half! {h} {s0}, {aw} {s1}. Somebody\'s getting chewed out in the locker room.',
+    'Halftime! {h} {s0} — {aw} {s1}. Second half boutta be WAR.',
+  ],
+  overtime: [
+    'We\'re LEVEL! OVERTIME — next goal WINS it all, no cowards allowed!',
+    'GOLDEN GOAL, BABY! One shot decides EVERYTHING! Let\'s goooo!',
+  ],
+  mercy: ['MERCY RULE! {t} ended they ass EARLY! Have some shame!'],
 };
 
 const first = (p) => (p && p.data ? p.data.nick || p.data.name.split(' ')[0] : '');

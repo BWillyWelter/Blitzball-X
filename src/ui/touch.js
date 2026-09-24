@@ -23,6 +23,60 @@ const BUTTONS = [
   { action: 'ballcam', label: 'CAM', cls: 'cam', kind: 'tap' },
 ];
 
+
+// Compact layout: smaller footprint, tight gaps, perfectly centered labels.
+// Scoped under .touch-ui so it can't leak into the rest of the HUD, and the
+// <style> element is removed in dispose() so it never survives a rematch.
+const TOUCH_CSS = `
+.touch-ui .touch-actions {
+  gap: 8px;
+  right: 10px;
+  bottom: 12px;
+}
+.touch-ui .touch-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  font-size: 10px;
+  font-weight: 800;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.touch-ui .touch-btn span {
+  display: block;
+  transform: translateY(0.5px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.touch-ui .touch-btn.gb {
+  width: 44px;
+  height: 44px;
+}
+.touch-ui .touch-pause {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.touch-ui .touch-stick-zone {
+  width: 150px;
+  height: 150px;
+}
+`;
+
 export class TouchControls {
   constructor(container, input, { onPause } = {}) {
     this.input = input;
@@ -30,6 +84,11 @@ export class TouchControls {
     this.stickId = null;
     this.stickOrigin = { x: 0, y: 0 };
     this.buttons = new Map();
+
+    this.styleEl = document.createElement('style');
+    this.styleEl.textContent = TOUCH_CSS;
+    document.head.appendChild(this.styleEl);
+
     this.el = this.build();
     container.appendChild(this.el);
     this.el.querySelector('.touch-pause').addEventListener('pointerdown', (e) => {
@@ -158,6 +217,7 @@ export class TouchControls {
   }
 
   dispose() {
+    this.styleEl?.remove();
     const t = this.input.touch;
     t.moveX = 0;
     t.moveZ = 0;

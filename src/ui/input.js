@@ -5,15 +5,24 @@ import { emptyInput } from '../game/entities.js';
  *
  * Keyboard:  WASD/Arrows move (also steers shot aim) · SHIFT turbo · J/Space shoot (hold to charge) ·
  *            K pass / call for pass off-ball (K+turbo = lob) · L slide/poke tackle · I big hit ·
- *            U breach (jump/block) · Q switch player · E gamebreaker · ESC pause
+ *            U breach (jump/block) · Q switch player · E gamebreaker · C ball cam · ESC pause
  * Gamepad:   Left stick move · RT/RB turbo · A/Cross shoot · X/Square pass ·
  *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker ·
  *            R3 (right-stick click) ball cam · Start pause
  */
 /** One-shot input fields: true for a single fixed step, then consumed. */
-const ONE_SHOT = ['shootPressed', 'shootReleased', 'pass', 'trick', 'hit', 'breach', 'switchPlayer', 'gamebreaker', 'ballCamToggle'];
+const ONE_SHOT = [
+  'shootPressed',
+  'shootReleased',
+  'pass',
+  'trick',
+  'hit',
+  'breach',
+  'switchPlayer',
+  'gamebreaker',
+  'ballCamToggle',
+];
 
-/** Digit keys that call plays: 1-3 offense, 7-9 defense (sim maps them via inp.playcall). */
 const PLAY_KEYS = {
   Digit1: 1,
   Digit2: 2,
@@ -23,7 +32,6 @@ const PLAY_KEYS = {
   Digit9: 9,
 };
 
-/** Touch action name -> input field it drives. */
 const TOUCH_EDGE = {
   shoot: 'shootPressed',
   pass: 'pass',
@@ -35,243 +43,614 @@ const TOUCH_EDGE = {
   ballcamToggle: 'ballCamToggle',
 };
 
+const GAMEPLAY_CODES = new Set([
+  'Space',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Tab',
+]);
+
+function axisWithDeadZone(value, deadZone = 0.18) {
+  const amount = Math.abs(value);
+
+  if (amount <= deadZone) {
+    return 0;
+  }
+
+  const scaled =
+    (amount - deadZone) /
+    (1 - deadZone);
+
+  return Math.sign(value) * Math.min(1, scaled);
+}
+
+function connectedGamepad() {
+  if (!navigator.getGamepads) {
+    return null;
+  }
+
+  const pads = navigator.getGamepads();
+
+  return Array.from(pads || []).find(
+    (pad) => pad && pad.connected
+  ) || null;
+}
+
 export class InputManager {
   constructor() {
     this.keys = new Set();
-    this.input = emptyInput();
-    this.pressed = new Set(); // edge-triggered this frame
+    this.pressed = new Set();
     this.released = new Set();
-    this.padPrev = {};
+
+    this.input = emptyInput();
+
+    this.padPrev = Object.create(null);
+    this.menuPadPrev = Object.create(null);
+
+    this.pending = new Set();
+    this.pendingPlaycall = 0;
+
     this.onPause = null;
     this.enabled = true;
     this.lastDevice = 'keyboard';
-    this.moveVec = { x: 0, z: 0 };
-    // Virtual stick / buttons (src/ui/touch.js writes here).
-    this.touch = { moveX: 0, moveZ: 0, active: false, turbo: false, shootHeld: false, edges: new Set() };
-    // One-shot actions that have not yet been consumed by a fixed simulation step. Without this
-    // latch an edge is lost whenever a rendered frame runs *no* fixed step, which is every other
-    // frame on a 120 Hz phone or 144 Hz monitor — taps and key presses would feel unresponsive.
-    this.pending = new Set();
-    this.pendingPlaycall = 0; // see `pending`: same latch, numeric field
 
-    window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
-      const k = e.code;
-      this.keys.add(k);
+    this.touch = {
+      moveX: 0,
+      moveZ: 0,
+      active: false,
+      turbo: false,
+      shootHeld: false,
+      edges: new Set(),
+    };
+
+    this.onKeyDown = (event) => {
+      if (!this.enabled) {
+        return;
+      }
+
+      const code = event.code;
+
+      if (event.repeat) {
+        return;
+      }
+
+      if (
+        GAMEPLAY_CODES.has(code) ||
+        code === 'Space'
+      ) {
+        event.preventDefault();
+      }
+
+      this.keys.add(code);
       this.lastDevice = 'keyboard';
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(k)) e.preventDefault();
-      // Escape toggles pause during a match. When the pause handler consumes the key we must
-      // NOT also register it as an edge, otherwise the pause menu reads it as "back" and resumes.
-      if (k === 'Escape' && this.onPause && this.onPause()) return;
-      this.pressed.add(k);
-    });
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.code);
-      this.released.add(e.code);
-    });
-    window.addEventListener('blur', () => {
+
+      if (
+        code === 'Escape' &&
+        this.onPause &&
+        this.onPause() === true
+      ) {
+        return;
+      }
+
+      this.pressed.add(code);
+    };
+
+    this.onKeyUp = (event) => {
+      if (!this.enabled) {
+        return;
+      }
+
+      this.keys.delete(event.code);
+      this.released.add(event.code);
+    };
+
+    this.onBlur = () => {
       this.keys.clear();
-    });
+      this.pressed.clear();
+      this.released.clear();
+      this.padPrev = Object.create(null);
+      this.menuPadPrev = Object.create(null);
+
+      // Do not allow held actions to fire after tab switching.
+      this.pending.clear();
+      this.pendingPlaycall = 0;
+      this.touch.edges.clear();
+    };
+
+    window.addEventListener(
+      'keydown',
+      this.onKeyDown,
+      { passive: false }
+    );
+
+    window.addEventListener(
+      'keyup',
+      this.onKeyUp,
+      { passive: true }
+    );
+
+    window.addEventListener(
+      'blur',
+      this.onBlur,
+      { passive: true }
+    );
+  }
+
+  destroy() {
+    window.removeEventListener(
+      'keydown',
+      this.onKeyDown
+    );
+
+    window.removeEventListener(
+      'keyup',
+      this.onKeyUp
+    );
+
+    window.removeEventListener(
+      'blur',
+      this.onBlur
+    );
+
+    this.keys.clear();
+    this.pressed.clear();
+    this.released.clear();
+    this.pending.clear();
+    this.touch.edges.clear();
+  }
+
+  setEnabled(enabled) {
+    this.enabled = !!enabled;
+
+    if (!this.enabled) {
+      this.onBlur();
+    }
   }
 
   down(...codes) {
-    return codes.some((c) => this.keys.has(c));
+    return codes.some((code) =>
+      this.keys.has(code)
+    );
   }
 
   justPressed(...codes) {
-    return codes.some((c) => this.pressed.has(c));
+    return codes.some((code) =>
+      this.pressed.has(code)
+    );
   }
 
   justReleased(...codes) {
-    return codes.some((c) => this.released.has(c));
+    return codes.some((code) =>
+      this.released.has(code)
+    );
   }
 
-  /** Read the current frame's input into a struct suitable for MatchSim.setUserInput. */
+  gamepadButton(pad, index) {
+    return !!(
+      pad &&
+      pad.buttons &&
+      pad.buttons[index] &&
+      pad.buttons[index].pressed
+    );
+  }
+
+  gamepadPressed(pad, index) {
+    const now = this.gamepadButton(pad, index);
+    const was = !!this.padPrev[index];
+
+    this.padPrev[index] = now;
+
+    return now && !was;
+  }
+
+  gamepadReleased(pad, index) {
+    const now = this.gamepadButton(pad, index);
+    const key = `release_${index}`;
+    const was = !!this.padPrev[key];
+
+    this.padPrev[key] = now;
+
+    return !now && was;
+  }
+
+  menuGamepadPressed(pad, index) {
+    const now = this.gamepadButton(pad, index);
+    const was = !!this.menuPadPrev[index];
+
+    this.menuPadPrev[index] = now;
+
+    return now && !was;
+  }
+
+  menuAxisPressed(pad, axis, direction) {
+    const value = pad?.axes?.[axis] || 0;
+    const now =
+      direction < 0
+        ? value < -0.6
+        : value > 0.6;
+
+    const key = `axis_${axis}_${direction}`;
+    const was = !!this.menuPadPrev[key];
+
+    this.menuPadPrev[key] = now;
+
+    return now && !was;
+  }
+
   poll() {
-    const i = this.input;
-    let mx = 0;
-    let mz = 0;
-    if (this.down('KeyA', 'ArrowLeft')) mx -= 1;
-    if (this.down('KeyD', 'ArrowRight')) mx += 1;
-    if (this.down('KeyW', 'ArrowUp')) mz -= 1;
-    if (this.down('KeyS', 'ArrowDown')) mz += 1;
-    let turbo = this.down('ShiftLeft', 'ShiftRight');
-    let shootHeld = this.down('KeyJ', 'Space');
-    let shootPressed = this.justPressed('KeyJ', 'Space');
-    let shootReleased = this.justReleased('KeyJ', 'Space');
+    const output = this.input;
+
+    let moveX = 0;
+    let moveZ = 0;
+    let turbo = this.down(
+      'ShiftLeft',
+      'ShiftRight'
+    );
+
+    let shootHeld = this.down(
+      'KeyJ',
+      'Space'
+    );
+
+    let shootPressed = this.justPressed(
+      'KeyJ',
+      'Space'
+    );
+
+    let shootReleased = this.justReleased(
+      'KeyJ',
+      'Space'
+    );
+
     let pass = this.justPressed('KeyK');
     let trick = this.justPressed('KeyL');
     let hit = this.justPressed('KeyI');
     let breach = this.justPressed('KeyU');
-    let switchPlayer = this.justPressed('KeyQ', 'Tab');
+
+    let switchPlayer = this.justPressed(
+      'KeyQ',
+      'Tab'
+    );
+
     let gamebreaker = this.justPressed('KeyE');
     let ballCamToggle = this.justPressed('KeyC');
     let playcall = 0;
-    for (const code in PLAY_KEYS) if (this.justPressed(code)) playcall = PLAY_KEYS[code];
-    let pause = false;
 
-    // Touch overlay
-    const t = this.touch;
-    if (t.active) {
-      mx = t.moveX;
-      mz = t.moveZ;
+    if (this.down('KeyA', 'ArrowLeft')) {
+      moveX -= 1;
+    }
+
+    if (this.down('KeyD', 'ArrowRight')) {
+      moveX += 1;
+    }
+
+    if (this.down('KeyW', 'ArrowUp')) {
+      moveZ -= 1;
+    }
+
+    if (this.down('KeyS', 'ArrowDown')) {
+      moveZ += 1;
+    }
+
+    for (const code in PLAY_KEYS) {
+      if (this.justPressed(code)) {
+        playcall = PLAY_KEYS[code];
+      }
+    }
+
+    const touch = this.touch;
+
+    if (touch.active) {
+      moveX = Number.isFinite(touch.moveX)
+        ? touch.moveX
+        : 0;
+
+      moveZ = Number.isFinite(touch.moveZ)
+        ? touch.moveZ
+        : 0;
+
       this.lastDevice = 'touch';
     }
-    if (t.turbo) {
+
+    if (touch.turbo) {
       turbo = true;
       this.lastDevice = 'touch';
     }
-    if (t.shootHeld) {
-      shootHeld = true; // held state only; the press edge below starts the wind-up exactly once
+
+    if (touch.shootHeld) {
+      shootHeld = true;
       this.lastDevice = 'touch';
     }
-    for (const action of t.edges) {
+
+    for (const action of touch.edges) {
       const field = TOUCH_EDGE[action];
-      if (!field) continue;
+
+      if (!field) {
+        continue;
+      }
+
       this.lastDevice = 'touch';
-      if (field === 'shootPressed') shootPressed = true;
-      else if (field === 'pass') pass = true;
-      else if (field === 'trick') trick = true;
-      else if (field === 'hit') hit = true;
-      else if (field === 'breach') breach = true;
-      else if (field === 'switchPlayer') switchPlayer = true;
-      else if (field === 'gamebreaker') gamebreaker = true;
-      else if (field === 'ballCamToggle') ballCamToggle = true;
+
+      if (field === 'shootPressed') {
+        shootPressed = true;
+      } else {
+        output[field] = true;
+      }
     }
-    if (t.edges.has('shootRelease')) {
+
+    if (touch.edges.has('shootRelease')) {
       shootReleased = true;
       this.lastDevice = 'touch';
     }
 
-    // Gamepad
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = pads && Array.from(pads).find((p) => p && p.connected);
+    const pad = connectedGamepad();
+
     if (pad) {
-      const dz = 0.18;
-      const ax = pad.axes[0] || 0;
-      const az = pad.axes[1] || 0;
-      if (Math.abs(ax) > dz || Math.abs(az) > dz) {
-        mx = ax;
-        mz = az;
+      const axisX = axisWithDeadZone(
+        pad.axes?.[0] || 0
+      );
+
+      const axisZ = axisWithDeadZone(
+        pad.axes?.[1] || 0
+      );
+
+      if (
+        axisX !== 0 ||
+        axisZ !== 0
+      ) {
+        moveX = axisX;
+        moveZ = axisZ;
         this.lastDevice = 'gamepad';
       }
-      const b = (n) => !!(pad.buttons[n] && pad.buttons[n].pressed);
-      const edge = (n) => {
-        const now = b(n);
-        const was = !!this.padPrev[n];
-        this.padPrev[n] = now;
-        return now && !was;
-      };
-      const edgeUp = (n) => {
-        const now = b(n);
-        const was = !!this.padPrev['u' + n];
-        this.padPrev['u' + n] = now;
-        return !now && was;
-      };
-      // Standard mapping: 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 9 Start, 12-15 dpad
-      if (b(7) || b(5)) turbo = true;
-      const aNow = b(0);
-      if (aNow) shootHeld = true;
-      if (edge(0)) shootPressed = true;
-      if (edgeUp(0)) shootReleased = true;
-      if (edge(2)) pass = true;
-      if (edge(1)) trick = true;
-      if (edge(3)) hit = true;
-      if (edge(4)) switchPlayer = true;
-      if (b(6) && b(7) && edge(6)) gamebreaker = true;
-      if (b(6) && edge(7)) gamebreaker = true;
-      if (edge(11)) ballCamToggle = true; // R3: right-stick click
-      if (edge(9)) pause = true;
-      if (b(12)) mz = -1;
-      if (b(13)) mz = 1;
-      if (b(14)) mx = -1;
-      if (b(15)) mx = 1;
-      if (edge(14) || edge(15)) {
-        /* d-pad reserved */
+
+      const aPressed =
+        this.gamepadPressed(pad, 0);
+
+      const aReleased =
+        this.gamepadReleased(pad, 0);
+
+      if (this.gamepadButton(pad, 0)) {
+        shootHeld = true;
       }
-      if (pad.buttons.some((x) => x.pressed)) this.lastDevice = 'gamepad';
-    }
-    if (pause && this.onPause) this.onPause();
 
-    const len = Math.hypot(mx, mz);
-    if (len > 1) {
-      mx /= len;
-      mz /= len;
-    }
-    i.moveX = mx;
-    i.moveZ = mz;
-    i.turbo = turbo;
-    i.shoot = shootHeld;
-    i.pass = pass;
-    i.trick = trick;
-    i.hit = hit;
-    i.breach = breach;
-    i.switchPlayer = switchPlayer;
-    i.gamebreaker = gamebreaker;
-    i.ballCamToggle = ballCamToggle;
-    i.playcall = playcall;
-    i.shootPressed = shootPressed;
-    i.shootReleased = shootReleased;
+      if (aPressed) {
+        shootPressed = true;
+      }
 
-    // Latch one-shot actions until a fixed step actually consumes them (see `pending`).
-    for (const k of ONE_SHOT) {
-      if (i[k]) this.pending.add(k);
-      else if (this.pending.has(k)) i[k] = true;
+      if (aReleased) {
+        shootReleased = true;
+      }
+
+      if (
+        this.gamepadButton(pad, 7) ||
+        this.gamepadButton(pad, 5)
+      ) {
+        turbo = true;
+      }
+
+      if (this.gamepadPressed(pad, 2)) {
+        pass = true;
+      }
+
+      if (this.gamepadPressed(pad, 1)) {
+        trick = true;
+      }
+
+      if (this.gamepadPressed(pad, 3)) {
+        hit = true;
+      }
+
+      if (this.gamepadPressed(pad, 4)) {
+        switchPlayer = true;
+      }
+
+      if (this.gamepadPressed(pad, 11)) {
+        ballCamToggle = true; // R3: right-stick click
+      }
+
+      const leftTrigger =
+        this.gamepadButton(pad, 6);
+
+      const rightTrigger =
+        this.gamepadButton(pad, 7);
+
+      if (
+        leftTrigger &&
+        rightTrigger &&
+        (
+          this.gamepadPressed(pad, 6) ||
+          this.gamepadPressed(pad, 7)
+        )
+      ) {
+        gamebreaker = true;
+      }
+
+      if (this.gamepadPressed(pad, 9)) {
+        if (this.onPause) {
+          this.onPause();
+        }
+      }
+
+      if (this.gamepadButton(pad, 12)) {
+        moveZ = -1;
+      }
+
+      if (this.gamepadButton(pad, 13)) {
+        moveZ = 1;
+      }
+
+      if (this.gamepadButton(pad, 14)) {
+        moveX = -1;
+      }
+
+      if (this.gamepadButton(pad, 15)) {
+        moveX = 1;
+      }
+
+      if (
+        pad.buttons.some(
+          (button) => button && button.pressed
+        )
+      ) {
+        this.lastDevice = 'gamepad';
+      }
+    } else {
+      this.padPrev = Object.create(null);
     }
-    if (i.playcall) this.pendingPlaycall = i.playcall;
-    else if (this.pendingPlaycall) i.playcall = this.pendingPlaycall;
+
+    const magnitude = Math.hypot(
+      moveX,
+      moveZ
+    );
+
+    if (magnitude > 1) {
+      moveX /= magnitude;
+      moveZ /= magnitude;
+    }
+
+    output.moveX = Math.max(
+      -1,
+      Math.min(1, moveX)
+    );
+
+    output.moveZ = Math.max(
+      -1,
+      Math.min(1, moveZ)
+    );
+
+    output.turbo = !!turbo;
+    output.shoot = !!shootHeld;
+    output.shootPressed = !!shootPressed;
+    output.shootReleased = !!shootReleased;
+    output.pass = !!pass;
+    output.trick = !!trick;
+    output.hit = !!hit;
+    output.breach = !!breach;
+    output.switchPlayer = !!switchPlayer;
+    output.gamebreaker = !!gamebreaker;
+    output.ballCamToggle = !!ballCamToggle;
+    output.playcall = playcall;
+
+    // Preserve one-shot actions until a fixed simulation
+    // step confirms that it consumed them.
+    for (const action of ONE_SHOT) {
+      if (output[action]) {
+        this.pending.add(action);
+      } else if (this.pending.has(action)) {
+        output[action] = true;
+      }
+    }
+
+    if (output.playcall) {
+      this.pendingPlaycall = output.playcall;
+    } else if (this.pendingPlaycall) {
+      output.playcall = this.pendingPlaycall;
+    }
 
     this.pressed.clear();
     this.released.clear();
-    t.edges.clear();
-    return i;
+    touch.edges.clear();
+
+    return output;
   }
 
-  /**
-   * Called by the frame loop once at least one fixed simulation step has consumed the current
-   * one-shot flags, so the next poll() may report them as released.
-   */
   flushOneShots() {
     this.pending.clear();
     this.pendingPlaycall = 0;
   }
 
-  /** Menu navigation helpers (edge-triggered). */
   menuPoll() {
-    const out = { up: false, down: false, left: false, right: false, confirm: false, back: false };
-    out.up = this.justPressed('KeyW', 'ArrowUp');
-    out.down = this.justPressed('KeyS', 'ArrowDown');
-    out.left = this.justPressed('KeyA', 'ArrowLeft');
-    out.right = this.justPressed('KeyD', 'ArrowRight');
-    out.confirm = this.justPressed('Enter', 'Space', 'KeyJ');
-    out.back = this.justPressed('Escape', 'Backspace', 'KeyK');
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = pads && Array.from(pads).find((p) => p && p.connected);
+    const result = {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+      confirm: false,
+      back: false,
+    };
+
+    result.up = this.justPressed(
+      'KeyW',
+      'ArrowUp'
+    );
+
+    result.down = this.justPressed(
+      'KeyS',
+      'ArrowDown'
+    );
+
+    result.left = this.justPressed(
+      'KeyA',
+      'ArrowLeft'
+    );
+
+    result.right = this.justPressed(
+      'KeyD',
+      'ArrowRight'
+    );
+
+    result.confirm = this.justPressed(
+      'Enter',
+      'Space',
+      'KeyJ'
+    );
+
+    result.back = this.justPressed(
+      'Escape',
+      'Backspace',
+      'KeyK'
+    );
+
+    const pad = connectedGamepad();
+
     if (pad) {
-      const b = (n) => !!(pad.buttons[n] && pad.buttons[n].pressed);
-      const edge = (n) => {
-        const now = b(n);
-        const was = !!this.padPrev['m' + n];
-        this.padPrev['m' + n] = now;
-        return now && !was;
-      };
-      const axisEdge = (idx, dir) => {
-        const v = pad.axes[idx] || 0;
-        const now = dir < 0 ? v < -0.6 : v > 0.6;
-        const key = 'ax' + idx + dir;
-        const was = !!this.padPrev[key];
-        this.padPrev[key] = now;
-        return now && !was;
-      };
-      if (edge(12) || axisEdge(1, -1)) out.up = true;
-      if (edge(13) || axisEdge(1, 1)) out.down = true;
-      if (edge(14) || axisEdge(0, -1)) out.left = true;
-      if (edge(15) || axisEdge(0, 1)) out.right = true;
-      if (edge(0) || edge(9)) out.confirm = true;
-      if (edge(1)) out.back = true;
+      if (
+        this.menuGamepadPressed(pad, 12) ||
+        this.menuAxisPressed(pad, 1, -1)
+      ) {
+        result.up = true;
+      }
+
+      if (
+        this.menuGamepadPressed(pad, 13) ||
+        this.menuAxisPressed(pad, 1, 1)
+      ) {
+        result.down = true;
+      }
+
+      if (
+        this.menuGamepadPressed(pad, 14) ||
+        this.menuAxisPressed(pad, 0, -1)
+      ) {
+        result.left = true;
+      }
+
+      if (
+        this.menuGamepadPressed(pad, 15) ||
+        this.menuAxisPressed(pad, 0, 1)
+      ) {
+        result.right = true;
+      }
+
+      if (
+        this.menuGamepadPressed(pad, 0) ||
+        this.menuGamepadPressed(pad, 9)
+      ) {
+        result.confirm = true;
+      }
+
+      if (this.menuGamepadPressed(pad, 1)) {
+        result.back = true;
+      }
+    } else {
+      this.menuPadPrev = Object.create(null);
     }
+
     this.pressed.clear();
     this.released.clear();
-    return out;
+
+    return result;
   }
-}
+          }
