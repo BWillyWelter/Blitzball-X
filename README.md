@@ -70,6 +70,7 @@ src/
   core/        vec3, seeded RNG, event bus
   data/        constants (arena / rules / physics / tuning / difficulty), 8 crews × 6 swimmers
   game/        MatchSim (deterministic, headless, fixed 60 Hz), AI brains, career ladder
+               subsystems: shooting, ball, rules, combat, passing, movement
   render/      three.js: sphere pool + goals + stadium, cel-shaded characters, FX, camera
   ui/          input (keyboard + gamepad), HUD, commentary, procedural audio, screens, save
   main.js      app shell: screens, match lifecycle, fixed-step loop
@@ -97,3 +98,8 @@ CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a produ
 ## Original IP
 
 All crews, swimmers, arenas, names and art are original to this project.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the professional-grade improvement plan — landed work with the
+commits that closed it, plus what's next for gameplay depth, FX, robustness and releases.
