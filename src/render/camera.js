@@ -33,6 +33,8 @@ export class GameCamera {
     // camera looks where the swimmer is headed (auto-yaw toward the attack direction).
     // Toggle-able in-match (KeyC / RS click / touch CAM); defaults from Settings.
     this.ballCam = opts.ballCam !== false;
+    this.shakeEnabled = opts.screenShake !== false;
+    this.reducedMotion = !!opts.reducedMotion;
     this.pPos = new THREE.Vector3();
     this.pYaw = 0;
   }
@@ -44,6 +46,7 @@ export class GameCamera {
   }
 
   punch(amount = 0.4) {
+    if (!this.shakeEnabled || this.reducedMotion) return;
     this.shake = Math.min(1.2, this.shake + amount);
   }
 
@@ -185,7 +188,7 @@ export class GameCamera {
 
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 2.4);
-      const s = this.shake * this.shake * 0.35;
+      const s = this.shake * this.shake * 0.35 * (this.reducedMotion ? 0 : 1);
       this.shakeVec.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s * 0.5);
     } else this.shakeVec.set(0, 0, 0);
 

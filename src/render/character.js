@@ -25,6 +25,17 @@ const HAIR = [
 
 const MAX_VISUAL_DT = 0.05;
 
+// Small silhouette changes make roster roles readable at broadcast distance without adding
+// separate animation systems. Values affect stroke cadence, reach, and turbo lean only.
+const MOTION_PROFILES = {
+  Finisher: { tempo: 1.18, rate: 1.12, reach: 1.08, pitch: 1.08, turboLean: 0.12 },
+  Sniper: { tempo: 1.06, rate: 1.04, reach: 0.92, pitch: 1.12, turboLean: 0.08 },
+  Handler: { tempo: 0.92, rate: 0.9, reach: 1.05, pitch: 0.88, turboLean: 0.04 },
+  Enforcer: { tempo: 0.78, rate: 0.78, reach: 1.24, pitch: 0.76, turboLean: -0.08 },
+  Guardian: { tempo: 0.84, rate: 0.84, reach: 0.9, pitch: 0.82, turboLean: 0.02 },
+  'All-Around': { tempo: 1, rate: 1, reach: 1, pitch: 1, turboLean: 0.06 },
+};
+
 export class CharacterView {
   constructor(playerData, team) {
     this.data = playerData;
@@ -35,6 +46,7 @@ export class CharacterView {
 
     this.t = 0;
     this.poseReady = false;
+    this.motion = MOTION_PROFILES[playerData.archetype] || MOTION_PROFILES['All-Around'];
 
     this.build();
   }
@@ -926,6 +938,8 @@ export class CharacterView {
     const time = Number.isFinite(p.anim?.t)
       ? p.anim.t
       : this.t;
+    const motion = this.motion;
+    const swimTime = time * motion.tempo;
 
     const stateTime = Math.max(
       0,
@@ -985,10 +999,10 @@ export class CharacterView {
           state === 'gbdrive'
         ) {
           this.applySwimCycle(
-            time,
-            0.5 + speed * 0.9,
-            6 + speed * 8,
-            pitch
+            swimTime,
+            (0.5 + speed * 0.9) * motion.rate,
+            (6 + speed * 8) * motion.reach,
+            pitch * motion.pitch
           );
         } else {
           hipY = this.applyTreadWater(time);
@@ -1609,6 +1623,12 @@ export class CharacterView {
     }
 
     this.hips.position.y = hipY;
+
+    // Turbo adds a subtle archetype-specific lean so the fastest swimmers read differently even
+    // when the camera is far away. The lean is visual only; simulation speed is untouched.
+    if (p.turboActive && (state === 'swim' || state === 'idle')) {
+      this.body.rotation.z += motion.turboLean * Math.sin(swimTime * 5) * Math.min(1, speed * 1.8);
+    }
 
     if (
       (state === 'swim' ||

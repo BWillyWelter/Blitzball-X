@@ -391,6 +391,7 @@ export function SettingsScreen(app, params = {}) {
         ${row('cameraAngle', 'BROADCAST ANGLE', 'select', [['corner', 'CORNER (3D depth)'], ['side', 'SIDE (classic)']])}
         ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
+        ${row('reducedMotion', 'REDUCED MOTION', 'toggle')}
         ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}
         <div class="set-note">BALL CAM is also toggled in-match with <b>C</b> (gamepad R3 / touch CAM button).</div>
       </div>
@@ -410,6 +411,8 @@ export function SettingsScreen(app, params = {}) {
         // Live-apply the ball-cam toggle to an in-progress match so the change is felt
         // immediately and the camera's persisted value at match end can't clobber this setting.
         if (key === 'ballCam' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.ballCam = input.checked;
+        if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
+        if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
       } else s[key] = input.value;
       app.save();
     });

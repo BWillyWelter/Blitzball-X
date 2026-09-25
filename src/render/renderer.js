@@ -70,7 +70,14 @@ export class MatchRenderer {
       400
     );
 
-    this.gameCam = new GameCamera(this.camera, { firstPerson: settings.firstPerson, angle: settings.cameraAngle, playerCam: settings.playerCam, ballCam: settings.ballCam });
+    this.gameCam = new GameCamera(this.camera, {
+      firstPerson: settings.firstPerson,
+      angle: settings.cameraAngle,
+      playerCam: settings.playerCam,
+      ballCam: settings.ballCam,
+      screenShake: settings.screenShake,
+      reducedMotion: settings.reducedMotion,
+    });
 
     this.setupLights(theme);
 
@@ -369,6 +376,25 @@ export class MatchRenderer {
         6,
         0.7,
         { vertical: true }
+      );
+
+      // Secondary pressure wave + bubble curtain make the ring read as a physical impact.
+      this.fx.shockwave(
+        {
+          x: goalX * 0.96,
+          y: ARENA.goalY,
+          z: 0,
+        },
+        '#ffffff',
+        4.2,
+        0.42,
+        { vertical: true }
+      );
+      this.fx.bubbles(
+        { x: goalX, y: ARENA.goalY, z: 0 },
+        24,
+        1.2,
+        0.2
       );
 
       this.fx.burst(
@@ -674,6 +700,17 @@ export class MatchRenderer {
         dt,
         sim.ball.holder === player
       );
+
+      // A short bubble wake makes turbo readable in the water without adding a mesh per player.
+      if (player.turboActive && sim.state === 'live') {
+        const flowBoost = sim.flow[player.team] ? 1.35 : 1;
+        this.fx.wake(
+          { x: player.pos.x, y: player.y, z: player.pos.z },
+          player.facing,
+          dt,
+          30 * flowBoost
+        );
+      }
     }
 
     const ballState = sim.ball;

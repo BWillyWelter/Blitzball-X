@@ -297,6 +297,23 @@ function offBallOffenseAI(sim, p, dt, roll) {
 // Defense
 // ---------------------------------------------------------------------------
 
+/**
+ * Assign one presser and stable-ish man marks. The assignment is recomputed from current distances
+ * so a cut-back or a loose-ball recovery naturally rotates the nearest defender onto the threat.
+ */
+function defensiveAssignments(sim, p, holder) {
+  const mates = [...sim.outfield(p.team)].sort((a, b) => a.pos.distanceToXZ(holder.pos) - b.pos.distanceToXZ(holder.pos));
+  const remaining = sim.outfield(1 - p.team).filter((q) => q !== holder && q.state !== 'fallen');
+  const marks = new Map();
+  for (let i = 1; i < mates.length; i++) {
+    const defender = mates[i];
+    remaining.sort((a, b) => defender.pos.distanceToXZ(a.pos) - defender.pos.distanceToXZ(b.pos));
+    const mark = remaining.shift();
+    if (mark) marks.set(defender, mark);
+  }
+  return { presser: mates[0], marks };
+}
+
 function defenseAI(sim, p, dt, roll) {
   const ai = p.ai;
   const diff = sim.difficulty;
@@ -304,18 +321,16 @@ function defenseAI(sim, p, dt, roll) {
   const holder = sim.ball.holder;
   const ownGoal = sim.ownGoalPos(p.team);
   const dir = sim.attackDir(p.team);
-  const mates = sim.outfield(p.team);
-  // Assign: closest to carrier presses; others mark the remaining attackers / protect crease.
-  const byDist = [...mates].sort((a, b) => a.pos.distanceToXZ(holder.pos) - b.pos.distanceToXZ(holder.pos));
-  const presser = byDist[0];
-  const attackers = sim.outfield(1 - p.team).filter((q) => q !== holder);
+  const { presser, marks } = defensiveAssignments(sim, p, holder);
   const reaction = diff.aiReaction;
 
   if (p === presser) {
     const dHolder = p.pos.distanceToXZ(holder.pos);
     // Get goal-side of the carrier (FULL PRESS collapses the cushion and sits on their hip)
     const toGoal = Vec3.dirXZ(holder.pos, ownGoal);
-    const cushion = (holder.state === 'trick' ? 1.3 : 0.9) * (sim.defenseMods(p.team).cushion || 1);
+    // Rookie defenders give the carrier a wider cushion; Legend defenders sit on their hip.
+    const baseCushion = diff.pressCushion || 0.9;
+    const cushion = (holder.state === 'trick' ? 1.3 : baseCushion) * (sim.defenseMods(p.team).cushion || 1);
     const target = new Vec3(holder.pos.x + toGoal.x * cushion, 0, holder.pos.z + toGoal.z * cushion);
     moveToward(p, target, 1, dHolder > 3 && p.turbo > 25 && rng.next() < diff.aiTurbo);
     if (roll) {
@@ -343,16 +358,16 @@ function defenseAI(sim, p, dt, roll) {
     if (d < 1.8 && p.cd.breach <= 0 && roll && rng.chance(0.5 * reaction)) p.input.breach = true;
   }
 
-  // Marking
-  const idx = byDist.indexOf(p) - 1;
-  const mark = attackers.sort((a, b) => a.pos.distanceToXZ(ownGoal) - b.pos.distanceToXZ(ownGoal))[idx] || attackers[0];
+  // Marking: man coverage is the default, while lower difficulties sag toward the crease. The
+  // explicit DROP ZONE play overrides that bias so the tactical choice remains readable.
+  const mark = marks.get(p);
   if (mark) {
     const toGoal = Vec3.dirXZ(mark.pos, ownGoal);
     let target = new Vec3(mark.pos.x + toGoal.x * 1.2, 0, mark.pos.z + toGoal.z * 1.2);
-    // DROP ZONE: sag off the mark toward the crease, clogging the middle of the pool
-    if (sim.defenseMods(p.team).block) {
+    const zoneBias = sim.defenseMods(p.team).block ? 0.55 : (diff.zoneBias || 0);
+    if (zoneBias > 0) {
       const crease = new Vec3(ownGoal.x + dir * 3.2, 0, mark.pos.z * 0.35);
-      target = new Vec3(target.x + (crease.x - target.x) * 0.45, 0, target.z + (crease.z - target.z) * 0.45);
+      target = new Vec3(target.x + (crease.x - target.x) * zoneBias, 0, target.z + (crease.z - target.z) * zoneBias);
     }
     // Pass lane awareness: if a pass is coming to our mark, step into it
     if (f && f.kind === 'pass' && f.target === mark && sim.ball.pos.distanceToXZ(p.pos) < 1.6 && p.cd.tackle <= 0 && roll && rng.chance(0.4 * diff.tackleRate)) p.input.trick = true;

@@ -140,6 +140,8 @@ export const DIFFICULTY = {
     keeperSkill: 0.8,
     aiTurbo: 0.5,
     aiGbRate: 0.6,
+    pressCushion: 1.2,
+    zoneBias: 0.65,
     userBonus: 1.15,
   },
   pro: {
@@ -151,6 +153,8 @@ export const DIFFICULTY = {
     keeperSkill: 1.0,
     aiTurbo: 0.85,
     aiGbRate: 0.9,
+    pressCushion: 0.9,
+    zoneBias: 0.32,
     userBonus: 1.0,
   },
   legend: {
@@ -162,6 +166,8 @@ export const DIFFICULTY = {
     keeperSkill: 1.15,
     aiTurbo: 1.0,
     aiGbRate: 1.15,
+    pressCushion: 0.72,
+    zoneBias: 0.12,
     userBonus: 0.9,
   },
 };

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MatchSim, TRICKS } from '../src/game/match.js';
+import { updateAI } from '../src/game/ai.js';
 import { TEAMS, TEAM_BY_ID, playerOverall, teamOverall, starters } from '../src/data/teams.js';
 import { RULES, DIFFICULTY, ARENA } from '../src/data/constants.js';
 import { emptyInput } from '../src/game/entities.js';
@@ -249,6 +250,41 @@ test('halftime swaps kickoff and the second half plays out', () => {
   while (sim.half === 1 && n++ < 60 * 400) sim.step(DT);
   assert.equal(sim.half, 2);
   assert.equal(secondKick, 1 - kickoff);
+});
+
+test('kickoff shapes vary by seed but remain deterministic and in bounds', () => {
+  const opening = (seed) => {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed, userTeam: null });
+    const shape = sim.outfield(sim.kickoffTeam).map((p) => [p.pos.x, p.pos.z]);
+    assert.ok(sim.kickoffPattern >= 0 && sim.kickoffPattern < 4);
+    for (const p of sim.outfield(sim.kickoffTeam)) assert.ok(p.pos.lengthXZ() < ARENA.fieldRadius);
+    return shape;
+  };
+  assert.deepEqual(opening(41), opening(41), 'same seed must reproduce the same kickoff');
+  const shapes = new Set([...Array(12)].map((_, i) => JSON.stringify(opening(i + 1))));
+  assert.ok(shapes.size > 1, 'opening shape should not be fixed for every seed');
+});
+
+test('defensive shape splits pressure by difficulty', () => {
+  const movementAt = (difficulty) => {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty, seed: 81, userTeam: null });
+    while (sim.state !== 'live') sim.step(DT);
+    const holder = sim.outfield(0)[0];
+    const mark = sim.outfield(0)[1];
+    const decoy = sim.outfield(0)[2];
+    const presser = sim.outfield(1)[0];
+    const defender = sim.outfield(1)[1];
+    sim.giveBall(holder);
+    holder.pos.set(0, 0, 0);
+    mark.pos.set(0, 0, 0);
+    decoy.pos.set(-8, 0, -4);
+    presser.pos.set(0, 0, 0.6);
+    defender.pos.set(4, 0, 0);
+    updateAI(sim, defender, DT);
+    return defender.input.moveX;
+  };
+  assert.ok(movementAt('rookie') > 0, 'rookie marking should sag toward the crease');
+  assert.ok(movementAt('legend') < 0, 'legend marking should stay goal-side on the man');
 });
 
 test('career ladder progresses on wins and tracks rep', () => {

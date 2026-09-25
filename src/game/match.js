@@ -13,6 +13,16 @@ import * as passing from './passing.js';
 import * as movement from './movement.js';
 import { updateAI } from './ai.js';
 
+// Kickoff shapes keep the opening possession readable while making the first pass impossible to
+// memorise. Offsets are relative to each team's attacking direction: x is depth behind the
+// carrier's starting line and z is the lateral lane.
+const KICKOFF_FORMATIONS = [
+  { carrier: [-0.4, 0], support: [[-4.2, 3.2], [-4.2, -3.2]] },
+  { carrier: [-0.7, 1.1], support: [[-4.5, -2.4], [-3.4, 3.8]] },
+  { carrier: [-0.7, -1.1], support: [[-3.4, -3.8], [-4.5, 2.4]] },
+  { carrier: [-0.9, 0.7], support: [[-3.6, -2.8], [-5.1, 2.7]] },
+];
+
 /**
  * BLITZBALL X match simulation.
  *
@@ -92,6 +102,8 @@ export class MatchSim {
     this.lastGoalTime = -99;
     this.stats = { possessions: 0, shots: 0, saves: 0, tricks: 0, hits: 0, tackles: 0, volleys: 0 };
     this.kickoffTeam = this.rng.chance(0.5) ? 0 : 1;
+    // Use the dedicated play RNG so changing kickoff art never shifts gameplay rolls.
+    this.kickoffPattern = Math.min(KICKOFF_FORMATIONS.length - 1, Math.floor(this.playRng.next() * KICKOFF_FORMATIONS.length));
     this.resetPossession(this.kickoffTeam, 'kickoff');
   }
 
@@ -178,11 +190,13 @@ export class MatchSim {
       p.shot = null;
       p.trick = null;
       p.hasBall = false;
+      p.callingForPass = false;
       p.turbo = Math.max(p.turbo, 45);
       p.turboActive = false;
       this.setState(p, 'idle');
       p.ai = { ...p.ai, cutting: false, cutTimer: 0, target: null, lungedFor: null };
     }
+    this.callPassTimer = 0; // stale "I'm open" flags must not survive a possession reset
     this.placeFormation(team, reason);
     this.stats.possessions++;
     this.events.emit('reset', { team, reason });
@@ -199,11 +213,15 @@ export class MatchSim {
       gk.pos.set(own + dir * 0.9, 0, 0);
       gk.facing = Math.atan2(dir, 0);
       if (reason === 'kickoff' || reason === 'goal' || reason === 'halftime') {
-        // Centre "face-off": possession team's striker at centre with the ball, others spread.
+        // Centre face-off, with the match's seeded opening shape varying the carrier and support
+        // lanes. Non-possession swimmers mirror the same shape so the defensive matchup is fair.
         const mine = t === possTeam;
-        out[0].pos.set(mine ? -dir * 0.4 : -dir * 3.6, 0, 0);
-        out[1].pos.set(-dir * 4.2, 0, 3.2);
-        out[2].pos.set(-dir * 4.2, 0, -3.2);
+        const shape = KICKOFF_FORMATIONS[this.kickoffPattern];
+        const carrier = mine ? shape.carrier : [-3.6, 0];
+        const support = mine ? shape.support : [[-4.2, 3.2], [-4.2, -3.2]];
+        out[0].pos.set(dir * carrier[0], 0, carrier[1]);
+        out[1].pos.set(dir * support[0][0], 0, support[0][1]);
+        out[2].pos.set(dir * support[1][0], 0, support[1][1]);
       } else {
         // Turnover-style restart: give ball to the keeper of the possession team.
         out[0].pos.set(-dir * 2.5, 0, 0);
@@ -521,22 +539,31 @@ export class MatchSim {
       if (inp.trick && this.canAct(p) && p.cd.tackle <= 0) this.tryTackle(p); // poke/slide tackle (Rematch-style)
       if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
       if (inp.pass && this.canAct(p) && this.ball.holder !== p && !p.isKeeper) {
-        // Call for the pass: flag the nearest supporting teammate so the carrier's next K
-        // releases to them.
+        // Call for the pass: flag the nearest supporting teammate so the carrier's next pass
+        // releases to them. On offense this doubles as the give-and-go trigger — the flagged
+        // mate cuts on the call, sprinting into open water so the feed leads them past the
+        // last defender — and the caller keeps a pass-and-move cut of their own so the return
+        // feed (or a later switch) finds them running at the ring.
+        const onOffense = this.ball.holder && this.ball.holder.team === p.team && p.team === this.possession;
         const best = [...this.teammatesOf(p)].filter((q) => q !== this.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(p.pos) - b.pos.distanceToXZ(p.pos))[0];
         if (best) {
           for (const q of this.outfield(p.team)) q.callingForPass = q === best;
           this.callPassTimer = 1.2;
+          if (onOffense && !best.ai.cutting) {
+            best.ai.cutting = true;
+            best.ai.cutTimer = 1.6;
+            this.events.emit('givego', { player: best });
+          }
           this.events.emit('callpass', { player: p, target: best });
+        }
+        if (onOffense && !p.ai.cutting) {
+          p.ai.cutting = true;
+          p.ai.cutTimer = 1.4;
         }
       }
       if (inp.shootPressed && this.canAct(p) && !p.isKeeper) {
         // Volley attempt on a loose ball in the air / or a breach to block
         if (!this.tryVolley(p)) this.tryBreach(p);
-      }
-      if (inp.pass && this.canAct(p) && p.team === this.possession && this.ball.holder && this.ball.holder.team === p.team) {
-        p.ai.cutting = true;
-        p.ai.cutTimer = 1.4;
       }
     }
   }

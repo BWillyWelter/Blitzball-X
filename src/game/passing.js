@@ -35,6 +35,12 @@ export function choosePassTarget(sim, p, lob) {
 export function tryPass(sim, p, targetOverride, lob) {
     const target = targetOverride || choosePassTarget(sim, p, lob);
     if (!target) return false;
+    // Pass-and-move: the passer never stands still after releasing. Cutting away from the
+    // pass pulls their marker with them and reopens the lane the ball just travelled.
+    if (!p.isKeeper) {
+      p.ai.cutting = true;
+      p.ai.cutTimer = 1.4;
+    }
     p.shot = null;
     p.hasBall = false;
     sim.ball.holder = null;

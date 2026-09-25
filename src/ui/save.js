@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = {
   difficulty: 'pro', // rookie | pro | legend
   commentary: true,
   screenShake: true,
+  reducedMotion: false,
   touchControls: 'auto', // auto | on | off — on-screen stick + buttons
   camera: 'broadcast', // broadcast | firstPerson — career no longer forces first-person
   cameraAngle: 'corner', // corner (3D three-quarter) | side (classic side-on)
