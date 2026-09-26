@@ -15,6 +15,7 @@
     "qa:shot": "node tools/shot.mjs",
     "qa:probe": "node tools/probe.mjs",
     "qa:touch": "node tools/touchtest.mjs",
+    "qa:context": "node tools/contexttest.mjs",
     "qa:perf": "node tools/perfshot.mjs"
   },
   "dependencies": {
