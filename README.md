@@ -32,6 +32,7 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Swim | WASD / Arrows | Left stick / D-pad |
+| Rise / dive (free swim) | R / F | Right stick (Y) |
 | Turbo | Shift | RT / RB |
 | Shoot (hold to charge, release in the PERFECT window) | J / Space | A / Cross |
 | Pass (hold Turbo to lob for a volley) | K | X / Square |

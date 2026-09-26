@@ -99,6 +99,7 @@ export class InputManager {
     this.touch = {
       moveX: 0,
       moveZ: 0,
+      moveY: 0,
       active: false,
       turbo: false,
       shootHeld: false,
@@ -156,6 +157,7 @@ export class InputManager {
       // Do not allow held actions to fire after tab switching.
       this.pending.clear();
       this.pendingPlaycall = 0;
+      this.touch.moveY = 0;
       this.touch.edges.clear();
     };
 
@@ -284,6 +286,7 @@ export class InputManager {
 
     let moveX = 0;
     let moveZ = 0;
+    let moveY = 0;
     let turbo = this.down(
       'ShiftLeft',
       'ShiftRight'
@@ -334,6 +337,15 @@ export class InputManager {
       moveZ += 1;
     }
 
+    // Free-swim depth: R rises, F dives.
+    if (this.down('KeyR')) {
+      moveY += 1;
+    }
+
+    if (this.down('KeyF')) {
+      moveY -= 1;
+    }
+
     for (const code in PLAY_KEYS) {
       if (this.justPressed(code)) {
         playcall = PLAY_KEYS[code];
@@ -351,6 +363,11 @@ export class InputManager {
         ? touch.moveZ
         : 0;
 
+      this.lastDevice = 'touch';
+    }
+
+    if (touch.moveY) {
+      moveY = touch.moveY;
       this.lastDevice = 'touch';
     }
 
@@ -417,6 +434,16 @@ export class InputManager {
       ) {
         moveX = axisX;
         moveZ = axisZ;
+        this.lastDevice = 'gamepad';
+      }
+
+      // Right stick Y dives / rises (up on the stick is negative on the axis).
+      const axisY = -axisWithDeadZone(
+        pad.axes?.[3] || 0
+      );
+
+      if (axisY !== 0) {
+        moveY = axisY;
         this.lastDevice = 'gamepad';
       }
 
@@ -533,6 +560,11 @@ export class InputManager {
     output.moveZ = Math.max(
       -1,
       Math.min(1, moveZ)
+    );
+
+    output.moveY = Math.max(
+      -1,
+      Math.min(1, moveY)
     );
 
     output.turbo = !!turbo;

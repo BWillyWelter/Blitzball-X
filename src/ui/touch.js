@@ -99,6 +99,10 @@ export class TouchControls {
     el.style.setProperty('--ring-size', `${PAD.ring}px`);
     el.innerHTML = `
       <div class="touch-stick-zone">
+        <div class="touch-vertical">
+          <button class="touch-btn vert t-rise" data-action="rise" type="button" aria-label="Swim up"><span>&#9650;</span></button>
+          <button class="touch-btn vert t-dive" data-action="dive" type="button" aria-label="Swim down"><span>&#9660;</span></button>
+        </div>
         <div class="touch-stick">
           <div class="touch-stick-ring"></div>
           <div class="touch-stick-nub"></div>
@@ -128,8 +132,13 @@ export class TouchControls {
     const zone = this.zone;
     const t = this.input.touch;
     const place = (x, y) => {
-      this.stick.style.left = `${x}px`;
-      this.stick.style.top = `${y}px`;
+      // style.left/top are measured from the stick's offset parent (the zone), not the viewport,
+      // so subtract the zone origin. Without this the ring rendered a whole zone-height too low —
+      // usually off the bottom of the screen (the joystick "placement" bug).
+      const r = zone.getBoundingClientRect();
+      this.stick.style.left = `${x - r.left}px`;
+      this.stick.style.top = `${y - r.top}px`;
+      this.stick.style.bottom = 'auto';
     };
     const move = (e) => {
       if (e.pointerId !== this.stickId) return;
@@ -187,9 +196,12 @@ export class TouchControls {
     this.buttons.set(action, btn);
     const press = (e) => {
       e.preventDefault();
+      e.stopPropagation(); // a pad button must not also engage the stick zone it sits over
       if (btn.classList.contains('down')) return;
       btn.classList.add('down');
       if (action === 'turbo') t.turbo = true;
+      else if (action === 'rise') t.moveY = 1;
+      else if (action === 'dive') t.moveY = -1;
       else if (action === 'shoot') {
         t.shootHeld = true;
         t.edges.add('shoot');
@@ -202,6 +214,8 @@ export class TouchControls {
       if (!btn.classList.contains('down')) return;
       btn.classList.remove('down');
       if (action === 'turbo') t.turbo = false;
+      else if (action === 'rise') { if (t.moveY > 0) t.moveY = 0; }
+      else if (action === 'dive') { if (t.moveY < 0) t.moveY = 0; }
       else if (action === 'shoot') {
         t.shootHeld = false;
         t.edges.add('shootRelease');
@@ -283,6 +297,7 @@ export class TouchControls {
     const t = this.input.touch;
     t.moveX = 0;
     t.moveZ = 0;
+    t.moveY = 0;
     t.active = false;
     t.turbo = false;
     t.shootHeld = false;

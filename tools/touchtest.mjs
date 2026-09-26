@@ -63,11 +63,12 @@ const ui = await page.evaluate(() => ({
   secondary: document.querySelectorAll('.touch-ui .touch-secondary .touch-btn').length,
   contextLabel: document.querySelector('.touch-ui .touch-btn[data-action="context"] span')?.textContent || '',
   stick: !!document.querySelector('.touch-ui .touch-stick'),
+  vertical: document.querySelectorAll('.touch-ui .touch-vertical .touch-btn').length,
   pauseBtn: !!document.querySelector('.touch-ui .touch-pause'),
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('4 primary + 5 secondary buttons + stick + pause rendered', ui.buttons === 9 && ui.primary === 4 && ui.secondary === 5 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons} (${ui.primary}/${ui.secondary})`);
+ok('4 primary + 5 secondary + 2 depth buttons + stick + pause rendered', ui.buttons === 11 && ui.primary === 4 && ui.secondary === 5 && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons} (${ui.primary}/${ui.secondary}/${ui.vertical})`);
 ok('contextual button defaults to TRICK', ui.contextLabel === 'TRICK', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
@@ -105,9 +106,13 @@ const stick = await page.evaluate(() => {
     }
   }
   const nub = document.querySelector('.touch-ui .touch-stick-nub').style.transform;
+  // The ring must sit under the thumb: it is absolutely positioned inside the zone, so its
+  // viewport centre should land on the touch point (the "joystick placement" fix).
+  const sr = document.querySelector('.touch-ui .touch-stick').getBoundingClientRect();
+  const centre = { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 };
   pe('pointerup', cx + 70, cy - 70);
   const after = app.input.poll();
-  return { vec, moved, dx, nub, released: { x: after.moveX, z: after.moveZ }, active: app.input.touch.active };
+  return { vec, moved, dx, nub, centre, touch: { x: cx, y: cy }, released: { x: after.moveX, z: after.moveZ }, active: app.input.touch.active };
 });
 ok('stick up+right reads as +x / -z', stick.vec.x > 0.5 && stick.vec.z < -0.5, `(${stick.vec.x.toFixed(2)}, ${stick.vec.z.toFixed(2)})`);
 ok('stick moves the swimmer', stick.moved > 0.5, `${stick.moved.toFixed(2)} m`);
@@ -117,6 +122,36 @@ const nubLen = Math.hypot(nubNums[2] || 0, nubNums[3] || 0);
 ok('stick nub follows the thumb (clamped to rim)', nubLen > 50 && nubLen < 60, `offset ${nubLen.toFixed(1)}px`);
 ok('stick release returns to neutral', Math.abs(stick.released.x) < 1e-6 && Math.abs(stick.released.z) < 1e-6);
 ok('stick inactive after release', stick.active === false);
+ok(
+  'stick ring sits under the thumb (fixed placement)',
+  Math.hypot(stick.centre.x - stick.touch.x, stick.centre.y - stick.touch.y) < 6,
+  `ring (${stick.centre.x.toFixed(0)},${stick.centre.y.toFixed(0)}) vs touch (${stick.touch.x},${stick.touch.y})`
+);
+
+// ---------------------------------------------------------------- vertical (rise / dive)
+// Input-plumbing only here; the depth integration itself is covered deterministically by the
+// node suite (tests/sim.test.mjs) so this harness never has to perturb the live match.
+const vert = await page.evaluate(() => {
+  const app = window.app;
+  const rise = document.querySelector('.touch-ui .touch-btn.t-rise');
+  const dive = document.querySelector('.touch-ui .touch-btn.t-dive');
+  rise.setPointerCapture = () => {};
+  dive.setPointerCapture = () => {};
+  const pe = (el, type) => el.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch', bubbles: true, cancelable: true, isPrimary: true }));
+  pe(rise, 'pointerdown');
+  const heldY = app.input.poll().moveY;
+  pe(rise, 'pointerup');
+  const afterRise = app.input.poll().moveY;
+  pe(dive, 'pointerdown');
+  const heldDive = app.input.poll().moveY;
+  pe(dive, 'pointerup');
+  const afterDive = app.input.poll().moveY;
+  return { heldY, afterRise, heldDive, afterDive };
+});
+ok('RISE button reads as +moveY', vert.heldY > 0.9, `moveY=${vert.heldY}`);
+ok('releasing RISE re-centres depth', Math.abs(vert.afterRise) < 1e-6);
+ok('DIVE button reads as -moveY', vert.heldDive < -0.9, `moveY=${vert.heldDive}`);
+ok('releasing DIVE re-centres depth', Math.abs(vert.afterDive) < 1e-6);
 
 // ----------------------------------------------------------------- buttons
 const buttons = await page.evaluate(() => {
@@ -256,6 +291,9 @@ const buttons = await page.evaluate(() => {
   stickEv('pointermove', zx + 70, zy - 70);
   const tb = press('turbo');
   step(1);
+  // FLOW makes turbo free (no drain), which would mask this check — clear it for a clean read.
+  sim.flow[0] = false;
+  sim.flow[1] = false;
   const meter0 = tp.turbo;
   step(6);
   out.turbo = app.input.touch.turbo === true && tp.turboActive === true && tp.turbo < meter0;

@@ -327,6 +327,7 @@ export function HowToScreen(app) {
           <table class="ctrl">
             <tr><th></th><th>KEYBOARD</th><th>GAMEPAD</th></tr>
             <tr><td>Swim</td><td>WASD / Arrows</td><td>Left stick</td></tr>
+            <tr><td>Rise / dive (free swim)</td><td>R / F</td><td>Right stick ↑ ↓</td></tr>
             <tr><td>Turbo</td><td>SHIFT</td><td>RT / RB</td></tr>
             <tr><td>Shoot (hold to charge, release on PERFECT)</td><td>J / SPACE</td><td>A / ✕</td></tr>
             <tr><td>Pass · Lob for a volley (hold turbo)</td><td>K</td><td>X / ▢</td></tr>

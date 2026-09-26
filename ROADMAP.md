@@ -26,6 +26,19 @@ landed on `main` with the commit that closed them.
       the prime slots nearest the thumb and dims what the sim ignores right now (BREACH while
       carrying, GB off the dribble), and the contextual anchor gained an off-ball *support* state
       so it stops offering a trick to a player without the ball. Covered by `tools/touchtest.mjs`.
+- [x] Fixed: a dropped ball was stranded. Loose balls sank under gravity to the pool floor (y=-1.7)
+      while pickup only reached 1.1 above a swimmer's body centre, so once a hit/tackle knocked the
+      ball loose nobody could ever grab it again. Loose balls are now buoyant (they drift back to
+      the playing plane) and the grab reach extends downward, so a knocked-loose ball is always
+      recoverable. Regression test in `tests/sim.test.mjs`.
+- [x] Free-swim depth: RISE/DIVE (touch), R/F (keyboard) and the right stick (gamepad) steer the
+      controlled swimmer up and down; with no input they are buoyant and ease back to the playing
+      plane. Wired through `moveY` end-to-end (`input` → `entities` → `movement`). Covered by
+      `tests/sim.test.mjs` and the touch harness.
+- [x] Fixed: the on-screen joystick rendered in the wrong place. The ring was positioned with
+      viewport coordinates inside the stick zone (its offset parent), so it drew a whole zone-height
+      too low — usually off-screen. It now subtracts the zone origin and sits exactly under the
+      thumb, asserted by `tools/touchtest.mjs`.
 
 ## 2. Graphics & FX
 

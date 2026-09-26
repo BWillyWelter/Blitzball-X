@@ -22,7 +22,8 @@ export const ARENA = {
   centerCircle: 3.0,
   ceilingY: 3.4, // ball vertical bounds
   floorY: -1.7,
-  playerMinY: 0,
+  playerMinY: -1.5, // how deep a free-swimming outfield player can dive before buoyancy floats them home
+  playerMaxY: 2.4, // …and how high they can rise (breaches still launch further on their own arc)
   keeperMinY: -1.1,
   keeperMaxY: 1.7,
 };
@@ -52,8 +53,10 @@ export const RULES = {
 export const PHYS = {
   fixedDt: 1 / 60,
   gravityPlayer: -7.5, // buoyancy-damped
-  gravityLoose: -0.9, // loose ball sinks slowly
+  gravityLoose: -0.9, // used by shot arcs (a shot drops as it runs out of steam)
   looseDrag: 1.35,
+  ballFloat: 0.9, // a loose ball is buoyant and drifts back to the playing plane…
+  ballBuoyancy: 3.4, // …so a dropped ball never settles on the pool floor out of reach
   wallRestitution: 0.72,
   currentStrength: 6, // pulls a ball that got behind the goal line back into play
 };
@@ -71,6 +74,10 @@ export const MOVE = {
   keeperDiveSpeed: 7.5,
   breachVel: 5.6,
   breachCooldown: 0.45,
+  swimVertical: 2.8, // free-swim rise/dive speed (m/s)
+  verticalAccel: 10, // how fast vertical velocity chases the input
+  verticalDrag: 6, // vertical velocity decay when the stick/buttons are centred
+  verticalHome: 5, // buoyancy: rate a swimmer eases back to the playing plane
   fallenDuration: 1.15,
   stumbleDuration: 0.85,
   separation: 0.72,

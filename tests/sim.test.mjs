@@ -7,6 +7,9 @@ import { RULES, DIFFICULTY, ARENA } from '../src/data/constants.js';
 import { emptyInput } from '../src/game/entities.js';
 import { createCareer, currentOpponent, recordResult, careerTitle } from '../src/game/career.js';
 import { RNG } from '../src/core/rng.js';
+import { releaseLoose } from '../src/game/ball.js';
+import { updatePlayerPhysics } from '../src/game/movement.js';
+import { Vec3 } from '../src/core/vec3.js';
 
 const DT = 1 / 60;
 
@@ -460,4 +463,66 @@ test('call-for-pass routes the carrier pass to the flagged teammate', () => {
   carrier.input.pass = true;
   sim.processInput(carrier, DT);
   assert.ok(sim.ball.flight && sim.ball.flight.target === expected, 'carrier pass went to the flagged teammate');
+});
+
+test('a dropped ball is recoverable at any depth (regression)', () => {
+  // Loose balls used to sink to the pool floor (y = -1.7) while pickup only reached 1.1 above a
+  // swimmer's body centre, so a dropped ball became permanently unpickable. Drop it straight onto
+  // the floor and prove a teammate still recovers it.
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 7, userTeam: null });
+  for (let i = 0; i < 200; i++) sim.step(DT);
+  const p = sim.outfield(0)[0];
+  sim.giveBall(p);
+  releaseLoose(sim, p, new Vec3(0, 0, 0));
+  sim.ball.pos.set(p.pos.x, ARENA.floorY, p.pos.z);
+  sim.ball.vel.set(0, 0, 0);
+  let recovered = false;
+  for (let i = 0; i < 180 && !recovered; i++) {
+    sim.step(DT);
+    if (sim.ball.holder) recovered = true;
+  }
+  assert.ok(recovered, 'a ball dropped on the pool floor was picked up');
+});
+
+test('loose balls are buoyant and drift back to the playing plane', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 11, userTeam: null });
+  for (let i = 0; i < 200; i++) sim.step(DT);
+  const p = sim.outfield(0)[0];
+  sim.giveBall(p);
+  releaseLoose(sim, p, new Vec3(0, 0, 0));
+  sim.ball.pos.set(0, ARENA.floorY, 0); // pin it on the floor, away from everyone
+  sim.ball.vel.set(0, 0, 0);
+  // Freeze pickups so we observe pure physics, then watch the ball climb off the floor.
+  const realCheckPickup = sim.checkPickup;
+  sim.checkPickup = () => {};
+  for (let i = 0; i < 240; i++) sim.step(DT);
+  sim.checkPickup = realCheckPickup;
+  assert.ok(sim.ball.pos.y > ARENA.floorY + 1.0, `ball rose off the floor to y=${sim.ball.pos.y.toFixed(2)}`);
+});
+
+test('free-swim depth: moveY raises and dives a swimmer, then buoyancy re-centres', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 5, userTeam: 0 });
+  sim.state = 'live';
+  const p = sim.outfield(0)[0];
+  p.input = emptyInput();
+  p.state = 'idle';
+  p.stun = 0;
+  p.airborne = false;
+  p.y = 0;
+  p.vy = 0;
+
+  p.input.moveY = 1;
+  for (let i = 0; i < 40; i++) updatePlayerPhysics(sim, p, DT, false);
+  assert.ok(p.y > 0.4, `swimmer rose to y=${p.y.toFixed(2)}`);
+
+  p.input.moveY = 0;
+  for (let i = 0; i < 240; i++) updatePlayerPhysics(sim, p, DT, false);
+  assert.ok(Math.abs(p.y) < 0.15, `buoyancy re-centred the swimmer to y=${p.y.toFixed(2)}`);
+
+  p.input.moveY = -1;
+  for (let i = 0; i < 40; i++) updatePlayerPhysics(sim, p, DT, false);
+  assert.ok(p.y < -0.4, `swimmer dove to y=${p.y.toFixed(2)}`);
+
+  for (let i = 0; i < 400; i++) updatePlayerPhysics(sim, p, DT, false);
+  assert.ok(p.y >= ARENA.playerMinY - 1e-6, `dive clamps at the floor bound (y=${p.y.toFixed(2)})`);
 });

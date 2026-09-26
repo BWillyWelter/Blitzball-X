@@ -71,7 +71,26 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
       sim.events.emit('splash', { player: p, pos: p.pos.clone(), size: 0.6 });
     }
   } else if (p.state !== 'trick') {
-    p.y *= Math.max(0, 1 - dt * 6);
+    // Free-swim depth: RISE/DIVE (touch), R/F (keyboard) or the right stick steer y. With no
+    // depth input the swimmer is buoyant and eases back to the playing plane at y = 0.
+    const canSwim = !deadBall && p.stun <= 0 && (p.state === 'idle' || p.state === 'swim' || p.state === 'catch');
+    const rawY = Number.isFinite(inp.moveY) ? inp.moveY : 0;
+    const wantY = canSwim ? clamp(rawY, -1, 1) : 0;
+    if (wantY !== 0) {
+      const targetVy = wantY * MOVE.swimVertical;
+      p.vy += (targetVy - p.vy) * Math.min(1, MOVE.verticalAccel * dt);
+    } else {
+      p.vy *= Math.max(0, 1 - MOVE.verticalDrag * dt);
+      p.y *= Math.max(0, 1 - MOVE.verticalHome * dt);
+    }
+    p.y += p.vy * dt;
+    if (p.y < ARENA.playerMinY) {
+      p.y = ARENA.playerMinY;
+      if (p.vy < 0) p.vy = 0;
+    } else if (p.y > ARENA.playerMaxY) {
+      p.y = ARENA.playerMaxY;
+      if (p.vy > 0) p.vy = 0;
+    }
   }
 
   // Integrate
@@ -161,7 +180,7 @@ export function updateGlueDribble(sim, dt) {
   const ahead = 0.55 + Math.min(0.5, holder.vel.lengthXZ() * 0.09);
   sim.ball.pos.x = holder.pos.x + f.x * ahead;
   sim.ball.pos.z = holder.pos.z + f.z * ahead;
-  sim.ball.pos.y = 0.5 + Math.sin(sim.time * 9) * 0.06;
+  sim.ball.pos.y = 0.5 + holder.y + Math.sin(sim.time * 9) * 0.06;
   sim.ball.vel.set(holder.vel.x, 0, holder.vel.z);
   holder.dribbleTouch += dt;
 }

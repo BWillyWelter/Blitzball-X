@@ -64,6 +64,7 @@ export function emptyInput() {
   return {
     moveX: 0,
     moveZ: 0,
+    moveY: 0, // vertical (free-swim) intent: +1 rise, -1 dive
     turbo: false,
     playcall: 0, // one-shot numeric: 1-3 offense play, 7-9 defense play, 0 none
     shoot: false, // held
@@ -89,6 +90,7 @@ export function emptyInput() {
 export function copyInput(dst, src) {
   dst.moveX = src.moveX;
   dst.moveZ = src.moveZ;
+  dst.moveY = src.moveY;
   dst.turbo = src.turbo;
   dst.shoot = src.shoot;
   dst.shootPressed = src.shootPressed;

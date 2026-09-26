@@ -1596,6 +1596,30 @@ select {
   box-shadow: 0 0 14px rgba(255, 210, 63, 0.5);
 }
 
+/* Left thumb, depth: RISE / DIVE sit where the thumb can reach them without leaving the stick. */
+.touch-vertical {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: var(--touch-opacity, 1);
+}
+.touch-btn.vert {
+  width: 54px;
+  height: 54px;
+  font-size: 18px;
+  border-width: 2px;
+  background: rgba(10, 12, 22, 0.45);
+  border-color: rgba(92, 242, 255, 0.5);
+}
+.touch-btn.vert.down {
+  background: var(--cyan, #5cf2ff);
+  color: #04121a;
+}
+
 /* Thumb side: an adaptive action cluster — a 2x2 primary grid with a compact secondary row. */
 .touch-actions {
   position: absolute;
@@ -1798,6 +1822,10 @@ select {
 .touch-ui[data-layout="left"] .touch-stick-zone {
   left: auto;
   right: 0;
+}
+.touch-ui[data-layout="left"] .touch-vertical {
+  left: auto;
+  right: max(14px, env(safe-area-inset-right));
 }
 .touch-ui[data-layout="left"] .touch-pause {
   right: auto;

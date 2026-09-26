@@ -216,8 +216,12 @@ export function updateBall(sim, dt, deadBall) {
         )
       );
     } else {
+      // Loose balls are buoyant: they drift back up to the playing plane instead of sinking to
+      // the pool floor, where a dropped ball used to be stranded out of every swimmer's reach.
       ball.vel.y +=
-        PHYS.gravityLoose * dt;
+        (PHYS.ballFloat - ball.pos.y) *
+        PHYS.ballBuoyancy *
+        dt;
 
       ball.vel.scale(
         Math.max(
@@ -332,7 +336,10 @@ export function updateBall(sim, dt, deadBall) {
     }
   }
 export function integrateLoose(sim, ball, dt) {
-    ball.vel.y += PHYS.gravityLoose * dt;
+    ball.vel.y +=
+      (PHYS.ballFloat - ball.pos.y) *
+      PHYS.ballBuoyancy *
+      dt;
     ball.vel.scale(
       Math.max(0, 1 - PHYS.looseDrag * dt)
     );
@@ -1182,14 +1189,12 @@ export function checkPickup(sim, ) {
           ball.pos
         );
 
-      const vertical =
-        Math.abs(
-          ball.pos.y -
-          (
-            0.9 +
-            player.y
-          )
-        );
+      // Signed gap to the ball's natural catch height (body centre). A ball that sits below a
+      // swimmer can be reached down for much further than one above can be plucked out of the
+      // air, so a loose ball that dips toward the pool floor stays recoverable without diving.
+      const dy =
+        ball.pos.y -
+        (0.9 + player.y);
 
       let radius =
         player.isKeeper
@@ -1207,14 +1212,14 @@ export function checkPickup(sim, ) {
         radius += 0.3;
       }
 
+      const reachY =
+        dy > 0
+          ? (player.airborne ? 1.5 : 1.1)
+          : (player.airborne ? 2.2 : 2.9);
+
       if (
         horizontal < radius &&
-        vertical <
-          (
-            player.airborne
-              ? 1.5
-              : 1.1
-          )
+        Math.abs(dy) < reachY
       ) {
         const score =
           horizontal -

@@ -13,6 +13,7 @@ export function updateAI(sim, p, dt) {
   const inp = p.input;
   inp.moveX = 0;
   inp.moveZ = 0;
+  inp.moveY = 0;
   inp.turbo = false;
   inp.shootPressed = false;
   inp.shootReleased = false;
