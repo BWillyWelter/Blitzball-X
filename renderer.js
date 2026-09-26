@@ -125,6 +125,55 @@ export class MatchRenderer {
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
 
+    // WebGL context loss (GPU driver reset, tab eviction, mobile backgrounding). Without a
+    // preventDefault on `webglcontextlost` the browser never fires `webglcontextrestored`, so
+    // the pool would stay black for the rest of the match. We flag the loss (render() becomes a
+    // no-op), tell the app to freeze the clock, and rebuild the post chain once GL comes back.
+    this.contextLost = false;
+
+    this.onContextLostEvent = (event) => {
+      event.preventDefault();
+      if (this.disposed) return;
+      this.contextLost = true;
+      this.settings.onContextLost?.();
+    };
+
+    this.onContextRestoredEvent = () => {
+      if (this.disposed) return;
+      this.contextLost = false;
+      this.rebuildAfterContextLoss();
+      this.settings.onContextRestored?.();
+    };
+
+    this.canvas.addEventListener(
+      'webglcontextlost',
+      this.onContextLostEvent,
+      false
+    );
+    this.canvas.addEventListener(
+      'webglcontextrestored',
+      this.onContextRestoredEvent,
+      false
+    );
+
+    this.resize();
+  }
+
+  /**
+   * Re-create GL-side objects after the browser handed us a fresh context. Every render target
+   * created by the post chain died with the old context, so the composer is rebuilt from scratch
+   * and the renderer config re-applied before re-sizing.
+   */
+  rebuildAfterContextLoss() {
+    this.renderer.shadowMap.enabled = this.settings.quality !== 'low';
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.composer?.dispose();
+    this.setupPost();
+
     this.resize();
   }
 
@@ -936,7 +985,7 @@ export class MatchRenderer {
   }
 
   render() {
-    if (this.disposed) return;
+    if (this.disposed || this.contextLost) return;
 
     this.composer.render();
   }
@@ -949,6 +998,15 @@ export class MatchRenderer {
     window.removeEventListener(
       'resize',
       this.onResize
+    );
+
+    this.canvas.removeEventListener(
+      'webglcontextlost',
+      this.onContextLostEvent
+    );
+    this.canvas.removeEventListener(
+      'webglcontextrestored',
+      this.onContextRestoredEvent
     );
 
     this.unbindEvents();
