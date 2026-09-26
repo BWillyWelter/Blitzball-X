@@ -161,7 +161,12 @@ class App {
     const sim = new MatchSim({ home: mode === 'career' ? away : home, away: mode === 'career' ? home : away, difficulty, seed, userTeam: mode === 'career' ? 1 : userTeam });
     let renderer;
     try {
-      renderer = new MatchRenderer(canvas, sim, { ...this.state.settings, firstPerson: this.state.settings.camera === 'firstPerson' });
+      renderer = new MatchRenderer(canvas, sim, {
+        ...this.state.settings,
+        firstPerson: this.state.settings.camera === 'firstPerson',
+        onContextLost: () => this.handleContextLost(),
+        onContextRestored: () => this.handleContextRestored(),
+      });
     } catch (e) {
       console.error(e);
       wrap.remove();
@@ -300,6 +305,40 @@ class App {
       this.settingsOverlay = null;
     }
     this.lastT = performance.now();
+  }
+
+  /**
+   * The GPU context vanished (driver reset, tab eviction, mobile backgrounding). Freeze the
+   * fixed-step clock so the match doesn't keep playing behind a black canvas, and tell the player
+   * what happened instead of leaving them staring at an unresponsive pool.
+   */
+  handleContextLost() {
+    const m = this.match;
+    if (!m) return;
+    m.pausedBeforeLoss = m.paused;
+    m.contextLost = true;
+    m.paused = true;
+    this.audio.suspend();
+    m.hud?.popup('SIGNAL LOST', 'RECOVERING…', 0, true, 0);
+  }
+
+  /**
+   * The browser handed us a fresh context and the renderer rebuilt its post chain. Unfreeze the
+   * clock unless the player had deliberately paused before the loss, and reset the frame timer so
+   * the first frame back can't consume a huge dt.
+   */
+  handleContextRestored() {
+    const m = this.match;
+    if (!m) return;
+    m.contextLost = false;
+    if (!m.pausedBeforeLoss) {
+      m.paused = false;
+      this.lastT = performance.now();
+      this.accum = 0;
+      this.audio.resume();
+    }
+    m.pausedBeforeLoss = false;
+    m.hud?.popup('SIGNAL BACK', 'PLAY ON', 0, true, 0);
   }
 
   /** Settings over a paused match (pause menu → SETTINGS). BACK returns to the pause menu. */
