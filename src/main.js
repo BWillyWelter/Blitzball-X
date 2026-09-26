@@ -18,6 +18,25 @@ import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import { PHYS } from './data/constants.js';
 import * as Screens from './ui/screens.js';
 
+/**
+ * Live play state for the adaptive touch pad, which remaps its contextual anchor and re-ranks the
+ * expert row from it: TRICK while carrying, TACKLE on defense, JUMP whenever the ball is loose
+ * (a shot to leap at, a pass to jump for) or when we are the support off a team-mate's carry.
+ */
+function touchContext(sim) {
+  const p = sim.controlled;
+  if (!p) return { onBall: false, defending: false, looseBall: false, support: false };
+  const holder = sim.ball.holder;
+  const onBall = !!holder && holder === p;
+  return {
+    onBall,
+    defending: !onBall && !!holder && holder.team !== p.team,
+    looseBall: !holder,
+    // Off-ball on offense: leaping the passing lane beats trying a trick we don't have the ball for.
+    support: !onBall && !!holder && holder.team === p.team,
+  };
+}
+
 class App {
   constructor() {
     this.state = loadState();
@@ -157,7 +176,7 @@ class App {
     this.match = { sim, renderer, hud, commentary, wrap, mode, userTeam, home, away, paused: false, tipTimer: 2.2, finished: false, resultsTimer: 0, touchControls: null };
     // On-screen controls for touch devices (and anyone who forces them on in Settings).
     if (this.touchEnabled()) {
-      this.match.touchControls = new TouchControls(wrap, this.input, { onPause: () => this.pause() });
+      this.match.touchControls = new TouchControls(wrap, this.input, { onPause: () => this.pause(), settings: this.state.settings });
       wrap.classList.add('touch');
     }
     hud.setHint(
@@ -166,7 +185,7 @@ class App {
           ? 'WATCHING'
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
-          ? 'LEFT STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters'
+          ? `${this.state.settings.touchLayout === 'left' ? 'RIGHT' : 'LEFT'} STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters`
           : 'WASD move & aim · SHIFT turbo · J shoot · K pass/call · L slide tackle · I hit · U breach · E gamebreaker · Q switch · C ball cam · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim, renderer);
@@ -283,14 +302,15 @@ class App {
     this.lastT = performance.now();
   }
 
+  /** Settings over a paused match (pause menu → SETTINGS). BACK returns to the pause menu. */
   openSettingsOverlay() {
     if (!this.match) return;
-    const s = Screens.SettingsScreen(this, {});
-    s.el.classList.add('overlay-screen', 'in');
-    s.el.querySelector('.back-btn').onclick = () => {
+    const close = () => {
       s.el.remove();
-      this.settingsOverlay = null;
+      if (this.settingsOverlay === s) this.settingsOverlay = null;
     };
+    const s = Screens.SettingsScreen(this, { onBack: close });
+    s.el.classList.add('overlay-screen', 'in');
     this.settingsOverlay = s;
     this.match.wrap.appendChild(s.el);
   }
@@ -423,8 +443,12 @@ class App {
         const on = m.renderer.gameCam.toggleBallCam();
         m.hud.popup(on ? 'BALL CAM' : 'PLAYER CAM', on ? 'LOCKED ON' : 'LOOK AHEAD', m.sim.controlled.team, false, 0);
       }
-      // Light up the Gamebreaker button as soon as the controlled side's meter is full.
-      if (m.touchControls && m.userTeam !== null) m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
+      // Light up the Gamebreaker button as soon as the controlled side's meter is full, and keep
+      // the contextual primary button pointed at whatever the controlled swimmer should do now.
+      if (m.touchControls && m.userTeam !== null) {
+        m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
+        m.touchControls.setContext(touchContext(m.sim));
+      }
       // Swim stroke sound for the controlled / carrying swimmer
       const swimmer = m.sim.controlled || m.sim.ball.holder;
       if (swimmer && swimmer.state === 'swim' && swimmer.speedNorm > 0.25) {

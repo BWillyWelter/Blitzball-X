@@ -371,8 +371,15 @@ export function HowToScreen(app) {
 export function SettingsScreen(app, params = {}) {
   const s = app.state.settings;
   const row = (key, label, kind, opts) => {
-    if (kind === 'range') return `<div class="set-row" data-key="${key}"><span class="set-label">${label}</span><input type="range" min="0" max="1" step="0.05" value="${s[key]}"><span class="set-val">${Math.round(s[key] * 100)}%</span></div>`;
+    if (kind === 'range') {
+      const min = opts?.min ?? 0;
+      const max = opts?.max ?? 1;
+      const step = opts?.step ?? 0.05;
+      const pct = Math.round(((s[key] - min) / (max - min)) * 100);
+      return `<div class="set-row" data-key="${key}" data-min="${min}" data-max="${max}"><span class="set-label">${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${s[key]}"><span class="set-val">${pct}%</span></div>`;
+    }
     if (kind === 'select') return `<div class="set-row" data-key="${key}"><span class="set-label">${label}</span><select>${opts.map((o) => `<option value="${o[0]}" ${s[key] === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></div>`;
+    if (kind === 'pick') return `<div class="set-row" data-key="${key}"><span class="set-label">${label}</span><div class="set-pick">${opts.map((o) => `<button type="button" class="pick-btn ${s[key] === o[0] ? 'on' : ''}" data-value="${o[0]}">${o[1]}</button>`).join('')}</div></div>`;
     if (kind === 'toggle') return `<div class="set-row" data-key="${key}"><span class="set-label">${label}</span><input type="checkbox" ${s[key] ? 'checked' : ''}></div>`;
     return '';
   };
@@ -393,17 +400,37 @@ export function SettingsScreen(app, params = {}) {
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('reducedMotion', 'REDUCED MOTION', 'toggle')}
         ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}
+        ${row('touchLayout', 'PAD PRESET', 'pick', [['right', 'RIGHT-HAND'], ['left', 'LEFT-HAND']])}
+        ${row('touchScale', 'PAD SIZE', 'range', { min: 0.8, max: 1.3, step: 0.05 })}
+        ${row('touchOpacity', 'PAD OPACITY', 'range', { min: 0.4, max: 1, step: 0.05 })}
+        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. The expert row re-ranks itself as the play changes.</div>
         <div class="set-note">BALL CAM is also toggled in-match with <b>C</b> (gamepad R3 / touch CAM button).</div>
       </div>
       <div class="set-actions"><button class="btn danger reset-btn">RESET ALL DATA</button><button class="btn back-btn">BACK</button></div>
     </section>`);
   el.querySelectorAll('.set-row').forEach((r) => {
     const key = r.dataset.key;
+    // Preset rows are a pair of buttons, not a form control — wire them and move on.
+    const pick = r.querySelector('.set-pick');
+    if (pick) {
+      pick.querySelectorAll('.pick-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          s[key] = btn.dataset.value;
+          for (const b of pick.querySelectorAll('.pick-btn')) b.classList.toggle('on', b === btn);
+          app.audio.uiConfirm();
+          app.match?.touchControls?.applySettings(s);
+          app.save();
+        });
+      });
+      return;
+    }
     const input = r.querySelector('input,select');
     input.addEventListener('input', () => {
       if (input.type === 'range') {
         s[key] = parseFloat(input.value);
-        r.querySelector('.set-val').textContent = `${Math.round(s[key] * 100)}%`;
+        const min = parseFloat(r.dataset.min || '0');
+        const max = parseFloat(r.dataset.max || '1');
+        r.querySelector('.set-val').textContent = `${Math.round(((s[key] - min) / (max - min)) * 100)}%`;
         app.audio.applyVolumes();
         if (key !== 'musicVolume') app.audio.uiMove();
       } else if (input.type === 'checkbox') {
@@ -414,14 +441,18 @@ export function SettingsScreen(app, params = {}) {
         if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
         if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
       } else s[key] = input.value;
+      // Layout changes are felt immediately, even from the in-match settings overlay.
+      if (key.startsWith('touch')) app.match?.touchControls?.applySettings(s);
       app.save();
     });
   });
-  el.querySelector('.back-btn').addEventListener('click', () => app.go(params.back || 'title'));
+  // `onBack` lets the in-match overlay close itself instead of navigating away from a live match.
+  const back = () => (params.onBack ? params.onBack() : app.go(params.back || 'title'));
+  el.querySelector('.back-btn').addEventListener('click', back);
   el.querySelector('.reset-btn').addEventListener('click', () => {
     if (confirm('Delete all saved data (career, records, settings)?')) app.resetAll();
   });
-  return { el, onNav: (n) => n.back && app.go(params.back || 'title') };
+  return { el, onNav: (n) => n.back && back() };
 }
 
 // ---------------------------------------------------------------------------

@@ -59,12 +59,16 @@ await page.evaluate(() => {
 const ui = await page.evaluate(() => ({
   overlay: !!document.querySelector('.match-wrap.touch .touch-ui'),
   buttons: document.querySelectorAll('.touch-ui .touch-btn').length,
+  primary: document.querySelectorAll('.touch-ui .touch-primary .touch-btn').length,
+  secondary: document.querySelectorAll('.touch-ui .touch-secondary .touch-btn').length,
+  contextLabel: document.querySelector('.touch-ui .touch-btn[data-action="context"] span')?.textContent || '',
   stick: !!document.querySelector('.touch-ui .touch-stick'),
   pauseBtn: !!document.querySelector('.touch-ui .touch-pause'),
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('9 action buttons + stick + pause rendered', ui.buttons === 9 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
+ok('4 primary + 5 secondary buttons + stick + pause rendered', ui.buttons === 9 && ui.primary === 4 && ui.secondary === 5 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons} (${ui.primary}/${ui.secondary})`);
+ok('contextual button defaults to TRICK', ui.contextLabel === 'TRICK', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
 // ------------------------------------------------------------------- stick
@@ -168,12 +172,14 @@ const buttons = await page.evaluate(() => {
     return first;
   };
 
-  // TRICK
+  // CONTEXT while carrying — the adaptive primary button should fire a trick
   ensureLive();
   const a = fresh(sim.outfield(0)[0]);
-  tap('trick');
+  app.match.touchControls.setContext({ onBall: true });
+  out.ballLabel = document.querySelector('.touch-ui .touch-btn[data-action="context"] span').textContent;
+  tap('context');
   const ti = step(1);
-  out.trickInp = `edges=${JSON.stringify([...app.input.touch.edges])} trick=${ti.trick} pass=${ti.pass}`;
+  out.trickInp = `trick=${ti.trick} pass=${ti.pass}`;
   out.trick = a.state === 'trick' || !!a.trick;
   out.trickDebug = `sim=${sim.state} p=${a.state} cd=${a.cd.trick.toFixed(2)}`;
 
@@ -260,7 +266,7 @@ const buttons = await page.evaluate(() => {
   stickEv('pointerup', zx + 70, zy - 70);
   return out;
 });
-ok('TRICK button triggers a trick', buttons.trick === true, buttons.trickDebug);
+ok('CONTEXT button fires a trick while carrying', buttons.trick === true, `${buttons.trickDebug} | label=${buttons.ballLabel}`);
 ok('PASS button fires a pass', buttons.pass === true, `${buttons.passDebug} | ${buttons.passInp}`);
 ok('SWAP button switches swimmer', buttons.swap === true, buttons.swapDebug);
 ok('CAM button toggles ball cam edge', buttons.cam === true, buttons.camDebug);
@@ -275,7 +281,8 @@ ok('TURBO releases when let go', buttons.turboOff === true);
 // --------------------------------------------------- one-shot latch (120 Hz)
 const latch = await page.evaluate(() => {
   const app = window.app;
-  const b = document.querySelector('.touch-ui .touch-btn[data-action="trick"]');
+  window.app.match.touchControls.setContext({ onBall: true });
+  const b = document.querySelector('.touch-ui .touch-btn[data-action="context"]');
   b.setPointerCapture = () => {};
   b.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 4, pointerType: 'touch', bubbles: true, cancelable: true }));
   b.dispatchEvent(new PointerEvent('pointerup', { pointerId: 4, pointerType: 'touch', bubbles: true, cancelable: true }));
@@ -295,13 +302,213 @@ const gb = await page.evaluate(() => {
   sim.gb[0] = sim.rules.gamebreakerMeterMax;
   sim.gbReady[0] = true;
   window.app.match.touchControls.setGamebreakerReady(!!sim.gbReady[0]);
-  const lit = document.querySelector('.touch-ui .touch-btn.gb').classList.contains('ready');
+  const lit = document.querySelector('.touch-ui .touch-btn[data-action="gamebreaker"]').classList.contains('ready');
   sim.gbReady[0] = false;
   window.app.match.touchControls.setGamebreakerReady(false);
-  return { lit, unlit: !document.querySelector('.touch-ui .touch-btn.gb').classList.contains('ready') };
+  return { lit, unlit: !document.querySelector('.touch-ui .touch-btn[data-action="gamebreaker"]').classList.contains('ready') };
 });
 ok('GB button lights when the meter is full', gb.lit === true);
 ok('GB button dims when spent', gb.unlit === true);
+
+// ------------------------------------------------- contextual remap + layout
+const adaptive = await page.evaluate(() => {
+  const tc = window.app.match.touchControls;
+  const btn = document.querySelector('.touch-ui .touch-btn[data-action="context"]');
+  const label = () => btn.querySelector('span').textContent;
+  const fire = () => {
+    btn.setPointerCapture = () => {};
+    btn.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 5, pointerType: 'touch', bubbles: true, cancelable: true }));
+    const edges = [...window.app.input.touch.edges];
+    btn.dispatchEvent(new PointerEvent('pointerup', { pointerId: 5, pointerType: 'touch', bubbles: true, cancelable: true }));
+    window.app.input.touch.edges.clear();
+    return edges;
+  };
+  // The expert row reads left-to-right by flex order: `*` marks a prime (hot) slot, `-` an action
+  // the sim ignores in this state. The right-most entry is the slot nearest a right thumb.
+  const row = () =>
+    [...document.querySelectorAll('.touch-secondary .touch-btn')]
+      .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+      .map((b) => `${b.dataset.action}${b.classList.contains('hot') ? '*' : b.classList.contains('idle') ? '-' : ''}`)
+      .join(',');
+  tc.setContext({ defending: true });
+  const defense = { label: label(), edges: fire(), row: row() };
+  tc.setContext({ looseBall: true });
+  const loose = { label: label(), edges: fire(), row: row() };
+  tc.setContext({ support: true });
+  const support = { label: label(), edges: fire(), row: row() };
+  tc.setContext({ onBall: true });
+  const ball = { label: label(), edges: fire(), row: row() };
+  const el = document.querySelector('.touch-ui');
+  tc.applySettings({ touchLayout: 'left' });
+  const leftLayout = el.dataset.layout;
+  const leftRow = row(); // mirrored pad: prime slots move to the near (left) edge for a left thumb
+  tc.applySettings({ touchLayout: 'right', touchScale: 9, touchOpacity: 0 });
+  const clamped = { scale: el.style.getPropertyValue('--touch-scale'), opacity: el.style.getPropertyValue('--touch-opacity') };
+  tc.applySettings({ touchLayout: 'right', touchScale: 1, touchOpacity: 1 });
+  return { defense, loose, support, ball, leftLayout, leftRow, clamped, restored: el.dataset.layout };
+});
+ok('context remaps to TACKLE on defense', adaptive.defense.label === 'TACKLE' && adaptive.defense.edges.join() === 'hit', `label=${adaptive.defense.label} edges=${adaptive.defense.edges}`);
+ok('context remaps to JUMP on a loose ball', adaptive.loose.label === 'JUMP' && adaptive.loose.edges.join() === 'breach', `label=${adaptive.loose.label} edges=${adaptive.loose.edges}`);
+ok('context remaps to JUMP when supporting off the ball', adaptive.support.label === 'JUMP' && adaptive.support.edges.join() === 'breach', `label=${adaptive.support.label} edges=${adaptive.support.edges}`);
+ok('context remaps back to TRICK on the ball', adaptive.ball.label === 'TRICK' && adaptive.ball.edges.join() === 'trick', `label=${adaptive.ball.label} edges=${adaptive.ball.edges}`);
+ok(
+  'expert row auto-swaps with the play state',
+  adaptive.ball.row === 'breach-,ballcam,hit*,switch*,gamebreaker*' &&
+    adaptive.defense.row === 'ballcam,gamebreaker-,switch*,breach*,hit*' &&
+    adaptive.loose.row === 'ballcam,gamebreaker-,switch*,hit*,breach*' &&
+    adaptive.support.row === 'gamebreaker-,ballcam,hit*,breach*,switch*',
+  `ball=${adaptive.ball.row} defense=${adaptive.defense.row} loose=${adaptive.loose.row} support=${adaptive.support.row}`,
+);
+ok('left-handed pad mirrors the row so the prime slot is left-most', adaptive.leftRow === 'gamebreaker*,switch*,hit*,ballcam,breach-', adaptive.leftRow);
+ok('left-handed layout applies', adaptive.leftLayout === 'left' && adaptive.restored === 'right');
+ok('touch size / opacity settings clamp', adaptive.clamped.scale === '1.3' && adaptive.clamped.opacity === '0.4', JSON.stringify(adaptive.clamped));
+
+// --------------------------------------------------------- layout geometry
+const geom = await page.evaluate(() => {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const boxes = [...document.querySelectorAll('.touch-ui .touch-btn')].map((b) => {
+    const r = b.getBoundingClientRect();
+    return { action: b.dataset.action, x: r.left, y: r.top, w: r.width, h: r.height };
+  });
+  // Every button is a circle (border-radius: 50%) and the browser hit-tests that shape, so compare
+  // inscribed circles rather than bounding boxes: diagonal neighbours on the ring have intersecting
+  // boxes without their faces ever touching.
+  const overlaps = [];
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      const pad = 2; // tolerate a hairline touch, flag real overlaps
+      const ra = Math.min(a.w, a.h) / 2;
+      const rb = Math.min(b.w, b.h) / 2;
+      const dist = Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y + a.h / 2 - (b.y + b.h / 2));
+      if (dist < ra + rb - pad) {
+        const box = (o) => `${o.action}[${Math.round(o.x)},${Math.round(o.y)} ${Math.round(o.w)}x${Math.round(o.h)}]`;
+        overlaps.push(`${box(a)} / ${box(b)} gap ${(dist - ra - rb).toFixed(1)}px`);
+      }
+    }
+  }
+  const outside = boxes.filter((b) => b.x < -1 || b.y < -1 || b.x + b.w > vw + 1 || b.y + b.h > vh + 1).map((b) => b.action);
+  const shoot = boxes.find((b) => b.action === 'shoot');
+  const largest = boxes.reduce((m, b) => (b.w * b.h > m.w * m.h ? b : m));
+  const actions = document.querySelector('.touch-actions').getBoundingClientRect();
+  const stickZone = document.querySelector('.touch-stick-zone').getBoundingClientRect();
+  const rightHanded = { actionsLeftEdge: Math.round(actions.left), stickLeft: Math.round(stickZone.left) };
+  // Guard against the touch buttons picking up HUD rules for the same class name (the HUD turbo
+  // meter is `.turbo` and skews/positions anything that shares the class).
+  const turbo = document.querySelector('.touch-ui .touch-btn[data-action="turbo"]');
+  const turboStyle = getComputedStyle(turbo);
+  const hudBleed = { transform: turboStyle.transform, width: turboStyle.width, height: turboStyle.height, labelPosition: getComputedStyle(turbo.querySelector('span')).position };
+  // Ring geometry: the three support buttons should ride one arc around the SHOOT anchor.
+  const middle = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  const ringBoxes = boxes.filter((b) => ['pass', 'turbo', 'context'].includes(b.action));
+  const shootCentre = middle(shoot);
+  const ringDist = ringBoxes.map((b) => Math.hypot(middle(b).x - shootCentre.x, middle(b).y - shootCentre.y));
+  // Horizontal offsets from the anchor: the ring fans to the thumb side (left for a right-hander).
+  const ringOffset = ringBoxes.map((b) => middle(b).x - shootCentre.x);
+  const tc = window.app.match.touchControls;
+  tc.applySettings({ touchLayout: 'left' });
+  const leftActions = document.querySelector('.touch-actions').getBoundingClientRect();
+  const leftStick = document.querySelector('.touch-stick-zone').getBoundingClientRect();
+  const leftShoot = document.querySelector('.touch-ui .touch-btn[data-action="shoot"]').getBoundingClientRect();
+  const leftRing = [...document.querySelectorAll('.touch-ui .touch-primary .touch-btn')]
+    .filter((b) => b.dataset.action !== 'shoot')
+    .map((b) => b.getBoundingClientRect())
+    .map((r) => r.left + r.width / 2 - (leftShoot.left + leftShoot.width / 2));
+  const mirroredRing = { shootFromLeft: Math.round(leftShoot.left - leftActions.left), ringOffset: leftRing };
+  tc.applySettings({ touchLayout: 'right', touchScale: 1, touchOpacity: 1 });
+  return {
+    vw,
+    vh,
+    overlaps,
+    outside,
+    hudBleed,
+    shootIsLargest: largest.action === 'shoot',
+    shootInCorner: !!shoot && shoot.x + shoot.w > vw - 20 && shoot.y + shoot.h > vh - 20,
+    ringDist,
+    ringOffset,
+    shootR: shoot.w / 2,
+    ringR: ringBoxes[0].w / 2,
+    rightHanded,
+    mirrored: { actionsFromLeft: Math.round(leftActions.left), stickFromRight: Math.round(vw - leftStick.right) },
+    mirroredRing,
+  };
+});
+ok('no two touch buttons overlap', geom.overlaps.length === 0, geom.overlaps.join(', '));
+ok(
+  'touch buttons pick up no HUD styling',
+  geom.hudBleed.transform === 'none' && geom.hudBleed.width === '60px' && geom.hudBleed.height === '60px' && geom.hudBleed.labelPosition === 'static',
+  JSON.stringify(geom.hudBleed),
+);
+ok('all touch buttons stay on screen', geom.outside.length === 0, geom.outside.join(', '));
+ok('SHOOT is the largest button, anchored bottom-right', geom.shootIsLargest && geom.shootInCorner);
+const ringSpread = Math.max(...geom.ringDist) - Math.min(...geom.ringDist);
+const ringGap = Math.min(...geom.ringDist) / (geom.shootR + geom.ringR);
+ok('PASS / TRICK / TURBO ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join('/')}`);
+ok('the ring sits a clear thumb-width off the anchor', ringGap > 1 && ringGap < 1.2, `${ringGap.toFixed(2)}x the two radii`);
+ok('right-handed: cluster on the right half, stick zone on the left', geom.rightHanded.actionsLeftEdge > geom.vw / 2 && geom.rightHanded.stickLeft === 0, JSON.stringify(geom.rightHanded));
+ok('left-handed: cluster and stick swap sides', geom.mirrored.actionsFromLeft < 20 && geom.mirrored.stickFromRight === 0, JSON.stringify(geom.mirrored));
+ok(
+  'left-handed: anchor mirrors into the left corner with the ring fanning right',
+  geom.mirroredRing.shootFromLeft < 6 &&
+    geom.ringOffset.every((o) => o <= 1) &&
+    geom.mirroredRing.ringOffset.every((o) => o >= -1) &&
+    Math.min(...geom.ringOffset) < -40 &&
+    Math.max(...geom.mirroredRing.ringOffset) > 40,
+  `right=${geom.ringOffset.map((o) => o.toFixed(0)).join('/')} left=${geom.mirroredRing.ringOffset.map((o) => o.toFixed(0)).join('/')}`,
+);
+
+// ------------------------------------------- pad presets, mid-match (pause → settings)
+// Reads stay on attributes / classes here on purpose: forcing layout (getBoundingClientRect) while
+// a full-screen overlay composites over the live WebGL canvas crashes the software-GL renderer in
+// headless CI images. The mirrored geometry itself is asserted in the pad section above.
+const preset = await page.evaluate(() => {
+  const app = window.app;
+  const pad = () => document.querySelector('.touch-ui');
+  app.openSettingsOverlay();
+  const picks = [...document.querySelectorAll('.overlay-screen .set-row[data-key="touchLayout"] .pick-btn')];
+  const scale = document.querySelector('.overlay-screen .set-row[data-key="touchScale"] input');
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const before = pad().dataset.layout;
+  click(picks[1]); // LEFT-HAND
+  const mirrored = pad().dataset.layout;
+  const opacity = pad().style.getPropertyValue('--touch-opacity');
+  scale.value = '1.2';
+  scale.dispatchEvent(new Event('input', { bubbles: true }));
+  const scaled = pad().style.getPropertyValue('--touch-scale');
+  click(picks[0]); // back to RIGHT-HAND
+  const restored = pad().dataset.layout;
+  document.querySelector('.overlay-screen .back-btn').click();
+  return {
+    picks: picks.length,
+    before,
+    mirrored,
+    restored,
+    opacity,
+    scaled,
+    overlayClosed: !document.querySelector('.overlay-screen'),
+    matchKept: !!app.match && app.match.paused && !!document.querySelector('.touch-ui'),
+    saved: app.state.settings,
+  };
+});
+ok(
+  'pause → settings re-hands the live pad',
+  preset.picks === 2 && preset.before === 'right' && preset.mirrored === 'left' && preset.restored === 'right' && preset.overlayClosed,
+  `picks=${preset.picks} ${preset.before}->${preset.mirrored}->${preset.restored} closed=${preset.overlayClosed}`,
+);
+ok('BACK from in-match settings returns to the paused match', preset.matchKept === true);
+ok(
+  'pause → settings sliders re-scale the live pad',
+  preset.scaled === '1.2' && preset.opacity === '1' && preset.saved.touchScale === 1.2 && preset.saved.touchLayout === 'right',
+  `scale=${preset.scaled} opacity=${preset.opacity} saved=${JSON.stringify(preset.saved.touchScale)}`,
+);
+// Put the size back so the screenshots further down use the tuned default.
+await page.evaluate(() => {
+  const app = window.app;
+  app.state.settings.touchScale = 1;
+  app.match.touchControls.applySettings(app.state.settings);
+});
 
 // ----------------------------------------------------- full match on touch
 const finish = await page.evaluate(() => {
@@ -325,6 +532,45 @@ await page.evaluate(() => window.app.go('title'));
 await new Promise((r) => setTimeout(r, 300));
 const afterQuit = await page.evaluate(() => ({ touch: !!document.querySelector('.touch-ui'), canvas: !!document.querySelector('canvas'), webgl: !!document.querySelector('canvas') }));
 ok('overlay + canvas removed on quit', !afterQuit.touch && !afterQuit.canvas);
+
+// ---------------------------------------------------- settings: touch layout
+const settings = await page.evaluate(() => {
+  window.app.go('settings', { back: 'title' });
+  const keys = [...document.querySelectorAll('.set-row')].map((r) => r.dataset.key);
+  const sc = document.querySelector('.set-row[data-key="touchScale"] input');
+  const op = document.querySelector('.set-row[data-key="touchOpacity"] input');
+  const picks = [...document.querySelectorAll('.set-row[data-key="touchLayout"] .pick-btn')];
+  const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  click(picks[1]); // LEFT-HAND preset
+  const layoutSaved = window.app.state.settings.touchLayout;
+  const presetOn = picks[1].classList.contains('on') && !picks[0].classList.contains('on');
+  click(picks[0]); // back to RIGHT-HAND
+  const presetBack = window.app.state.settings.touchLayout === 'right' && picks[0].classList.contains('on');
+  set(sc, '1.2');
+  const scaleSaved = window.app.state.settings.touchScale;
+  const scalePct = document.querySelector('.set-row[data-key="touchScale"] .set-val').textContent;
+  set(op, '0.5');
+  const opacityPct = document.querySelector('.set-row[data-key="touchOpacity"] .set-val').textContent;
+  set(sc, '1'); set(op, '1');
+  window.app.go('title');
+  return {
+    hasRows: ['touchControls', 'touchLayout', 'touchScale', 'touchOpacity'].every((k) => keys.includes(k)),
+    scaleRange: `${sc.min}-${sc.max}`,
+    opacityRange: `${op.min}-${op.max}`,
+    presetCount: picks.length,
+    presetOn,
+    presetBack,
+    layoutSaved,
+    scaleSaved,
+    scalePct,
+    opacityPct,
+  };
+});
+ok('settings exposes the touch pad rows', settings.hasRows, `scale=${settings.scaleRange} opacity=${settings.opacityRange}`);
+ok('settings offers both hand presets and latches the pick', settings.presetCount === 2 && settings.presetOn && settings.presetBack, `picks=${settings.presetCount}`);
+ok('settings touch layout persists', settings.layoutSaved === 'left');
+ok('settings touch sliders persist with correct labels', settings.scaleSaved === 1.2 && settings.scalePct === '80%' && settings.opacityPct === '17%', `${settings.scalePct} / ${settings.opacityPct}`);
 
 // ------------------------------------------------------------------ portrait
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });

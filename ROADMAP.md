@@ -20,6 +20,12 @@ landed on `main` with the commit that closed them.
 - [x] Defensive AI marking tuning: closest-man pressure vs zone split by difficulty. The nearest
       defender presses, the remaining defenders rotate to the nearest live attacker, and rookie
       coverage sags toward the crease while Legend stays tighter on the man.
+- [x] Touch pad rework: SHOOT is a giant anchor in the resting-thumb corner with PASS / the
+      contextual action / TURBO ringing it on one thumb arc, so no core action needs a grid hunt.
+      The expert row (HIT / JUMP / SWAP / GB / CAM) auto-swaps: each play state re-ranks it, lights
+      the prime slots nearest the thumb and dims what the sim ignores right now (BREACH while
+      carrying, GB off the dribble), and the contextual anchor gained an off-ball *support* state
+      so it stops offering a trick to a player without the ball. Covered by `tools/touchtest.mjs`.
 
 ## 2. Graphics & FX
 
@@ -35,6 +41,11 @@ landed on `main` with the commit that closed them.
 - [ ] `webglcontextlost` recovery path (probe tool counts contexts; recovery is not wired).
 - [x] Auto-pause on `visibilitychange` so tabbed-out matches don't burn the clock.
 - [x] Touch UI: reduced-motion option, safe-area insets on notched phones.
+- [x] Touch UI presets: right/left-handed pad (which mirrors the whole scheme, ring included) plus
+      size and opacity sliders, all applied live — including mid-match from the pause menu.
+- [x] Fixed: BACK in the in-match settings overlay also ran the screen's own back handler
+      (`app.go('title')`), so tweaking settings mid-match threw the paused game away. The overlay
+      now closes itself and returns to the pause menu.
 
 ## 4. Code health (MatchSim decomposition)
 

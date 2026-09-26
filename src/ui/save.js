@@ -13,6 +13,9 @@ export const DEFAULT_SETTINGS = {
   screenShake: true,
   reducedMotion: false,
   touchControls: 'auto', // auto | on | off — on-screen stick + buttons
+  touchLayout: 'right', // right (stick left, actions right) | left (left-handed mirror)
+  touchScale: 1, // 0.8 – 1.3 on-screen button size
+  touchOpacity: 1, // 0.4 – 1 on-screen button opacity
   camera: 'broadcast', // broadcast | firstPerson — career no longer forces first-person
   cameraAngle: 'corner', // corner (3D three-quarter) | side (classic side-on)
   playerCam: true, // Rematch-style player-lock third-person camera (broadcast when off)

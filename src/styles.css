@@ -769,6 +769,31 @@ select {
   font-weight: 900;
   text-align: right;
 }
+/* Preset picker (e.g. which hand the touch pad is built for) — a segmented pair of buttons. */
+.set-pick {
+  display: flex;
+  gap: 8px;
+  justify-self: start;
+}
+.set-pick button {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  padding: 6px 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.set-pick button:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.set-pick button.on {
+  background: var(--yellow, #ffd23f);
+  border-color: #fff;
+  color: #111;
+}
 .set-actions {
   margin-top: 26px;
   display: flex;
@@ -1518,6 +1543,8 @@ select {
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   font-family: var(--font-cond);
+  --touch-scale: 1;
+  --touch-opacity: 1;
 }
 
 .touch-ui > * {
@@ -1569,16 +1596,19 @@ select {
   box-shadow: 0 0 14px rgba(255, 210, 63, 0.5);
 }
 
-/* Right thumb: action buttons */
+/* Thumb side: an adaptive action cluster — a 2x2 primary grid with a compact secondary row. */
 .touch-actions {
   position: absolute;
   right: max(14px, env(safe-area-inset-right));
   bottom: max(14px, env(safe-area-inset-bottom));
-  width: 268px;
-  height: 232px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  transform: scale(var(--touch-scale, 1));
+  transform-origin: bottom right;
+  transition: transform 0.15s ease;
 }
 .touch-btn {
-  position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1591,7 +1621,16 @@ select {
   font-size: 15px;
   letter-spacing: 0.5px;
   padding: 0;
-  transition: transform 0.06s, background 0.06s, border-color 0.06s;
+  margin: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: transform 0.06s, background 0.06s, border-color 0.06s, opacity 0.15s;
+}
+.touch-btn span {
+  display: block;
+  transform: translateY(0.5px);
+  pointer-events: none;
+  white-space: nowrap;
 }
 .touch-btn.down {
   transform: scale(0.92);
@@ -1599,77 +1638,86 @@ select {
   color: #111;
   border-color: #fff;
 }
-.touch-btn.shoot {
+
+/* Secondary row: expert actions, small and dimmed so they never fight the primary four. The row
+   auto-swaps its ranking per play state (see touch.js): `.hot` slots take the near edge of the row
+   under the thumb and light up, `.idle` ones are ignored by the sim right now and fade out. */
+.touch-secondary {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 8px;
+  opacity: var(--touch-opacity, 1);
+}
+.touch-secondary .touch-btn {
+  width: 48px;
+  height: 48px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  border-width: 2px;
+  background: rgba(10, 12, 22, 0.45);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.touch-secondary .touch-btn.t-gb {
+  width: 56px;
+  height: 56px;
+  font-size: 15px;
+  opacity: 0.5;
+}
+.touch-secondary .touch-btn.t-cam {
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+.touch-secondary .touch-btn.hot {
+  opacity: 1;
+  background: rgba(255, 210, 63, 0.24);
+  border-color: rgba(255, 210, 63, 0.85);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.22);
+}
+.touch-secondary .touch-btn.idle {
+  opacity: 0.32;
+  border-style: dashed;
+}
+
+/* Primary pad: SHOOT is the giant anchor tucked into the thumb corner, with PASS, the contextual
+   action and TURBO ringing it on a one-thumb arc. The arc geometry lives in touch.js (published
+   here as --pad-size / --shoot-size / --ring-size) so the two can never drift apart. */
+.touch-primary {
+  position: relative;
+  width: var(--pad-size, 182px);
+  height: var(--pad-size, 182px);
+  opacity: var(--touch-opacity, 1);
+}
+.touch-primary .touch-btn {
+  position: absolute;
+  width: var(--ring-size, 60px);
+  height: var(--ring-size, 60px);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+.touch-btn.t-shoot {
   right: 0;
   bottom: 0;
-  width: 104px;
-  height: 104px;
-  font-size: 18px;
+  width: var(--shoot-size, 104px);
+  height: var(--shoot-size, 104px);
+  font-size: 19px;
+  letter-spacing: 1px;
+  border-width: 4px;
   background: rgba(255, 46, 166, 0.5);
   border-color: var(--pink, #ff2ea6);
+  box-shadow: 0 0 22px rgba(255, 46, 166, 0.25);
 }
-.touch-btn.shoot.down {
+.touch-btn.t-shoot.down {
   background: var(--pink, #ff2ea6);
   color: #fff;
 }
-.touch-btn.turbo {
-  right: 112px;
-  bottom: 6px;
-  width: 76px;
-  height: 76px;
+.touch-btn.t-turbo {
+  background: rgba(92, 242, 255, 0.18);
+  border-color: rgba(92, 242, 255, 0.6);
 }
-.touch-btn.pass {
-  right: 12px;
-  bottom: 112px;
-  width: 72px;
-  height: 72px;
-}
-.touch-btn.trick {
-  right: 100px;
-  bottom: 92px;
-  width: 68px;
-  height: 68px;
-}
-.touch-btn.hit {
-  right: 172px;
-  bottom: 122px;
-  width: 60px;
-  height: 60px;
-  font-size: 13px;
-}
-.touch-btn.breach {
-  right: 44px;
-  bottom: 190px;
-  width: 60px;
-  height: 60px;
-  font-size: 13px;
-}
-.touch-btn.swap {
-  right: 190px;
-  bottom: 34px;
-  width: 58px;
-  height: 58px;
-  font-size: 12px;
-}
-.touch-btn.gb {
-  right: 150px;
-  bottom: 186px;
-  width: 66px;
-  height: 66px;
-  font-size: 17px;
-  border-color: rgba(255, 255, 255, 0.25);
-  opacity: 0.5;
-}
-.touch-btn.cam {
-  right: 226px;
-  bottom: 178px;
-  width: 50px;
-  height: 50px;
-  font-size: 11px;
-  letter-spacing: 1px;
-  opacity: 0.75;
-}
-.touch-btn.gb.ready {
+.touch-btn.t-gb.ready {
   opacity: 1;
   border-color: var(--cyan, #5cf2ff);
   background: rgba(92, 242, 255, 0.5);
@@ -1732,6 +1780,41 @@ select {
   }
 }
 
+/* Left-handed preset: mirror the whole scheme — actions left, stick right. The ring itself is
+   mirrored in touch.js (placeRing) so the SHOOT anchor stays in the resting-thumb corner. */
+.touch-ui[data-layout="left"] .touch-actions {
+  right: auto;
+  left: max(14px, env(safe-area-inset-left));
+  align-items: flex-start;
+  transform-origin: bottom left;
+}
+.touch-ui[data-layout="left"] .touch-secondary {
+  justify-content: flex-start;
+}
+.touch-ui[data-layout="left"] .touch-btn.t-shoot {
+  right: auto;
+  left: 0;
+}
+.touch-ui[data-layout="left"] .touch-stick-zone {
+  left: auto;
+  right: 0;
+}
+.touch-ui[data-layout="left"] .touch-pause {
+  right: auto;
+  left: max(16px, env(safe-area-inset-left));
+}
+
+/* Give the contextual anchor a colour of its own so its remap is legible at a glance. */
+.touch-btn.t-context[data-context="defense"] {
+  background: rgba(255, 92, 92, 0.35);
+  border-color: rgba(255, 120, 120, 0.7);
+}
+.touch-btn.t-context[data-context="loose"],
+.touch-btn.t-context[data-context="support"] {
+  background: rgba(92, 242, 255, 0.28);
+  border-color: rgba(92, 242, 255, 0.7);
+}
+
 /* Keep the HUD clear of thumbs and safe areas on touch devices. */
 .match-wrap.touch .pcard {
   left: max(14px, env(safe-area-inset-left));
@@ -1760,8 +1843,7 @@ select {
 
 @media (max-height: 460px) {
   .touch-actions {
-    transform: scale(0.86);
-    transform-origin: bottom right;
+    transform: scale(calc(var(--touch-scale, 1) * 0.86));
   }
   .touch-stick {
     transform: scale(0.86);
