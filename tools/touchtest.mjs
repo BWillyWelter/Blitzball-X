@@ -19,9 +19,7 @@ process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PAT
 const executablePath = await chromium.executablePath();
 
 const browser = await puppeteer.launch({
-  executablePath: executablePath,
-  headless: true,
-  protocolTimeout: 180000,
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
  
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
