@@ -14,13 +14,16 @@ import puppeteer from 'puppeteer-core';
 
 const url = process.argv[2] || 'http://localhost:4173/';
 process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  executablePath: chromium.path,
-  headless: true,
-  protocolTimeout: 180000, // Increase from default 30000ms to 180000ms (3 minutes)
-});
 
+// Await the chromium path initialization
+const executablePath = await chromium.executablePath();
+
+const browser = await puppeteer.launch({
+  executablePath: executablePath,
+  headless: true,
+  protocolTimeout: 180000,
+});
+ 
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
 await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
