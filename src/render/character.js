@@ -444,6 +444,18 @@ export class CharacterView {
 
     this.arms = [];
 
+    if (!this.clavicles) this.clavicles = [];
+
+const clav = new THREE.Group();
+clav.position.set(side * 0.29, 0.66, 0);
+this.torso.add(clav);
+this.clavicles.push(clav);
+
+const shoulder = new THREE.Group();
+shoulder.position.set(side * 0.03, 0, 0);   // was: side * 0.32, 0.66, 0 on torso
+clav.add(shoulder);                           // was: this.torso.add(shoulder)
+    
+
     for (const side of [-1, 1]) {
       const shoulder = new THREE.Group();
 
