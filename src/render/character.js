@@ -518,27 +518,22 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
       sweatband.position.y = -0.33;
       elbow.add(sweatband);
 
+      const wrist = new THREE.Group();
+      wrist.position.y = -0.42;
+      elbow.add(wrist);
+
       const hand = new THREE.Mesh(
-        new THREE.SphereGeometry(
-          0.095,
-          10,
-          8
-        ),
-        skinMat
-      );
-
-      hand.position.y = -0.42;
-      hand.scale.set(
-        1,
-        1.15,
-        0.7
-      );
-
-      elbow.add(
-        withOutline(hand, 0.03)
-      );
-
-      hand.name = 'hand';
+      new THREE.SphereGeometry(0.095, 10, 8),
+      skinMat
+        
+   );
+      
+      hand.position.y = 0;                 // was: -0.42 (offset now lives on the wrist)
+      hand.scale.set(1, 1.15, 0.7);
+      wrist.add(hand);                     // was: elbow.add(hand)
+      elbow.add(withOutline(hand, 0.03));
+      
+    hand.name = 'hand';
 
       this.arms.push({
         shoulder,
