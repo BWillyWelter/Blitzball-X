@@ -19,6 +19,7 @@ process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PAT
 const executablePath = await chromium.executablePath();
 
 const browser = await puppeteer.launch({
+  executablePath,
   args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
  
