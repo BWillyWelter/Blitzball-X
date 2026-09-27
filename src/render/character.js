@@ -1116,8 +1116,6 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
   default:
     hipY = this.applyTreadWater(time);
     break;
-    } 
-  
   }
 
     this.hips.position.y = hipY;
@@ -1282,131 +1280,11 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
   }
 
   applySwimCycle(time, amplitude, frequency, pitch) {
-  swimCycle(this, time, amplitude, frequency, pitch);
-}
-
-    const arms = this.arms;
-    const legs = this.legs;
-
-    const phase = time * frequency;
-    const sine = Math.sin(phase);
-    const cosine = Math.cos(phase);
-
-    this.body.rotation.x = pitch;
-    this.body.position.y =
-      -pitch * 0.35;
-
-    this.body.position.z =
-      pitch * 0.25;
-
-    legs[0].hip.rotation.x =
-      sine * amplitude * 0.5;
-
-    legs[1].hip.rotation.x =
-      -sine * amplitude * 0.5;
-
-    legs[0].knee.rotation.x =
-      Math.max(0, -cosine) *
-        amplitude *
-        0.6 +
-      0.1;
-
-    legs[1].knee.rotation.x =
-      Math.max(0, cosine) *
-        amplitude *
-        0.6 +
-      0.1;
-
-    const leftStroke =
-      phase * 0.5;
-
-    const rightStroke =
-      leftStroke + Math.PI;
-
-    const leftCosine =
-      Math.cos(leftStroke);
-
-    const rightCosine =
-      Math.cos(rightStroke);
-
-    arms[0].shoulder.rotation.x =
-      -Math.PI +
-      Math.sin(leftStroke) * 1.4;
-
-    arms[1].shoulder.rotation.x =
-      -Math.PI +
-      Math.sin(rightStroke) * 1.4;
-
-    arms[0].shoulder.rotation.z =
-      -0.35 -
-      Math.max(0, leftCosine) * 0.5;
-
-    arms[1].shoulder.rotation.z =
-      0.35 +
-      Math.max(0, rightCosine) * 0.5;
-
-    arms[0].elbow.rotation.x =
-      -0.3 -
-      Math.max(0, leftCosine) * 0.9;
-
-    arms[1].elbow.rotation.x =
-      -0.3 -
-      Math.max(0, rightCosine) * 0.9;
-
-    this.hips.rotation.y =
-      sine * 0.15 * amplitude;
-
-    this.torso.rotation.z =
-      Math.sin(leftStroke) * 0.15;
-
-    this.neck.rotation.x =
-      -pitch * 0.8;
+    swimCycle(this, time, amplitude, frequency, pitch);
   }
 
-     applyTreadWater(time) {
+  applyTreadWater(time) {
     return treadWater(this, time);
-}
-
-{
-    const arms = this.arms;
-    const legs = this.legs;
-
-    const bob =
-      Math.sin(time * 2.2);
-
-    const kick =
-      Math.sin(time * 4);
-
-    const stroke =
-      Math.sin(time * 2.6);
-
-    this.body.rotation.x = 0.12;
-
-    legs[0].hip.rotation.x =
-      0.25 + kick * 0.2;
-
-    legs[1].hip.rotation.x =
-      0.25 - kick * 0.2;
-
-    legs[0].knee.rotation.x = 0.55;
-    legs[1].knee.rotation.x = 0.55;
-
-    legs[0].hip.rotation.z = 0.12;
-    legs[1].hip.rotation.z = -0.12;
-
-    arms[0].shoulder.rotation.z =
-      -1.1 + stroke * 0.15;
-
-    arms[1].shoulder.rotation.z =
-      1.1 - stroke * 0.15;
-
-    arms[0].shoulder.rotation.x = -0.4;
-    arms[1].shoulder.rotation.x = -0.4;
-
-    arms[0].elbow.rotation.x = -0.9;
-    arms[1].elbow.rotation.x = -0.9;
-
-    return 1.0 + bob * 0.03;
   }
 
   applyTuckBall() {
