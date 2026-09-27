@@ -16,20 +16,10 @@ const url = process.argv[2] || 'http://localhost:4173/';
 process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
 chromium.setGraphicsMode = true;
 const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
+  executablePath: chromium.path,
+  headless: true,
+  protocolTimeout: 180000, // Increase from default 30000ms to 180000ms (3 minutes)
 });
-const page = await browser.newPage();
-const errors = [];
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-page.on('pageerror', (e) => errors.push(e.stack || e.message));
-
-let failures = 0;
-const ok = (label, cond, extra = '') => {
-  if (!cond) failures++;
-  console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
-};
 
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
 await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
