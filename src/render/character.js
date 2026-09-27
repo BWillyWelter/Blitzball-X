@@ -996,648 +996,129 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
       joint.rotation.set(0, 0, 0);
     }
 
-    this.body.position.set(0, 0, 0);
-
-    let hipY = 1.0;
-
     switch (state) {
-      case 'idle':
-      case 'swim':
-      case 'catch':
-      case 'gbdrive': {
-        const pitch = Math.min(
-          1.25,
-          speed * 1.6 +
-            (state === 'gbdrive' ? 1.2 : 0)
-        );
-
-        if (
-          speed > 0.06 ||
-          state === 'gbdrive'
-        ) {
-          this.applySwimCycle(
-            swimTime,
-            (0.5 + speed * 0.9) * motion.rate,
-            (6 + speed * 8) * motion.reach,
-            pitch * motion.pitch
-          );
-        } else {
-          hipY = this.applyTreadWater(time);
-        }
-
-        if (
-          ballHeldByMe ||
-          state === 'catch'
-        ) {
-          this.applyTuckBall();
-        }
-
-        if (state === 'catch') {
-          arms[0].shoulder.rotation.x = -1.6;
-          arms[0].elbow.rotation.x = -1.4;
-        }
-
-        break;
-      }
-
-      case 'gbwind': {
-        const u = Math.min(
-          1,
-          stateTime / 0.6
-        );
-
-        hipY = this.applyTreadWater(time);
-
-        this.body.rotation.x = -0.25 * u;
-        hipY = 1.0 + u * 0.2;
-
-        arms[0].shoulder.rotation.x = -2.9 * u;
-        arms[1].shoulder.rotation.x = -2.9 * u;
-
-        arms[0].shoulder.rotation.z = -0.4;
-        arms[1].shoulder.rotation.z = 0.4;
-
-        arms[0].elbow.rotation.x = -0.4;
-        arms[1].elbow.rotation.x = -0.4;
-
-        this.neck.rotation.x = -0.4 * u;
-
-        break;
-      }
-
-      case 'trick': {
-        const u = Math.min(
-          1,
-          stateTime / stateDuration
-        );
-
-        const trickId = p.trick?.def?.id ?? 0;
-
-        this.applySwimCycle(
-          time,
-          0.6,
-          12,
-          0.9
-        );
-
-        this.applyTuckBall();
-
-        switch (trickId) {
-          case 0:
-            // Spin.
-            this.body.rotation.y =
-              u * Math.PI * 2;
-            break;
-
-          case 1:
-            // Barrel roll.
-            this.body.rotation.z =
-              u * Math.PI * 2;
-            break;
-
-          case 2:
-            // Dolphin kick.
-            this.body.rotation.x =
-              0.9 +
-              Math.sin(u * Math.PI * 2) * 0.7;
-
-            legs[0].hip.rotation.x =
-              legs[1].hip.rotation.x =
-                Math.sin(u * Math.PI * 4) * 0.9;
-
-            legs[0].knee.rotation.x =
-              legs[1].knee.rotation.x =
-                Math.max(
-                  0,
-                  Math.cos(u * Math.PI * 4)
-                );
-
-            arms[0].shoulder.rotation.x =
-              arms[1].shoulder.rotation.x =
-                -Math.PI;
-
-            arms[0].elbow.rotation.x =
-              arms[1].elbow.rotation.x =
-                -0.1;
-
-            this.applyTuckBall();
-            break;
-
-          case 3:
-            // Corkscrew.
-            this.body.rotation.z =
-              u * Math.PI * 2;
-
-            this.body.rotation.y =
-              Math.sin(u * Math.PI) * 0.8;
-            break;
-
-          case 4:
-            // Back-flip feint.
-            this.body.rotation.x =
-              0.9 - u * Math.PI * 2;
-            break;
-
-          default:
-            // Jet stream.
-            this.body.rotation.x = 1.3;
-
-            legs[0].hip.rotation.x =
-              legs[1].hip.rotation.x =
-                Math.sin(time * 26) * 0.35;
-
-            arms[0].shoulder.rotation.x =
-              -Math.PI;
-
-            arms[0].elbow.rotation.x =
-              -0.05;
-
-            this.body.rotation.z =
-              Math.sin(u * Math.PI * 3) * 0.4;
-
-            break;
-        }
-
-        break;
-      }
-
-      case 'shoot': {
-        const wind =
-          p.shot &&
-          Number.isFinite(p.shot.wind)
-            ? Math.max(0.01, p.shot.wind)
-            : 0.75;
-
-        const u = Math.min(
-          1.2,
-          stateTime / wind
-        );
-
-        const released =
-          !!p.shot?.released;
-
-        hipY = this.applyTreadWater(time);
-
-        if (!released) {
-          const w = Math.min(1, u);
-
-          this.torso.rotation.y =
-            -0.6 * w;
-
-          this.body.rotation.x =
-            -0.15 * w;
-
-          arms[1].shoulder.rotation.x =
-            -2.4 - w * 0.6;
-
-          arms[1].shoulder.rotation.z =
-            0.5;
-
-          arms[1].elbow.rotation.x =
-            -1.8;
-
-          arms[0].shoulder.rotation.x =
-            -1.5;
-
-          arms[0].shoulder.rotation.z =
-            -0.2;
-
-          arms[0].elbow.rotation.x =
-            -0.2;
-
-          legs[1].hip.rotation.x =
-            -0.5 * w;
-
-          legs[0].hip.rotation.x =
-            0.4 * w;
-
-          hipY = 1.0 + w * 0.12;
-        } else {
-          const r = Math.min(
-            1,
-            stateTime / 0.3
-          );
-
-          this.torso.rotation.y =
-            0.5 * r;
-
-          this.body.rotation.x =
-            0.55 * r;
-
-          arms[1].shoulder.rotation.x =
-            -2.9 + r * 2.4;
-
-          arms[1].shoulder.rotation.z =
-            0.2;
-
-          arms[1].elbow.rotation.x =
-            -0.1;
-
-          arms[0].shoulder.rotation.x =
-            0.3;
-
-          arms[0].shoulder.rotation.z =
-            -0.9;
-
-          legs[0].hip.rotation.x =
-            -0.6 * r;
-
-          legs[1].hip.rotation.x =
-            0.7 * r;
-
-          legs[1].knee.rotation.x =
-            0.8 * r;
-
-          this.neck.rotation.x =
-            0.2 * r;
-        }
-
-        break;
-      }
-
-      case 'volley': {
-        const u = Math.min(
-          1,
-          stateTime / 0.45
-        );
-
-        const kick =
-          Math.sin(u * Math.PI);
-
-        this.body.rotation.x =
-          -0.4 + kick * 0.9;
-
-        legs[1].hip.rotation.x =
-          -1.8 * kick;
-
-        legs[1].knee.rotation.x =
-          0.2;
-
-        legs[0].hip.rotation.x =
-          0.9 * kick;
-
-        legs[0].knee.rotation.x =
-          1.2 * kick;
-
-        arms[0].shoulder.rotation.x =
-          -2.4;
-
-        arms[1].shoulder.rotation.x =
-          0.8;
-
-        arms[0].shoulder.rotation.z =
-          -0.5;
-
-        arms[1].shoulder.rotation.z =
-          0.7;
-
-        this.torso.rotation.y =
-          -0.4 * kick;
-
-        break;
-      }
-
-      case 'breach': {
-        const rising = p.vy > 0;
-        const stretch = rising ? 1 : 0.6;
-
-        this.body.rotation.x = -0.15;
-
-        arms[0].shoulder.rotation.x =
-          -Math.PI * stretch;
-
-        arms[1].shoulder.rotation.x =
-          -Math.PI * stretch;
-
-        arms[0].shoulder.rotation.z =
-          -0.15;
-
-        arms[1].shoulder.rotation.z =
-          0.15;
-
-        arms[0].elbow.rotation.x =
-          -0.1;
-
-        arms[1].elbow.rotation.x =
-          -0.1;
-
-        legs[0].hip.rotation.x = 0.1;
-        legs[1].hip.rotation.x = 0.1;
-
-        legs[0].knee.rotation.x =
-          rising ? 0.15 : 0.9;
-
-        legs[1].knee.rotation.x =
-          rising ? 0.15 : 0.9;
-
-        this.neck.rotation.x = -0.4;
-
-        if (ballHeldByMe) {
-          this.applyTuckBall();
-        }
-
-        break;
-      }
-
-      case 'pass': {
-        const u = Math.min(
-          1,
-          stateTime / 0.22
-        );
-
-        hipY = this.applyTreadWater(time);
-
-        this.body.rotation.x =
-          0.3 + u * 0.2;
-
-        arms[0].shoulder.rotation.x =
-          -1.5 - u * 0.3;
-
-        arms[1].shoulder.rotation.x =
-          -1.5 - u * 0.3;
-
-        arms[0].shoulder.rotation.z =
-          -0.2;
-
-        arms[1].shoulder.rotation.z =
-          0.2;
-
-        arms[0].elbow.rotation.x =
-          -1.3 + u * 1.3;
-
-        arms[1].elbow.rotation.x =
-          -1.3 + u * 1.3;
-
-        break;
-      }
-
-      case 'tackle': {
-        const u = Math.min(
-          1,
-          stateTime / 0.4
-        );
-
-        const lunge =
-          Math.sin(u * Math.PI);
-
-        this.body.rotation.x =
-          0.6 + lunge * 0.9;
-
-        this.body.position.y =
-          -lunge * 0.35;
-
-        this.body.position.z =
-          lunge * 0.3;
-
-        arms[1].shoulder.rotation.x =
-          -Math.PI + 0.2;
-
-        arms[1].elbow.rotation.x =
-          -0.1;
-
-        arms[0].shoulder.rotation.x =
-          -2.3;
-
-        arms[0].elbow.rotation.x =
-          -0.6;
-
-        legs[0].hip.rotation.x =
-          -0.5 * lunge;
-
-        legs[1].hip.rotation.x =
-          0.6 * lunge;
-
-        legs[1].knee.rotation.x =
-          0.6 * lunge;
-
-        this.neck.rotation.x =
-          -0.5;
-
-        break;
-      }
-
-      case 'hit': {
-        const u = Math.min(
-          1,
-          stateTime / 0.42
-        );
-
-        const push =
-          Math.sin(u * Math.PI);
-
-        this.body.rotation.x =
-          0.35 * push;
-
-        this.torso.rotation.y =
-          0.7 * push;
-
-        arms[1].shoulder.rotation.x =
-          -1.2 * push;
-
-        arms[1].shoulder.rotation.z =
-          0.9 * push;
-
-        arms[1].elbow.rotation.x =
-          -1.6;
-
-        arms[0].shoulder.rotation.x =
-          0.6 * push;
-
-        arms[0].shoulder.rotation.z =
-          -0.5;
-
-        legs[0].hip.rotation.x =
-          0.5 * push;
-
-        legs[1].hip.rotation.x =
-          -0.4 * push;
-
-        legs[0].knee.rotation.x =
-          0.8 * push;
-
-        break;
-      }
-
-      case 'save': {
-        const u = Math.min(
-          1,
-          stateTime / 0.55
-        );
-
-        const dive = Math.sin(
-          Math.min(1, u * 1.4) *
-            Math.PI *
-            0.5
-        );
-
-        const side =
-          (p.knockDir?.z ?? 0) >= 0
-            ? 1
-            : -1;
-
-        this.body.rotation.z =
-          side * dive * 1.3;
-
-        this.body.position.y =
-          dive * 0.2;
-
-        arms[0].shoulder.rotation.x =
-          -Math.PI + 0.1;
-
-        arms[1].shoulder.rotation.x =
-          -Math.PI + 0.1;
-
-        arms[0].shoulder.rotation.z =
-          -0.1;
-
-        arms[1].shoulder.rotation.z =
-          0.1;
-
-        arms[0].elbow.rotation.x =
-          -0.05;
-
-        arms[1].elbow.rotation.x =
-          -0.05;
-
-        legs[0].hip.rotation.x =
-          -0.2;
-
-        legs[1].hip.rotation.x =
-          0.4 * dive;
-
-        legs[1].knee.rotation.x =
-          0.7 * dive;
-
-        this.neck.rotation.x =
-          -0.3;
-
-        break;
-      }
-
-      case 'stumble': {
-        const u = Math.min(
-          1,
-          stateTime / stateDuration
-        );
-
-        hipY = this.applyTreadWater(time);
-
-        this.body.rotation.x =
-          0.8 * Math.sin(u * Math.PI);
-
-        this.body.rotation.z =
-          0.6 * Math.sin(u * Math.PI * 2);
-
-        this.body.rotation.y =
-          Math.sin(u * Math.PI) * 1.2;
-
-        arms[0].shoulder.rotation.z =
-          -1.6;
-
-        arms[1].shoulder.rotation.z =
-          1.6;
-
-        break;
-      }
-
-      case 'fallen': {
-        const u = Math.min(
-          1,
-          stateTime / stateDuration
-        );
-
-        const tumble = Math.min(
-          1,
-          u * 1.8
-        );
-
-        const recover =
-          u > 0.7
-            ? (u - 0.7) / 0.3
-            : 0;
-
-        this.body.rotation.x =
-          tumble * Math.PI * 2 *
-          (1 - recover);
-
-        this.body.rotation.z =
-          Math.sin(u * Math.PI) *
-          0.8 *
-          (1 - recover);
-
-        this.body.position.y =
-          -Math.sin(u * Math.PI) * 0.5;
-
-        arms[0].shoulder.rotation.z =
-          -1.4 * (1 - recover);
-
-        arms[1].shoulder.rotation.z =
-          1.4 * (1 - recover);
-
-        arms[0].shoulder.rotation.x =
-          -0.5;
-
-        arms[1].shoulder.rotation.x =
-          -0.5;
-
-        legs[0].hip.rotation.x =
-          -0.3;
-
-        legs[1].hip.rotation.x =
-          0.5;
-
-        legs[1].knee.rotation.x =
-          0.9;
-
-        legs[0].knee.rotation.x =
-          0.4;
-
-        if (recover > 0) {
-          hipY = this.applyTreadWater(time);
-        }
-
-        break;
-      }
-
-      case 'celebrate': {
-        const u = stateTime;
-        const bounce =
-          Math.abs(Math.sin(u * 7));
-
-        hipY = this.applyTreadWater(time);
-        hipY = 1.0 + bounce * 0.15;
-
-        arms[0].shoulder.rotation.x =
-          -2.8 + Math.sin(u * 9) * 0.3;
-
-        arms[1].shoulder.rotation.x =
-          -2.8 - Math.sin(u * 9) * 0.3;
-
-        arms[0].shoulder.rotation.z =
-          -0.5;
-
-        arms[1].shoulder.rotation.z =
-          0.5;
-
-        arms[0].elbow.rotation.x =
-          -0.6;
-
-        arms[1].elbow.rotation.x =
-          -0.6;
-
-        this.neck.rotation.x =
-          -0.35;
-
-        this.body.rotation.x =
-          -0.1;
-
-        break;
-      }
-
-      default:
-        hipY = this.applyTreadWater(time);
-        break;
+  case 'idle':
+  case 'swim':
+  case 'gbdrive': {
+    const pitch = Math.min(
+      1.25,
+      speed * 1.6 + (state === 'gbdrive' ? 1.2 : 0)
+    );
+    if (speed > 0.06 || state === 'gbdrive') {
+      this.applySwimCycle(
+        swimTime,
+        (0.5 + speed * 0.9) * motion.rate,
+        (6 + speed * 8) * motion.reach,
+        pitch * motion.pitch
+      );
+    } else {
+      hipY = this.applyTreadWater(time);
     }
+    if (ballHeldByMe) this.applyTuckBall();
+    break;
+  }
+
+  case 'catch': {
+    hipY = applyTrack(this, CATCH_ABSORB, stateTime / stateDuration);
+    if (ballHeldByMe) this.applyTuckBall();  // secure the ball after the absorb
+    break;
+  }
+
+  case 'gbwind': {
+    hipY = applyTrack(this, GBWIND, stateTime / 0.6);
+    break;
+  }
+
+  case 'trick': {
+    const trickId = p.trick?.def?.id ?? 0;
+    hipY = applyTrack(this, trickTrack(trickId), stateTime / stateDuration);
+    // Dolphin kick and Jet Stream keep a fast flutter on top of the track.
+    if (trickId === 2 || trickId === 5) {
+      const flutter = Math.sin(time * 26) * 0.35;
+      legs[0].hip.rotation.x += flutter;
+      legs[1].hip.rotation.x -= flutter;
+    }
+    break;
+  }
+
+  case 'shoot': {
+    const wind =
+      p.shot && Number.isFinite(p.shot.wind)
+        ? Math.max(0.01, p.shot.wind)
+        : 0.75;
+    hipY = applyTrack(this, SHOOT, stateTime / (wind + 0.3));
+    break;
+  }
+
+  case 'volley': {
+    hipY = applyTrack(this, VOLLEY, stateTime / 0.45);
+    break;
+  }
+
+  case 'breach': {
+    // Unchanged from the old code — reads p.vy (rising vs falling), no track needed.
+    const rising = p.vy > 0;
+    const stretch = rising ? 1 : 0.6;
+    this.body.rotation.x = -0.15;
+    arms[0].shoulder.rotation.x = -Math.PI * stretch;
+    arms[1].shoulder.rotation.x = -Math.PI * stretch;
+    arms[0].shoulder.rotation.z = -0.15;
+    arms[1].shoulder.rotation.z = 0.15;
+    arms[0].elbow.rotation.x = -0.1;
+    arms[1].elbow.rotation.x = -0.1;
+    legs[0].hip.rotation.x = 0.1;
+    legs[1].hip.rotation.x = 0.1;
+    legs[0].knee.rotation.x = rising ? 0.15 : 0.9;
+    legs[1].knee.rotation.x = rising ? 0.15 : 0.9;
+    this.neck.rotation.x = -0.4;
+    if (ballHeldByMe) this.applyTuckBall();
+    break;
+  }
+
+  case 'pass': {
+    hipY = applyTrack(this, PASS, stateTime / stateDuration);
+    break;
+  }
+
+  case 'tackle': {
+    hipY = applyTrack(this, TACKLE, stateTime / stateDuration);
+    break;
+  }
+
+  case 'hit': {
+    hipY = applyTrack(this, HIT, stateTime / stateDuration);
+    break;
+  }
+
+  case 'save': {
+    hipY = applyTrack(this, SAVE, stateTime / 0.55);
+    // Track authors the +z dive; mirror it for the other side.
+    this.body.rotation.z *=
+      ((p.knockDir?.z ?? 0) >= 0 ? 1 : -1);
+    break;
+  }
+
+  case 'stumble': {
+    hipY = applyTrack(this, STUMBLE, stateTime / stateDuration);
+    break;
+  }
+
+  case 'fallen': {
+    hipY = applyTrack(this, FALLEN, stateTime / stateDuration);
+    break;
+  }
+
+  case 'celebrate': {
+    hipY = applyTrack(this, CELEBRATE, stateTime / 1.2);
+    break;
+  }
+
+  default:
+    hipY = this.applyTreadWater(time);
+    break;
+    } 
+  
+  }
 
     this.hips.position.y = hipY;
 
