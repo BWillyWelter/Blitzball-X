@@ -1800,12 +1800,10 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
     this.poseReady = true;
   }
 
-  applySwimCycle(
-    time,
-    amplitude,
-    frequency,
-    pitch
-  ) {
+  applySwimCycle(time, amplitude, frequency, pitch) {
+  swimCycle(this, time, amplitude, frequency, pitch);
+}
+
     const arms = this.arms;
     const legs = this.legs;
 
@@ -1884,7 +1882,11 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
       -pitch * 0.8;
   }
 
-  applyTreadWater(time) {
+     applyTreadWater(time) {
+    return treadWater(this, time);
+}
+
+{
     const arms = this.arms;
     const legs = this.legs;
 
