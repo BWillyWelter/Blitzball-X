@@ -88,6 +88,10 @@ export class CharacterView {
     this.hips.position.y = 1.0;
     body.add(this.hips);
 
+    this.spine = new THREE.Group();
+    this.spine.position.y = 0.22;
+    this.hips.add(this.spine);
+
     this.torso = new THREE.Group();
     this.hips.add(this.torso);
 
