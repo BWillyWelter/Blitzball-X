@@ -20,10 +20,13 @@
  */
 
 export const J = {
-  body: 0, hips: 1, spine: 2, torso: 3, neck: 4,
-  clavL: 5, shL: 6, elL: 7, wrL: 8,
-  clavR: 9, shR: 10, elR: 11, wrR: 12,
-  hipL: 13, kneeL: 14, hipR: 15, kneeR: 16,
+  this.joints = [
+  this.body, this.hips, this.spine, this.torso, this.neck,
+  this.clavicles[0], this.arms[0].shoulder, this.arms[0].elbow, this.wrists[0],
+  this.clavicles[1], this.arms[1].shoulder, this.arms[1].elbow, this.wrists[1],
+  this.legs[0].hip, this.legs[0].knee, this.legs[1].hip, this.legs[1].knee,
+];
+
 };
 export const N_JOINTS = 17;
 const ROT_FLOATS = N_JOINTS * 3;
