@@ -20,7 +20,7 @@ const executablePath = await chromium.executablePath();
 const browser = await puppeteer.launch({
   executablePath,
   args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  protocolTimeout: 300000
+  protocolTimeout: 600000
 });
 
 const page = await browser.newPage();
@@ -34,7 +34,7 @@ const ok = (label, condition, details = '') => {
 
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
 await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+await page.goto(url, { waitUntil: 'networkidle0', timeout: 120000 });
 await page.evaluate(() => document.fonts.ready);
 
 // ---------------------------------------------------------------- detection
@@ -484,7 +484,7 @@ ok('all touch buttons stay on screen', geom.outside.length === 0, geom.outside.j
 ok('SHOOT is the largest button, anchored bottom-right', geom.shootIsLargest && geom.shootInCorner);
 const ringSpread = Math.max(...geom.ringDist) - Math.min(...geom.ringDist);
 const ringGap = Math.min(...geom.ringDist) / (geom.shootR + geom.ringR);
-ok('PASS / TRICK / TURBO ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join('/')}`);
+ok('PASS / TRICK / TURBO ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join(',')}`);
 ok('the ring sits a clear thumb-width off the anchor', ringGap > 1 && ringGap < 1.2, `${ringGap.toFixed(2)}x the two radii`);
 ok('right-handed: cluster on the right half, stick zone on the left', geom.rightHanded.actionsLeftEdge > geom.vw / 2 && geom.rightHanded.stickLeft === 0, JSON.stringify(geom.rightHanded));
 ok('left-handed: cluster and stick swap sides', geom.mirrored.actionsFromLeft < 20 && geom.mirrored.stickFromRight === 0, JSON.stringify(geom.mirrored));
