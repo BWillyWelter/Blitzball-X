@@ -40,5 +40,5 @@ jobs:
       - name: Serve dist and run touch-control QA (headless Chromium)
         run: |
           npx vite preview --port 4173 --host 127.0.0.1 &
-          sleep 3
+          sleep 10
           npm run qa:touch -- http://127.0.0.1:4173/
