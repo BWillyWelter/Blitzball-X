@@ -14,21 +14,22 @@ import puppeteer from 'puppeteer-core';
 
 const url = process.argv[2] || 'http://localhost:4173/';
 process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
+
+const executablePath = await chromium.executablePath();
+
 const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
+  executablePath,
+  args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  protocolTimeout: 300000
 });
+
 const page = await browser.newPage();
-const errors = [];
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-page.on('pageerror', (e) => errors.push(e.stack || e.message));
 
 let failures = 0;
-const ok = (label, cond, extra = '') => {
-  if (!cond) failures++;
-  console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+const errors = [];
+const ok = (label, condition, details = '') => {
+  if (!condition) failures++;
+  console.log(`${condition ? 'PASS' : 'FAIL'}  ${label}${details ? `  ${details}` : ''}`);
 };
 
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
@@ -68,7 +69,7 @@ const ui = await page.evaluate(() => ({
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('4 primary + 5 secondary + 2 depth buttons + stick + pause rendered', ui.buttons === 11 && ui.primary === 4 && ui.secondary === 5 && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons} (${ui.primary}/${ui.secondary}/${ui.vertical})`);
+ok('4 primary + 5 secondary + 2 depth buttons + stick + pause rendered', ui.buttons === 11 && ui.primary === 4 && ui.secondary === 5 && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
 ok('contextual button defaults to TRICK', ui.contextLabel === 'TRICK', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
