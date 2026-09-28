@@ -17,6 +17,7 @@ import { createCareer, currentOpponent, recordResult, careerTitle, awardPlayerPr
 import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import { PHYS } from './data/constants.js';
 import * as Screens from './ui/screens.js';
+import { startAnimBench } from './dev/animbench.js';
 
 /**
  * Live play state for the adaptive touch pad, which remaps its contextual anchor and re-ranks the
@@ -519,5 +520,7 @@ class App {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  window.app = new App();
+  // `?bench=anim` swaps in the single-swimmer animation bench (see ./dev/animbench.js); it
+  // returns null for a normal load, so the real App always wins by default.
+  window.app = startAnimBench() || new App();
 });

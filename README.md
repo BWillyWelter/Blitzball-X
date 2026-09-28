@@ -92,7 +92,11 @@ npm run sim -- 24 pro           # 24 headless CPU matches; exits 1 if any match 
 npm run qa:screens -- http://localhost:4173/ screenshots/screens   # walk every screen headlessly
 npm run qa:play -- http://localhost:4173/ screenshots/prod         # scripted playtest to results
 npm run qa:probe -- http://localhost:4173/                         # repeat matches: GPU contexts, heap, frame time
+npm run qa:anim -- http://localhost:5173/                         # screenshot every animation state / trick / swim speed
 ```
+
+`qa:anim` drives the single-swimmer animation bench that the app serves at `?bench=anim`
+(`src/dev/animbench.js`), so poses can be scrubbed and captured deterministically.
 
 CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build.
 
