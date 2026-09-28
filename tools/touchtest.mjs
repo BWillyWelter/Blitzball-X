@@ -19,7 +19,8 @@ const executablePath = await chromium.executablePath();
 
 const browser = await puppeteer.launch({
   executablePath,
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
+  args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  protocolTimeout: 300000
 });
 
 const page = await browser.newPage();
