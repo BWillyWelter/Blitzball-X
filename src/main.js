@@ -168,9 +168,15 @@ class App {
         onContextRestored: () => this.handleContextRestored(),
       });
     } catch (e) {
+      // Anything thrown while building the scene lands here, not just a genuine WebGL failure —
+      // say which it was instead of always blaming the GPU.
       console.error(e);
       wrap.remove();
-      alert('WebGL is required to play. Please enable hardware acceleration or try another browser.');
+      const gl = document.createElement('canvas').getContext('webgl2')
+        || document.createElement('canvas').getContext('webgl');
+      alert(gl
+        ? `The match failed to start: ${e && e.message ? e.message : e}`
+        : 'WebGL is required to play. Please enable hardware acceleration or try another browser.');
       this.go('title');
       return;
     }

@@ -450,28 +450,34 @@ export class CharacterView {
 
     this.arms = [];
 
-    if (!this.clavicles) this.clavicles = [];
+    this.wrists = [];
 
-const clav = new THREE.Group();
-clav.position.set(side * 0.29, 0.66, 0);
-this.torso.add(clav);
-this.clavicles.push(clav);
-
-const shoulder = new THREE.Group();
-shoulder.position.set(side * 0.03, 0, 0);   // was: side * 0.32, 0.66, 0 on torso
-clav.add(shoulder);                           // was: this.torso.add(shoulder)
-    
+    this.clavicles = [];
 
     for (const side of [-1, 1]) {
-      const shoulder = new THREE.Group();
+      // The shoulder hangs off a clavicle group so the arm can be driven from the collarbone:
+      // the pose tracks animate clavL/clavR independently of the shoulders.
+      const clav = new THREE.Group();
 
-      shoulder.position.set(
-        side * 0.32,
+      clav.position.set(
+        side * 0.29,
         0.66,
         0
       );
 
-      this.torso.add(shoulder);
+      this.torso.add(clav);
+
+      this.clavicles.push(clav);
+
+      const shoulder = new THREE.Group();
+
+      shoulder.position.set(
+        side * 0.03,
+        0,
+        0
+      );
+
+      clav.add(shoulder);
 
       const upperArm = new THREE.Mesh(
         new THREE.CapsuleGeometry(
@@ -536,14 +542,16 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
       
       hand.position.y = 0;                 // was: -0.42 (offset now lives on the wrist)
       hand.scale.set(1, 1.15, 0.7);
-      wrist.add(hand);                     // was: elbow.add(hand)
-      elbow.add(withOutline(hand, 0.03));
-      
-    hand.name = 'hand';
+      hand.name = 'hand';
+      wrist.add(hand);
+      wrist.add(withOutline(hand, 0.03));
+
+      this.wrists.push(wrist);
 
       this.arms.push({
         shoulder,
         elbow,
+        wrist,
         hand,
         side,
       });
@@ -786,21 +794,20 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
   }
 
   cachePoseRig() {
+    // Order must match the `J` joint-index map in ./posetracks.js — the authored tracks address
+    // joints by that index, and applyTrack/applyTurbulence iterate N_JOINTS (17) entries.
+    // Index 0 of every limb array is the left side, index 1 the right.
     this.joints = [
       this.body,
-      this.torso,
       this.hips,
+      this.spine,
+      this.torso,
       this.neck,
 
-      this.arms[0].shoulder,
-      this.arms[0].elbow,
-      this.arms[1].shoulder,
-      this.arms[1].elbow,
+      this.clavicles[0], this.arms[0].shoulder, this.arms[0].elbow, this.wrists[0],
+      this.clavicles[1], this.arms[1].shoulder, this.arms[1].elbow, this.wrists[1],
 
-      this.legs[0].hip,
-      this.legs[0].knee,
-      this.legs[1].hip,
-      this.legs[1].knee,
+      this.legs[0].hip, this.legs[0].knee, this.legs[1].hip, this.legs[1].knee,
     ];
 
     this.poseFromX = new Float32Array(
@@ -995,6 +1002,10 @@ clav.add(shoulder);                           // was: this.torso.add(shoulder)
 
       joint.rotation.set(0, 0, 0);
     }
+
+    // Every branch of the state switch below reports the hips-height target it wants; the
+    // default keeps the rig at its standing height so a new state can never leave it undefined.
+    let hipY = 1.0;
 
     switch (state) {
   case 'idle':
