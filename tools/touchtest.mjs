@@ -22,6 +22,16 @@ const browser = await puppeteer.launch({
   executablePath,
   args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
+const browser = await puppeteer.launch({
+  executablePath,
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
+
+// Add this line:
+const page = await browser.newPage();
+
+// Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
+await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
  
 // Landscape phone, finger-only input (hasTouch makes (pointer: coarse) match, as on a real phone).
 await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
