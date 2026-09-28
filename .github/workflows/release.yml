@@ -1,0 +1,76 @@
+name: Release
+
+# Tag-driven. `ci.yml` already uploads `dist` as a build artifact on every push; this workflow is
+# the release half — it only runs for a deliberate v* tag, and only publishes after the full test
+# suite, the balance sweep and a production build all pass.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the Release and upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The tag is the release, so a shallow fetch of just the tag is enough and we get the
+          # exact tree that was tagged rather than whatever main happens to be.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # A tag that disagrees with package.json means someone bumped one and not the other, and the
+      # release would ship a version string that contradicts its own tag. Fail loudly instead.
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            echo "Bump package.json to $TAG (or retag) before releasing."
+            exit 1
+          fi
+          echo "Releasing $PKG"
+
+      - name: Unit + simulation tests
+        run: npm test
+
+      - name: Headless balance run (24 CPU games)
+        run: npm run sim -- 24 pro
+
+      - name: Production build
+        run: npm run build
+
+      - name: Confirm dist/ was actually produced
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html missing — the build did not emit a site"
+            exit 1
+          fi
+          echo "dist/: $(find dist -type f | wc -l) files, $(du -sh dist | cut -f1)"
+
+      - name: Package dist/ as a tarball
+        run: tar -czf "blitzball-x-${GITHUB_REF_NAME}.tar.gz" -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blitzball-x-dist
+          path: dist
+
+      - name: Attach the tarball to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "BLITZBALL X $GITHUB_REF_NAME" \
+            --generate-notes \
+            "blitzball-x-${GITHUB_REF_NAME}.tar.gz" \
+          || gh release upload "$GITHUB_REF_NAME" "blitzball-x-${GITHUB_REF_NAME}.tar.gz" --clobber

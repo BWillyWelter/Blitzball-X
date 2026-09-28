@@ -98,7 +98,27 @@ npm run qa:anim -- http://localhost:5173/                         # screenshot e
 `qa:anim` drives the single-swimmer animation bench that the app serves at `?bench=anim`
 (`src/dev/animbench.js`), so poses can be scrubbed and captured deterministically.
 
-CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build.
+CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build, and
+uploads the built `dist/` as the `blitzball-x-dist` artifact on every push.
+
+## Releasing
+
+1. Bump `version` in `package.json`. This is the single source of truth — the release workflow
+   refuses to publish a tag that disagrees with it.
+2. Commit and push that bump to `main`.
+3. Tag the commit and push the tag:
+
+   ```bash
+   git tag -a v1.1.0 -m "BLITZBALL X v1.1.0"
+   git push origin v1.1.0
+   ```
+
+Pushing the tag runs `.github/workflows/release.yml`, which re-runs the full test suite, the
+balance sweep and a production build, then attaches a `dist` tarball to a GitHub Release with
+auto-generated notes. If any step fails, no release is published.
+
+The built site also deploys to GitHub Pages on every push to `main`
+(`.github/workflows/deploy-pages.yml`), independently of releases.
 
 ## Original IP
 

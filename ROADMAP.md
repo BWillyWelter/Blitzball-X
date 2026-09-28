@@ -78,5 +78,10 @@ Monolith → modules, each extraction verified behavior-identical (tests + `npm 
 
 ## 5. Release hygiene
 
-- [ ] Version bump + git tag per release; attach `dist/` artifact in CI.
+- [x] Version bump + git tag per release; attach `dist/` artifact in CI. `ci.yml` has uploaded the
+      built `dist/` as `blitzball-x-dist` on every push since it was written, so only the release
+      half was missing: `.github/workflows/release.yml` now fires on a `v*` tag, refuses to
+      publish if the tag disagrees with `package.json` (so the two can't drift), re-runs the test
+      suite, the balance sweep and a production build, fails if `dist/index.html` is missing, and
+      attaches a `dist` tarball to a generated GitHub Release. First tag: `v1.1.0`.
 - [ ] Lighthouse/Pagespeed pass on the built site (fonts, preload, first paint).
