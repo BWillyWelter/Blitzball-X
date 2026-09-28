@@ -20,6 +20,37 @@ import * as Screens from './ui/screens.js';
 import { startAnimBench } from './dev/animbench.js';
 
 /**
+ * Probe what this browser/device can actually do with WebGL. Used for two things: the start-of-match
+ * failure alert must name the real cause instead of always blaming the GPU, and `?diag` renders the
+ * same report on screen so a phone can screenshot it (headless swiftshader can never reproduce a
+ * real device's GPU failure).
+ */
+export function probeWebGL() {
+  const out = { webgl2: false, webgl: false, renderer: '-', vendor: '-', maxTexture: 0, error: '' };
+  for (const type of ['webgl2', 'webgl']) {
+    let gl = null;
+    try {
+      gl = document.createElement('canvas').getContext(type);
+    } catch (e) {
+      out.error = e && e.message ? e.message : String(e);
+    }
+    if (!gl) continue;
+    out[type] = true;
+    if (out.renderer === '-') {
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      try {
+        out.renderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+        out.vendor = String(gl.getParameter(ext ? ext.UNMASKED_VENDOR_WEBGL : gl.VENDOR));
+        out.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      } catch (e) {
+        /* some drivers throw on these queries; the booleans are what matter */
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Live play state for the adaptive touch pad, which remaps its contextual anchor and re-ranks the
  * expert row from it: TRICK while carrying, TACKLE on defense, JUMP whenever the ball is loose
  * (a shot to leap at, a pass to jump for) or when we are the support off a team-mate's carry.
@@ -47,6 +78,7 @@ class App {
     this.screen = null;
     this.match = null;
     this.teams = TEAMS; // exposed for QA tooling
+    this.lastStartError = null; // last failed match start, shown by ?diag
     this.overlay = null;
     this.settingsOverlay = null;
     this.raf = null;
@@ -169,15 +201,16 @@ class App {
         onContextRestored: () => this.handleContextRestored(),
       });
     } catch (e) {
-      // Anything thrown while building the scene lands here, not just a genuine WebGL failure —
-      // say which it was instead of always blaming the GPU.
+      // Anything thrown while building the scene lands here, not just a genuine WebGL failure.
+      // Never guess: report the real error AND the probe, so a phone screenshot is actionable.
       console.error(e);
       wrap.remove();
-      const gl = document.createElement('canvas').getContext('webgl2')
-        || document.createElement('canvas').getContext('webgl');
-      alert(gl
-        ? `The match failed to start: ${e && e.message ? e.message : e}`
-        : 'WebGL is required to play. Please enable hardware acceleration or try another browser.');
+      const gl = probeWebGL();
+      this.lastStartError = { message: e && e.message ? e.message : String(e), gl };
+      alert(gl.webgl2 || gl.webgl
+        ? `The match failed to start.\n\n${this.lastStartError.message}\n\nWebGL: ${gl.renderer}`
+        : `This browser gave us no WebGL context.\n\nError: ${this.lastStartError.message}\n\n`
+          + 'Turn on hardware acceleration, or open the page outside an in-app/embedded browser.');
       this.go('title');
       return;
     }
@@ -519,8 +552,39 @@ class App {
   }
 }
 
+/**
+ * `?diag` paints an on-screen capability report instead of the game. A real phone's WebGL failure
+ * cannot be reproduced headlessly (swiftshader always succeeds), so this is how we read the actual
+ * device state off a screenshot: which contexts exist, the unmasked GPU string, and the real error
+ * from the last failed match start, if any.
+ */
+function showDiag() {
+  const gl = probeWebGL();
+  const err = window.app && window.app.lastStartError;
+  const rows = [
+    ['user agent', navigator.userAgent],
+    ['webgl2', String(gl.webgl2)],
+    ['webgl', String(gl.webgl)],
+    ['gpu', gl.renderer],
+    ['vendor', gl.vendor],
+    ['max texture', String(gl.maxTexture || '-')],
+    ['screen', `${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio || 1}x`],
+    ['dpr capped', String(window.devicePixelRatio || 1)],
+    ['last start error', err ? err.message : 'none yet — start a match and come back'],
+  ];
+  const pre = document.createElement('pre');
+  pre.id = 'diag';
+  pre.style.cssText = 'position:fixed;inset:0;z-index:99999;margin:0;padding:16px;'
+    + 'background:#06101a;color:#8ff7ff;font:12px/1.5 ui-monospace,monospace;'
+    + 'white-space:pre-wrap;word-break:break-word;overflow:auto;';
+  pre.textContent = `BLITZBALL X — device report\n\n${rows.map(([k, v]) => `${k.padEnd(16)} ${v}`).join('\n')}\n`;
+  document.body.appendChild(pre);
+  window.__diag = { gl, rows };
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   // `?bench=anim` swaps in the single-swimmer animation bench (see ./dev/animbench.js); it
   // returns null for a normal load, so the real App always wins by default.
   window.app = startAnimBench() || new App();
+  if (new URLSearchParams(window.location.search).has('diag')) showDiag();
 });

@@ -51,7 +51,11 @@ landed on `main` with the commit that closed them.
 
 ## 3. Robustness & accessibility
 
-- [ ] `webglcontextlost` recovery path (probe tool counts contexts; recovery is not wired).
+- [x] `webglcontextlost` recovery path (`ca6087d`). `webglcontextlost` is `preventDefault`ed so
+      the browser will actually fire `webglcontextrestored`; the loss flags the renderer (making
+      `render()` a no-op), pauses the match, suspends audio and shows a "SIGNAL LOST" popup, and the
+      restore disposes and rebuilds the post chain before resuming with a reset frame clock so the
+      first frame back can't swallow a huge `dt`. Covered by `tools/contexttest.mjs` (13 checks).
 - [x] Auto-pause on `visibilitychange` so tabbed-out matches don't burn the clock.
 - [x] Touch UI: reduced-motion option, safe-area insets on notched phones.
 - [x] Touch UI presets: right/left-handed pad (which mirrors the whole scheme, ring included) plus
