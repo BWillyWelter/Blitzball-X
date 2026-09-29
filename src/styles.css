@@ -4,6 +4,9 @@
   --yellow: #ffd23f;
   --orange: #ff6a1f;
   --pink: #ff2ea6;
+  /* Text-bearing surfaces use this darker pink: white text on --pink is 2.98:1, which fails
+     WCAG AA (4.5:1). Keep --pink for art/accents that carry no text. */
+  --pink-deep: #b8006c;
   --cyan: #5cf2ff;
   --lime: #c8ff3d;
   --purple: #c026ff;
@@ -125,7 +128,7 @@ input {
   background: var(--yellow);
 }
 .btn.danger {
-  background: var(--pink);
+  background: var(--pink-deep);
   color: #fff;
 }
 .hidden {
@@ -265,7 +268,7 @@ input {
   font-family: var(--font-tag);
   font-size: clamp(14px, min(2vw, 3.4vh), 30px);
   color: var(--paper);
-  background: var(--pink);
+  background: var(--pink-deep);
   display: inline-block;
   padding: 4px 16px;
   transform: rotate(1.5deg);

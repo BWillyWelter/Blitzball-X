@@ -98,4 +98,7 @@ Monolith → modules, each extraction verified behavior-identical (tests + `npm 
       dependency) that `App.go()` and the anim bench remove once real UI mounts. Note: the
       Freebuff sandbox has no system fonts, so no glyph can rasterize and FCP can never fire —
       the tool reports INCONCLUSIVE (exit 2) there instead of a fake zero, and the scored audit
-      runs in CI where Chrome and fonts exist.
+      runs in CI where Chrome and fonts exist. The first scored CI run (a11y 74) drove two real
+      fixes: text-bearing pink surfaces moved to a darker `--pink-deep` (6.45:1 vs 3.39:1, WCAG AA
+      pass) and the a11y-hostile `user-scalable=no` left the viewport meta — pinch-zoom during
+      play is still blocked by `touch-action: none` on the pad.

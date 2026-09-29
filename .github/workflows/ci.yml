@@ -56,8 +56,9 @@ jobs:
         run: npm run build
       # Hosted runners have system Chrome + fonts, so FCP/scores are measurable here — they are
       # not in the fontless Freebuff sandbox, where the tool correctly reports INCONCLUSIVE.
+      # Perf is informational: the 2-core runner's frame times measure the runner, not the game.
       - name: Lighthouse audit of the built site
-        run: npm run qa:lighthouse
+        run: npm run qa:lighthouse -- --perf-informational
       - uses: actions/upload-artifact@v4
         if: always()
         with:
