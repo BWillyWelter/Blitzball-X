@@ -67,6 +67,8 @@ class AnimBench {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.getElementById('app').appendChild(this.renderer.domElement);
+    // The bench never routes through App.go(), so retire the index.html boot splash itself.
+    document.getElementById('boot')?.remove();
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b1420);

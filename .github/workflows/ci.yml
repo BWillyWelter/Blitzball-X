@@ -42,3 +42,24 @@ jobs:
           npx vite preview --port 4173 --host 127.0.0.1 &
           sleep 10
           npm run qa:touch -- http://127.0.0.1:4173/
+
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Production build
+        run: npm run build
+      # Hosted runners have system Chrome + fonts, so FCP/scores are measurable here — they are
+      # not in the fontless Freebuff sandbox, where the tool correctly reports INCONCLUSIVE.
+      - name: Lighthouse audit of the built site
+        run: npm run qa:lighthouse
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-report
+          path: screenshots/lighthouse

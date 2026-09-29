@@ -84,4 +84,13 @@ Monolith → modules, each extraction verified behavior-identical (tests + `npm 
       publish if the tag disagrees with `package.json` (so the two can't drift), re-runs the test
       suite, the balance sweep and a production build, fails if `dist/index.html` is missing, and
       attaches a `dist` tarball to a generated GitHub Release. First tag: `v1.1.0`.
-- [ ] Lighthouse/Pagespeed pass on the built site (fonts, preload, first paint).
+- [x] Lighthouse/Pagespeed pass on the built site (fonts, preload, first paint). `npm run
+      qa:lighthouse` (`tools/lighthouse.mjs`) serves `dist/` and audits it with mobile emulation,
+      printing category scores and the audits that cost points; a CI job publishes the full HTML
+      report as an artifact. The audit found the real first-paint gap: `index.html` shipped zero
+      paintable markup, so on a cold 3G-ish load nothing contentful could appear until the whole
+      770 kB bundle executed — fixed with a critical inline boot splash (system fonts, no web-font
+      dependency) that `App.go()` and the anim bench remove once real UI mounts. Note: the
+      Freebuff sandbox has no system fonts, so no glyph can rasterize and FCP can never fire —
+      the tool reports INCONCLUSIVE (exit 2) there instead of a fake zero, and the scored audit
+      runs in CI where Chrome and fonts exist.

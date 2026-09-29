@@ -151,6 +151,8 @@ class App {
     this.screen = f(this, params);
     this.screen.name = name;
     this.root.appendChild(this.screen.el);
+    // The index.html boot splash has painted its last frame once anything real replaces it.
+    document.getElementById('boot')?.remove();
     requestAnimationFrame(() => this.screen && this.screen.el.classList.add('in'));
     if (this.audio.unlocked && !this.match && (!this.audio.beat || this.audio.beat.style !== 'menu')) this.audio.startBeat('menu');
   }

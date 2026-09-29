@@ -93,13 +93,17 @@ npm run qa:screens -- http://localhost:4173/ screenshots/screens   # walk every 
 npm run qa:play -- http://localhost:4173/ screenshots/prod         # scripted playtest to results
 npm run qa:probe -- http://localhost:4173/                         # repeat matches: GPU contexts, heap, frame time
 npm run qa:anim -- http://localhost:5173/                         # screenshot every animation state / trick / swim speed
+npm run qa:lighthouse                                             # Lighthouse audit of the built site (npm run build first)
 ```
 
 `qa:anim` drives the single-swimmer animation bench that the app serves at `?bench=anim`
 (`src/dev/animbench.js`), so poses can be scrubbed and captured deterministically.
 
 CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build, and
-uploads the built `dist/` as the `blitzball-x-dist` artifact on every push.
+uploads the built `dist/` as the `blitzball-x-dist` artifact on every push. A `lighthouse` job
+audits the built site with mobile emulation and uploads the full HTML report as the
+`lighthouse-report` artifact. `qa:lighthouse` needs an environment with system fonts to score
+first paint — fontless containers report `INCONCLUSIVE` (exit 2) instead of a fake zero.
 
 ## Releasing
 
