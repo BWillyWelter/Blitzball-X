@@ -57,6 +57,11 @@ landed on `main` with the commit that closed them.
       restore disposes and rebuilds the post chain before resuming with a reset frame clock so the
       first frame back can't swallow a huge `dt`. Covered by `tools/contexttest.mjs` (13 checks).
 - [x] Auto-pause on `visibilitychange` so tabbed-out matches don't burn the clock.
+- [x] Fixed: a finished match's delayed results transition could fire into the NEXT match. The
+      3.2 s `setTimeout` in `finishMatch()` only checked "is there a match", so quitting to title
+      and starting again inside that window let the stale timer dispose the new match and route to
+      results mid-game (found by the touch harness's portrait check). `startMatch` and `endMatch`
+      now cancel the pending timer.
 - [x] Touch UI: reduced-motion option, safe-area insets on notched phones.
 - [x] Touch UI presets: right/left-handed pad (which mirrors the whole scheme, ring included) plus
       size and opacity sliders, all applied live — including mid-match from the pause menu.

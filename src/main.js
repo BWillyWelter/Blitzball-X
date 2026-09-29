@@ -174,6 +174,9 @@ class App {
   // ---------------------------------------------------------------------------
 
   startMatch({ home, away, userTeam = 0, mode = 'quick' }) {
+    // A finished match's delayed results transition must never fire into a NEW match (it would
+    // dispose it and route to results mid-game).
+    clearTimeout(this.finishTimer);
     if (this.screen) {
       this.screen.el.remove();
       this.screen = null;
@@ -397,6 +400,7 @@ class App {
   }
 
   endMatch() {
+    clearTimeout(this.finishTimer);
     if (!this.match) return;
     this.match.touchControls?.dispose();
     this.persistBallCam();
@@ -448,7 +452,7 @@ class App {
       }
       this.save();
     }
-    setTimeout(() => {
+    this.finishTimer = setTimeout(() => {
       if (!this.match) return;
       const params = { sim, mode: m.mode, userTeam: m.userTeam, careerResult };
       this.match.touchControls?.dispose();

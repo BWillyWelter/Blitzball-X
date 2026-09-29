@@ -159,6 +159,11 @@ const buttons = await page.evaluate(() => {
   const app = window.app;
   const m = app.match;
   const sim = m.sim;
+  // Pause the app's rAF loop for the deterministic frame work below: with it running, the sim is
+  // stepped by BOTH this harness's step() and the app loop, so the SHOOT wind-up lands at a
+  // different frame on a loaded CI runner than locally and the release misses the PERFECT window.
+  // (finishMatch below re-syncs lastT on resume so it doesn't fire a giant catch-up dt.)
+  app.match.paused = true;
   const out = {};
   const tap = (action) => {
     const b = document.querySelector(`.touch-ui .touch-btn[data-action="${action}"]`);
@@ -260,9 +265,18 @@ const buttons = await page.evaluate(() => {
   out.breach = b.airborne || b.state === 'breach';
   out.breachDebug = `sim=${sim.state} p=${b.state} air=${b.airborne} ctrl=${sim.controlled === b}`;
 
-  // SHOOT: hold, charge into the PERFECT window, release
+  // SHOOT: hold, charge into the PERFECT window, release.
+  // Freeze every other swimmer for this window: the AI averages ~2.4 tackle attempts per game
+  // second, so on a loaded runner a tackle could land mid-wind-up and convert the released shot
+  // to kind='loose' before the harness reads it. With the clock paused (above) and opponents
+  // frozen, the 35 counted frames are fully deterministic.
   ensureLive();
   const c = fresh(sim.outfield(0)[0]);
+  for (const q of sim.players) {
+    if (q === c) continue;
+    q.stun = 999;
+    for (const k in q.cd) q.cd[k] = 999;
+  }
   const shootBtn = press('shoot');
   out.shootImmediate = JSON.stringify([...app.input.touch.edges]);
   const si = step(1);
@@ -277,6 +291,11 @@ const buttons = await page.evaluate(() => {
   out.flightKind = f ? f.kind : null;
   out.quality = f ? f.quality : null;
   out.timing = c.shot ? c.shot.released : false;
+  // Thaw the AI — later checks (TURBO, the full match) need live opponents.
+  for (const q of sim.players) {
+    q.stun = 0;
+    for (const k in q.cd) q.cd[k] = 0;
+  }
 
   // TURBO burns the meter while held and swimming somewhere (a stationary swimmer cannot turbo)
   ensureLive();
@@ -303,6 +322,9 @@ const buttons = await page.evaluate(() => {
   step(2);
   out.turboOff = app.input.touch.turbo === false && tp.turboActive === false;
   stickEv('pointerup', zx + 70, zy - 70);
+  // Stay paused: the harness has stepped the sim hundreds of frames, so handing the clock back
+  // here lets the app loop end the match mid-test-suite. Resume happens just before fullMatch.
+  app.match.paused = true;
   return out;
 });
 ok('CONTEXT button fires a trick while carrying', buttons.trick === true, `${buttons.trickDebug} | label=${buttons.ballLabel}`);
@@ -550,6 +572,14 @@ await page.evaluate(() => {
 });
 
 // ----------------------------------------------------- full match on touch
+// Hand the clock back to the app loop for the real thing: un-pause, then re-base its timers so
+// the first resumed frame can't treat the whole deterministic block as one giant dt.
+await page.evaluate(() => {
+  const app = window.app;
+  app.match.paused = false;
+  app.lastT = performance.now();
+  app.accum = 0;
+});
 const finish = await page.evaluate(() => {
   const app = window.app;
   const m = app.match;
