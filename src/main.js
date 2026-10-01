@@ -172,7 +172,29 @@ class App {
   // ---------------------------------------------------------------------------
   // Match lifecycle
   // ---------------------------------------------------------------------------
+teardownCurrentMatch({ keepRenderer = false } = {}) {
+  clearTimeout(this.finishTimer);
 
+  if (!this.match) return;
+
+  this.match.touchControls?.dispose();
+  this.match.touchControls = null;
+
+  if (this.match.renderer && !keepRenderer) {
+    this.match.renderer.dispose();
+  }
+
+  if (this.match.wrap) {
+    this.match.wrap.remove();
+  }
+
+  this.match = null;
+  this.overlay = null;
+  this.settingsOverlay = null;
+
+  this.audio.stopCrowd();
+  this.audio.resume();
+}
   startMatch({ home, away, userTeam = 0, mode = 'quick' }) {
     // A finished match's delayed results transition must never fire into a NEW match (it would
     // dispose it and route to results mid-game).
