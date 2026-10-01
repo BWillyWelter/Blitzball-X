@@ -504,71 +504,93 @@ export class MatchSim {
   // ---------------------------------------------------------------------------
   // Input → actions
   // ---------------------------------------------------------------------------
+processInput(p, dt) {
+  const inp = p.input;
 
-  processInput(p, dt) {
-    const inp = p.input;
-    if (inp.switchPlayer && this.isUser(p)) this.switchControlled();
-    // Playbook: digits 1-3 call offense plays, 7-9 defense plays (user team only, small cooldown
-    // so key mashing can't machine-gun commentary banners).
-    if (inp.playcall && this.isUser(p) && this.userPlayTimer <= 0 && (this.state === 'live' || this.state === 'gamebreaker')) {
-      const offense = inp.playcall < 5;
-      const play = this.callPlay(offense ? 'offense' : 'defense', offense ? inp.playcall - 1 : inp.playcall - 7);
-      if (play) this.userPlayTimer = 0.4;
-    }
-    inp.playcall = 0;
-    if (p.state === 'fallen' || p.state === 'stumble' || p.stun > 0) return;
+  if (inp.switchPlayer && this.isUser(p)) this.switchControlled();
 
-    const isCarrier = this.ball.holder === p;
-    if (isCarrier) {
-      if (inp.gamebreaker && this.gbReady[p.team] && !p.isKeeper) {
-        if (this.tryGamebreaker(p)) return;
-      }
-      if (inp.shootPressed && this.canAct(p)) this.tryShoot(p);
-      if (inp.shootReleased && p.state === 'shoot' && p.shot && !p.shot.released) this.releaseShot(p);
-      if (inp.pass && this.canAct(p)) {
-        const called = this.callPassTarget(p);
-        this.tryPass(p, called, inp.turbo);
-      }
-      if (inp.trick && this.canAct(p) && p.cd.trick <= 0 && !p.isKeeper) {
-        const dir = new Vec3(inp.moveX, 0, inp.moveZ);
-        this.tryTrick(p, dir.length() > 0.2 ? dir.normalize() : null, inp.turbo);
-      }
-      if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
-    } else {
-      if (inp.breach && this.canAct(p) && p.cd.breach <= 0) this.tryBreach(p);
-      if (inp.trick && this.canAct(p) && p.cd.tackle <= 0) this.tryTackle(p); // poke/slide tackle (Rematch-style)
-      if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
-      if (inp.pass && this.canAct(p) && this.ball.holder !== p && !p.isKeeper) {
-        // Call for the pass: flag the nearest supporting teammate so the carrier's next pass
-        // releases to them. On offense this doubles as the give-and-go trigger — the flagged
-        // mate cuts on the call, sprinting into open water so the feed leads them past the
-        // last defender — and the caller keeps a pass-and-move cut of their own so the return
-        // feed (or a later switch) finds them running at the ring.
-        const onOffense = this.ball.holder && this.ball.holder.team === p.team && p.team === this.possession;
-        const best = [...this.teammatesOf(p)].filter((q) => q !== this.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(p.pos) - b.pos.distanceToXZ(p.pos))[0];
-        if (best) {
-          for (const q of this.outfield(p.team)) q.callingForPass = q === best;
-          this.callPassTimer = 1.2;
-          if (onOffense && !best.ai.cutting) {
-            best.ai.cutting = true;
-            best.ai.cutTimer = 1.6;
-            this.events.emit('givego', { player: best });
-          }
-          this.events.emit('callpass', { player: p, target: best });
-        }
-        if (onOffense && !p.ai.cutting) {
-          p.ai.cutting = true;
-          p.ai.cutTimer = 1.4;
-        }
-      }
-      if (inp.shootPressed && this.canAct(p) && !p.isKeeper) {
-        // Volley attempt on a loose ball in the air / or a breach to block
-        if (!this.tryVolley(p)) this.tryBreach(p);
-      }
-    }
+  if (
+    inp.playcall &&
+    this.isUser(p) &&
+    this.userPlayTimer <= 0 &&
+    (this.state === 'live' || this.state === 'gamebreaker')
+  ) {
+    const offense = inp.playcall < 5;
+    const play = this.callPlay(
+      offense ? 'offense' : 'defense',
+      offense ? inp.playcall - 1 : inp.playcall - 7
+    );
+    if (play) this.userPlayTimer = 0.4;
   }
 
-  // ---------------------------------------------------------------------------
+  inp.playcall = 0;
+
+  if (p.state === 'fallen' || p.state === 'stumble' || p.stun > 0) return;
+
+  const isCarrier = this.ball.holder === p;
+
+  if (isCarrier) {
+    if (inp.gamebreaker && this.gbReady[p.team] && !p.isKeeper) {
+      if (this.tryGamebreaker(p)) return;
+    }
+
+    if (inp.shootPressed && this.canAct(p)) this.tryShoot(p);
+    if (inp.shootReleased && p.state === 'shoot' && p.shot && !p.shot.released) this.releaseShot(p);
+
+    if (inp.pass && this.canAct(p)) {
+      const called = this.callPassTarget(p);
+      this.tryPass(p, called, inp.turbo);
+    }
+
+    if (inp.trick && this.canAct(p) && p.cd.trick <= 0 && !p.isKeeper) {
+      const dir = new Vec3(inp.moveX, 0, inp.moveZ);
+      this.tryTrick(p, dir.length() > 0.2 ? dir.normalize() : null, inp.turbo);
+    }
+
+    if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
+  } else {
+    if (inp.breach && this.canAct(p) && p.cd.breach <= 0) this.tryBreach(p);
+    if (inp.trick && this.canAct(p) && p.cd.tackle <= 0) this.tryTackle(p);
+    if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
+
+    if (inp.pass && this.canAct(p) && this.ball.holder !== p && !p.isKeeper) {
+      const onOffense =
+        this.ball.holder &&
+        this.ball.holder.team === p.team &&
+        p.team === this.possession;
+
+      const candidates = [...this.teammatesOf(p)].filter(
+        (q) => q !== this.ball.holder && !q.isKeeper && q.state !== 'fallen'
+      );
+
+      const best = candidates.sort(
+        (a, b) => a.pos.distanceToXZ(p.pos) - b.pos.distanceToXZ(p.pos)
+      )[0] ?? null;
+
+      if (best) {
+        for (const q of this.outfield(p.team)) q.callingForPass = q === best;
+        this.callPassTimer = 1.2;
+
+        if (onOffense && !best.ai.cutting) {
+          best.ai.cutting = true;
+          best.ai.cutTimer = 1.6;
+          this.events.emit('givego', { player: best });
+        }
+
+        this.events.emit('callpass', { player: p, target: best });
+      }
+
+      if (onOffense && !p.ai.cutting) {
+        p.ai.cutting = true;
+        p.ai.cutTimer = 1.4;
+      }
+    }
+
+    if (inp.shootPressed && this.canAct(p) && !p.isKeeper) {
+      if (!this.tryVolley(p)) this.tryBreach(p);
+    }
+  }
+} ---------------------------------------------------------------------------
   // Movement / physics
   // ---------------------------------------------------------------------------
 
