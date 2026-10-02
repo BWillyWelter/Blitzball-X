@@ -95,19 +95,50 @@ const stick = await page.evaluate(() => {
   const vec = { x: polled.moveX, z: polled.moveZ };
 
   // Hold the stick and watch a pinned swimmer travel.
+  //
+  // A swimmer can only be moved during LIVE play: in reset/dead/tipoff/warmup the sim steps
+  // physics with deadBall = true, which forces canMove = false, so the stick reads correctly
+  // and still moves nobody. Because the match is seeded from the clock, CI sometimes lands
+  // here mid-reset and this check failed at 0.00 m for reasons that had nothing to do with
+  // the touch controls. So settle on live play first, and report the state on failure.
+  const canSwim = () => {
+    const c = sim.controlled;
+    return sim.state === 'live' && c && !c.airborne && c.stun <= 0
+      && (c.state === 'idle' || c.state === 'swim' || c.state === 'catch');
+  };
+  for (let settle = 0; settle < 60 * 30 && !canSwim(); settle++) {
+    sim.setUserInput(app.input.poll());
+    sim.step(1 / 60);
+  }
+
   let moved = 0;
   let dx = 0;
-  for (let attempt = 0; attempt < 6 && moved < 0.5; attempt++) {
+  let seen = sim.state;
+  for (let attempt = 0; attempt < 10 && (moved < 0.5 || dx <= 0.2); attempt++) {
+    if (!canSwim()) {
+      for (let settle = 0; settle < 60 * 10 && !canSwim(); settle++) {
+        sim.setUserInput(app.input.poll());
+        sim.step(1 / 60);
+      }
+    }
     const p = sim.controlled;
     const start = p.pos.clone();
-    for (let i = 0; i < 24; i++) {
+    // Only accept a window where this swimmer kept control and was never hit: contact shoves a
+    // body off its input vector, so a knocked-down sample says nothing about the touch controls.
+    let clean = true;
+    for (let i = 0; i < 18; i++) {
       const inp = app.input.poll();
       sim.setUserInput(inp);
       sim.step(1 / 60);
+      if (sim.controlled !== p || p.state === 'fallen' || p.state === 'stumble'
+          || p.stun > 0 || p.airborne || sim.state !== 'live') { clean = false; break; }
     }
-    if (sim.controlled === p) {
-      moved = p.pos.distanceToXZ(start);
+    if (!clean) continue;
+    const d = p.pos.distanceToXZ(start);
+    if (d > moved) {
+      moved = d;
       dx = p.pos.x - start.x;
+      seen = sim.state;
     }
   }
   const nub = document.querySelector('.touch-ui .touch-stick-nub').style.transform;
@@ -117,11 +148,11 @@ const stick = await page.evaluate(() => {
   const centre = { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 };
   pe('pointerup', cx + 70, cy - 70);
   const after = app.input.poll();
-  return { vec, moved, dx, nub, centre, touch: { x: cx, y: cy }, released: { x: after.moveX, z: after.moveZ }, active: app.input.touch.active };
+  return { vec, moved, dx, seen, nub, centre, touch: { x: cx, y: cy }, released: { x: after.moveX, z: after.moveZ }, active: app.input.touch.active };
 });
 ok('stick up+right reads as +x / -z', stick.vec.x > 0.5 && stick.vec.z < -0.5, `(${stick.vec.x.toFixed(2)}, ${stick.vec.z.toFixed(2)})`);
-ok('stick moves the swimmer', stick.moved > 0.5, `${stick.moved.toFixed(2)} m`);
-ok('swimmer travels toward +x (right)', stick.dx > 0.2, `dx=${stick.dx.toFixed(2)}`);
+ok('stick moves the swimmer', stick.moved > 0.5, `${stick.moved.toFixed(2)} m  state=${stick.seen}`);
+ok('swimmer travels toward +x (right)', stick.dx > 0.2, `dx=${stick.dx.toFixed(2)}  state=${stick.seen}`);
 const nubNums = (stick.nub.match(/-?\d+(\.\d+)?/g) || []).map(Number);
 const nubLen = Math.hypot(nubNums[2] || 0, nubNums[3] || 0);
 ok('stick nub follows the thumb (clamped to rim)', nubLen > 50 && nubLen < 60, `offset ${nubLen.toFixed(1)}px`);
