@@ -70,11 +70,8 @@ export class MatchRenderer {
       400
     );
 
+    // Rematch-style shoulder cam is the one camera: opts kept minimal (shake + reduced motion).
     this.gameCam = new GameCamera(this.camera, {
-      firstPerson: settings.firstPerson,
-      angle: settings.cameraAngle,
-      playerCam: settings.playerCam,
-      ballCam: settings.ballCam,
       screenShake: settings.screenShake,
       reducedMotion: settings.reducedMotion,
     });
@@ -92,6 +89,7 @@ export class MatchRenderer {
     ];
 
     this.goalPulse = [0, 0];
+    this.goalScoredRing = [null, null]; // which zone ring lit the last goal (0 top / 1 blue / 2 white)
 
     this.views = new Map();
 
@@ -402,7 +400,7 @@ export class MatchRenderer {
       this.gameCam.punch(hard ? 0.35 : 0.15);
     });
 
-    on('score', ({ player, gb, team: teamIndex }) => {
+    on('score', ({ player, gb, team: teamIndex, ring }) => {
       this.gameCam.setMode(
         'score',
         gb ? 2.0 : 1.3,
@@ -411,6 +409,7 @@ export class MatchRenderer {
 
       const goalIndex = this.goalIndexFor(teamIndex);
       this.goalPulse[goalIndex] = 1;
+      this.goalScoredRing[goalIndex] = ring ?? null;
 
       const goalX =
         ARENA.goalX * this.sim.attackDir(teamIndex);
@@ -505,40 +504,46 @@ export class MatchRenderer {
       );
     });
 
-    on('knockdown', ({ victim, reason }) => {
-      this.fx.bubbles(
-        victim.pos,
-        14,
-        1.4,
-        0.5
-      );
-
-      this.gameCam.punch(
-        reason === 'hit' ? 0.5 : 0.3
-      );
+    // Contact FX all fire at the point the two bodies met (midpoint), not on the victim, so a
+    // blow reads as an impact between two swimmers instead of a puff around the one who lost.
+    on('knockdown', ({ victim, reason, impact = 1, contact }) => {
+      const at = contact || { x: victim.pos.x, y: 0.9, z: victim.pos.z };
+      this.fx.bubbles(at, Math.round(12 + impact * 10), 1.3 + impact * 0.3, at.y);
+      this.fx.sparks(at, '#ffffff', Math.round(6 + impact * 8));
+      this.gameCam.punch(0.25 + impact * 0.45);
+      this.crowdEnergy = Math.max(this.crowdEnergy, Math.min(1, 0.5 + impact * 0.4));
+      if (reason === 'hit') this.fx.shockwave(at, '#ffffff', 2 + impact, 0.3);
     });
 
-    on('washed', ({ player, victim }) => {
+    on('washed', ({ player, victim, impact = 1, contact }) => {
+      const at = contact || { x: victim.pos.x, y: 0.8, z: victim.pos.z };
       this.fx.burst(
-        {
-          x: victim.pos.x,
-          y: 0.8,
-          z: victim.pos.z,
-        },
+        at,
         team(player.team).accent,
-        26,
-        3.5,
+        Math.round(22 + impact * 10),
+        3.2 + impact,
         0.18
       );
 
       this.fx.shockwave(
-        victim.pos,
+        at,
         team(player.team).accent,
         3,
         0.45
       );
 
       this.crowdEnergy = 1;
+    });
+
+    // Bounced off a stronger defender: the mover eats it, so show the failure too.
+    on('spearfail', ({ player }) => {
+      this.fx.bubbles(
+        { x: player.pos.x, y: 0.9, z: player.pos.z },
+        10,
+        1.1,
+        0.9
+      );
+      this.gameCam.punch(0.2);
     });
 
     on('block', () => {
@@ -555,16 +560,16 @@ export class MatchRenderer {
       this.crowdEnergy = 1;
     });
 
-    on('tackle', ({ player }) => {
+    on('tackle', ({ player, victim, impact = 1 }) => {
       this.fx.burst(
         {
-          x: player.pos.x,
-          y: 1.0,
-          z: player.pos.z,
+          x: (player.pos.x + victim.pos.x) / 2,
+          y: 0.9,
+          z: (player.pos.z + victim.pos.z) / 2,
         },
         team(player.team).accent,
-        14,
-        2.5,
+        Math.round(12 + impact * 8),
+        2.4 + impact,
         0.15
       );
 
@@ -574,18 +579,18 @@ export class MatchRenderer {
       );
     });
 
-    on('bighit', ({ player, victim }) => {
-      this.gameCam.punch(0.7);
+    on('bighit', ({ player, victim, impact = 1 }) => {
+      this.gameCam.punch(0.5 + impact * 0.45);
 
       this.fx.burst(
         {
-          x: victim.pos.x,
+          x: (player.pos.x + victim.pos.x) / 2,
           y: 1.0,
-          z: victim.pos.z,
+          z: (player.pos.z + victim.pos.z) / 2,
         },
         '#ffffff',
-        16,
-        3,
+        Math.round(14 + impact * 10),
+        3 + impact,
         0.16
       );
 
@@ -733,13 +738,49 @@ export class MatchRenderer {
         Math.min(360, this.drawSize.y)
       );
     }
+  }/**
+   * Rebuild the view cache after a substitution: the incoming swimmer needs a freshly built
+   * character (different archetype, skin, kit) and the outgoing one's meshes are released
+   * immediately rather than lingering for the rest of the match.
+   */
+  syncViews() {
+    const sim = this.sim;
+    const live = new Set();
+    for (const p of sim.players) {
+      live.add(p.id);
+      const existing = this.views.get(p.id);
+      if (!existing) {
+        const view = new CharacterView(p.data, sim.teams[p.team]);
+        this.scene.add(view.root);
+        this.views.set(p.id, view);
+      } else if (existing.data !== p.data) {
+        // Same slot, different swimmer record: rebuild the character for the new data.
+        existing.dispose();
+        const view = new CharacterView(p.data, sim.teams[p.team]);
+        this.scene.add(view.root);
+        this.views.set(p.id, view);
+      }
+    }
+    for (const [id, view] of [...this.views]) {
+      if (!live.has(id)) {
+        view.dispose();
+        this.views.delete(id);
+      }
+    }
   }
 
-  update(dt) {
+  /**
+   * `replaying` keeps the camera off the shoulder rig: the replay director has already placed the
+   * lens with `gameCam.replayShot`, and letting `gameCam.update()` run here would immediately
+   * lerp it back onto the controlled swimmer and cancel the cut.
+   */
+  update(dt, replaying = false) {
     const sim = this.sim;
-
     this.elapsed += dt;
-
+    // Substitutions swap which swimmer occupies a slot, so the view cache follows the entities
+    // rather than assuming a fixed roster. The roster size never changes (a slot is reused), so
+    // the count can't be the signal — check membership instead, 14 entries per frame.
+    this.syncViews();
     for (const player of sim.players) {
       const view = this.views.get(player.id);
 
@@ -895,7 +936,8 @@ export class MatchRenderer {
         flightPass ||
         hot ||
         sim.state === 'gamebreaker',
-      trailColor
+      trailColor,
+      dt
     );
 
     for (let i = 0; i < 2; i++) {
@@ -908,9 +950,13 @@ export class MatchRenderer {
         this.goalPulse[i] - dt * 0.8
       );
 
-      const glow = goal.userData.glow;
+      // Three-ring zone: pulse the ring that was scored (top / blue / white), or all of them
+      // for a Gamebreaker rip.
+      const glows = goal.userData.glows;
 
-      if (glow) {
+      if (glows) {
+        const scored = this.goalScoredRing[i];
+        const list = scored === null || scored === undefined ? [0, 1, 2] : [scored];
         const scale =
           1 +
           this.goalPulse[i] *
@@ -921,7 +967,9 @@ export class MatchRenderer {
                 Math.sin(this.elapsed * 30)
             );
 
-        glow.scale.setScalar(scale);
+        for (const gi of list) {
+          if (glows[gi]) glows[gi].scale.setScalar(scale);
+        }
       }
     }
 
@@ -965,7 +1013,7 @@ export class MatchRenderer {
     }
 
     this.fx.update(dt);
-    this.gameCam.update(sim, dt);
+    if (!replaying) this.gameCam.update(sim, dt);
 
     if (this.bloom) {
       this.gbFlash = Math.max(
@@ -1043,8 +1091,15 @@ export class MatchRenderer {
     this.renderer.renderLists?.dispose();
     this.renderer.dispose();
 
-    // Do not call forceContextLoss() here.
-    // It can interfere with WebGL context recreation.
+    // three's WebGLRenderer.dispose() frees GL resources but never releases the context itself, so
+    // every finished match used to leave one live webgl context behind — qa:probe measured six
+    // matches as created=6, released=0. Browsers only allow a handful of live contexts per page
+    // and start evicting once that runs out, so a long rematch session could lose the context of
+    // the match being played. Release ours explicitly here.
+    // Safe during teardown: our context-loss listeners are already detached above and `disposed`
+    // is true, so the app's own "SIGNAL LOST" handler cannot fire from this. (Never do this while
+    // *recovering* from a loss — see rebuildAfterContextLoss.)
+    this.renderer.forceContextLoss?.();
   }
 }
 

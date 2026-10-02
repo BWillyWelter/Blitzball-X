@@ -15,7 +15,7 @@
  *                                                normalized duration. opts: { speed, trick,
  *                                                turbo, mirror, held }
  *   window.__bench.states                        — list of scrubbable states
- *   window.__bench.tricks                        — [{ id, name }]
+ *   window.__bench.tricks                        — [{ id, name, kind }] (signature moves)
  *   window.__bench.setYaw(deg)                   — orbit the camera (default three-quarter)
  */
 
@@ -36,6 +36,8 @@ const DUR = {
   volley: 0.45,
   gbwind: 0.6,
   stumble: 0.85,
+  reel: 0.55, // MOVE.reelDuration — soft contact
+  commit: 0.8, // COMBAT.diveCommit — a dive or swing that missed
   fallen: 1.15,
   celebrate: 1.2,
   breach: 1.0,
@@ -46,7 +48,7 @@ const SWIM_CYCLE_SECONDS = 3.0;
 
 const SCRUB_STATES = [
   'idle', 'swim', 'catch', 'pass', 'shoot', 'volley', 'tackle', 'hit',
-  'save', 'stumble', 'fallen', 'celebrate', 'gbwind', 'breach', 'trick',
+  'save', 'stumble', 'reel', 'commit', 'fallen', 'celebrate', 'gbwind', 'breach', 'trick',
 ];
 
 export function startAnimBench() {
@@ -145,7 +147,7 @@ class AnimBench {
   }
 
   get tricks() {
-    return TRICKS.map((t) => ({ id: t.id, name: t.name }));
+    return TRICKS.map((t) => ({ id: t.key, name: t.name, kind: t.kind }));
   }
 
   setYaw(deg) {
@@ -186,9 +188,9 @@ class AnimBench {
         break;
       }
       case 'trick': {
-        const def = TRICKS.find((t) => t.id === (opts.trick ?? 0)) || TRICKS[0];
+        const def = TRICKS.find((t) => t.key === (opts.trick ?? TRICKS[0].key)) || TRICKS[0];
         p.state = 'trick';
-        p.trick = { def, dir: { x: 0, z: 1 }, turbo: !!def.turbo, washed: new Set() };
+        p.trick = { def, dir: { x: 0, z: 1 }, turbo: !!def.turbo, washed: new Set(), power: 1 };
         p.stateTime = u * def.dur;
         p.stateDur = def.dur;
         p.anim.t = u * def.dur;

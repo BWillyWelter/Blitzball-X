@@ -37,11 +37,12 @@ jobs:
       - run: npm ci
       - name: Production build
         run: npm run build
-      - name: Serve dist and run touch-control QA (headless Chromium)
+      - name: Serve dist and run browser QA (headless Chromium)
         run: |
           npx vite preview --port 4173 --host 127.0.0.1 &
           sleep 10
           npm run qa:touch -- http://127.0.0.1:4173/
+          npm run qa:probe -- http://127.0.0.1:4173/
 
   lighthouse:
     runs-on: ubuntu-latest

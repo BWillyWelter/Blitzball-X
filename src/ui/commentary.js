@@ -11,6 +11,11 @@ const LINES = {
     'TOP BINS, BABY! {p} showed ZERO respect for that keeper!',
     '{p} let that mufucka FLY and it\'s IN! Ayy!',
   ],
+  goal_topring: [
+    'TOP RING! {p} hit the THREE! That\'s the money window, baby!',
+    'ARE YOU KIDDING?! {p} through the TOP RING — that\'s a THREE!',
+    'ORANGE RING, THREE POINTS! {p} just robbed the safe!',
+  ],
   goal_long: [
     'FROM DOWNTOWN?! {p} you dirty bastard, THAT\'S A BUCKET!',
     'NAH he did NOT just shoot from there — {p} with the DAMN SCREAMER!',
@@ -35,6 +40,20 @@ const LINES = {
     'WHAT THE FUCK, {k}! Save of the YEAR outta nowhere!',
     '{k} is a GODDAMN WALL! Ain\'t nothing getting past him!',
     'FULL STRETCH! {k} just robbed dude BLIND! Sick!',
+  ],
+  save_dive: [
+    'HE DIVED! {k} left the whole line for it and READ IT! Insane!',
+    'FLYING {k}! That dive came from NUTHIN, my boy!',
+    '{k} threw his body at that thing! That is a BASKETBALL move in a SWIMMING POOL!',
+  ],
+  cage: [
+    '{k} steps into the CAGE! He say he want it, he come get it!',
+    'GOALKEEPER TAKING OVER! {k} in the water now — everybody else on AI!',
+  ],
+  leadpass: [
+    'THREADED IT! {p} put that shit right in FRONT of him!',
+    'LEAD PASS! {p} aimed that into SPACE like a quarterback, my boy!',
+    'NASTY! {p} threw it where the defender WASN\'T! Chef\'s kiss!',
   ],
   washed: [
     '{v} got WASHED! {p} had him spinning like a washing machine, damn!',
@@ -88,6 +107,27 @@ const LINES = {
     '{p} said GET OFF ME! {v} felt that in his SOUL!',
     'DAMN! {v} just got flattened! That\'s a hit you HEAR!',
   ],
+  foul: [
+    'FOUL! {p} swung on {v} and the ref SAW that shit!',
+    'WHISTLE! {p} got caught coming in hot on {v}!',
+    'THAT\'S A FOUL! {p} left his feet on {v}, no excuse!',
+    'EASY, {p}! You flattened {v} right there in front of the ref!',
+  ],
+  foul_booking: [
+    'YELLOW! {p} is in the book after that one, my boy!',
+    'BOOKED! {p} argued nothing and still got the card!',
+    'That\'s a booking for {p}. One more and he\'s out of this whole match!',
+  ],
+  red: [
+    'RED CARD! {p} is GONE! He\'s swimming home in his goggles!',
+    'OFF! OFF! {p} walks, and {t} plays a man DOWN!',
+    'SECOND YELLOW — {p} is out! That\'s the end of his night!',
+  ],
+  sub: [
+    'Fresh legs! {p} comes on for {t}.',
+    'CHANGE! {t} swapping {p} in — you can see the tired ones in the water.',
+    '{t} makes a move: {p} on, the tired man off. Coach knows what he\'s doing.',
+  ],
   turnover_clock: [
     'BEEP BEEP! {t} was out here sightseeing, clock caught \'em!',
     'TOO SLOW! {t} stood around and LOST that shit!',
@@ -105,6 +145,18 @@ const LINES = {
   tip: [
     'It\'s a sold-out cage! {h} versus {aw} — most goals WIN, no excuses!',
     'LET\'S RUN IT! {h} taking on {aw} in the sphere tonight!',
+  ],
+  warmup: [
+    '{h} and {aw} getting loose in the water — the warm-up is REAL out here!',
+    'Look at the lane discipline in the intro laps. These crews came to WORK.',
+  ],
+  tipoff_hold: [
+    'The ref is bringing both captains to centre… here comes the TIP-OFF!',
+    'Captains at centre sphere. Winner of this tip sets the tone!',
+  ],
+  tipoff_win: [
+    '{p} WINS the tip! First touch of the match goes to {t}!',
+    'TIP goes {t}\'s way — {p} was in the water FIRST!',
   ],
   trick: [
     '{p} pulled the {tr} out the BAG! Ohhh!',
@@ -170,16 +222,27 @@ export class Commentary {
     ev.on('live', () => {
       if (sim.time < 2.5) this.say('tip', { h: this.teamName(0), aw: this.teamName(1) }, true, 2);
     });
+    ev.on('warmup', () => this.say('warmup', { h: this.teamName(0), aw: this.teamName(1) }, true, 2));
+    ev.on('tipoff', () => this.say('tipoff_hold', {}, true, 2));
+    ev.on('live', ({ tipoff, possession }) => {
+      if (tipoff && possession !== null && possession !== undefined) {
+        const cap = sim.outfield(possession)[0];
+        if (cap) this.say('tipoff_win', { p: cap, t: this.teamName(possession) }, true, 2);
+      }
+    });
     ev.on('score', ({ player, type, gb, team, score }) => {
       if (gb) return this.say('gbscore', { p: player, t: this.teamName(team) }, true, 3);
-      if (type === 'volley') this.say('goal_volley', { p: player }, true, 2);
+      if (type === 'topring') this.say('goal_topring', { p: player }, true, 3);
+      else if (type === 'volley') this.say('goal_volley', { p: player }, true, 2);
       else if (type === 'long') this.say('goal_long', { p: player }, true, 2);
       else this.say('goal', { p: player }, true, 2);
       const opp = score[1 - team];
       const mine = score[team];
       if (mine - opp >= 5 && mine % 3 === 0) setTimeout(() => this.say('blowout', { t: this.teamName(team) }, false, 1), 1200);
     });
-    ev.on('save', ({ keeper, big }) => this.say(big ? 'save_big' : 'save', { k: keeper }, big, 2));
+    ev.on('save', ({ keeper, big, dived }) => this.say(dived ? 'save_dive' : big ? 'save_big' : 'save', { k: keeper }, big || dived, 2));
+    ev.on('cage', ({ keeper, on }) => this.say('cage', { k: keeper }, false, on ? 2 : 1));
+    ev.on('leadpass', ({ from, big }) => this.say('leadpass', { p: from }, big, 1));
     ev.on('washed', ({ player, victim }) => this.say('washed', { p: player, v: victim }, true, 2));
     ev.on('tackle', ({ player }) => this.say('tackle', { p: player }, false, 2));
     ev.on('block', ({ blocker }) => this.say('block', { p: blocker }, true, 2));
@@ -191,15 +254,27 @@ export class Commentary {
     });
     ev.on('heating', ({ player, team }) => this.say('heating', { p: player, t: this.teamName(team) }, true, 2));
     ev.on('bighit', ({ player, victim }) => this.say('bighit', { p: player, v: victim }, false, 1));
+    // Discipline reads before the scoreboard does — the whistle, then the booking, then the walk.
+    ev.on('foul', ({ offender, victim, red }) => {
+      this.say('foul', { p: offender, v: victim }, true, 3);
+      if (!red) this.say('foul_booking', { p: offender }, false, 2);
+    });
+    ev.on('card', ({ team, player, red }) => {
+      if (red) this.say('red', { p: player, t: this.teamName(team) }, true, 3);
+    });
+    ev.on('sub', ({ team, in: incoming }) => {
+      this.say('sub', { p: incoming, t: this.teamName(team) }, false, 1);
+    });
     ev.on('turnover', ({ team, reason }) => {
       if (reason === 'POSSESSION CLOCK') this.say('turnover_clock', { t: this.teamName(team) }, true, 2);
     });
     ev.on('violation', ({ reason }) => {
       if (reason === 'KEEPER HOLD') this.say('keeperhold', {}, false, 1);
     });
-    ev.on('trick', ({ player, name }) => {
+    ev.on('trick', ({ player, name, move }) => {
       if (player.combo >= 3) this.say('combo', { p: player, c: player.combo }, false, 1);
-      else if (sim.rng.chance(0.25)) this.say('trick', { p: player, tr: name.toLowerCase() }, false, 1);
+      // `voice` is the spoken form of the signature move ("barrel roll", not "BARREL ROLL").
+      else if (sim.rng.chance(0.25)) this.say('trick', { p: player, tr: move?.voice || name.toLowerCase() }, false, 1);
     });
     ev.on('halftime', ({ score }) => this.say('halftime', { h: this.teamName(0), aw: this.teamName(1), s0: score[0], s1: score[1] }, true, 3));
     ev.on('overtime', () => this.say('overtime', {}, true, 3));

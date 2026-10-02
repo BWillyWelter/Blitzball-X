@@ -2,15 +2,14 @@
  * On-screen touch controls: a free-floating virtual stick on one side and an adaptive action pad
  * on the other.
  *
- * The pad is built around a single giant anchor. SHOOT (hold to charge, release in the PERFECT
- * window) sits in the thumb corner with three *ring* buttons on a one-thumb arc around it: PASS,
- * TURBO (hold) and a *contextual* button that remaps to whatever matters right now — TRICK while
- * carrying, TACKLE on defense, JUMP when the ball is loose or when we are supporting off it.
+ * The pad is a single giant anchor: SHOOT (hold to charge, release in the PERFECT window — and
+ * lit up to fire the GAMEBREAKER while the special meter is ready) sits in the thumb corner with
+ * a one-thumb arc around it: PASS, BURST (short underwater sprint, hold) and the contextual
+ * anchor (JUKE signature move / TACKLE / JUMP; SWIPE the stick while holding it to aim a dodge).
+ * Expert actions stay on keyboard + gamepad only.
  *
- * Above the pad sits the expert row (HIT / JUMP / SWAP / GB / CAM). It auto-swaps: every play state
- * ranks the row most-practical-first, so the prime slots move to the near edge of the row under
- * the thumb and light up, while actions the sim ignores in that state (BREACH while carrying, GB
- * off the dribble) dim right down instead of inviting a wasted press.
+ * Juke aiming: JUKE held + a stick flick plays the swimmer's signature move in that direction
+ * (see input.js jukeDir). A plain JUKE tap plays the forward move.
  *
  * Writes into the same InputManager struct the keyboard and gamepad use, so touch play goes
  * through identical rules. Built with pointer events (touch, pen and mouse all work) and pointer
@@ -30,8 +29,8 @@ const PAD = { size: 182, shoot: 104, ring: 60, radius: 94 };
 // (`turbo`, `shoot`, …) collide with HUD rules in styles.css (e.g. the turbo meter is `.turbo`),
 // which would restyle the buttons themselves.
 const RING = [
-  { action: 'turbo', label: 'TURBO', cls: 't-turbo', angle: 180 },
-  { action: 'context', label: 'TRICK', cls: 't-context', angle: -135 },
+  { action: 'turbo', label: 'BURST', cls: 't-turbo', angle: 180 },
+  { action: 'context', label: 'JUKE', cls: 't-context', angle: -135 },
   { action: 'pass', label: 'PASS', cls: 't-pass', angle: -90 },
 ].map((slot) => {
   const rad = (slot.angle * Math.PI) / 180;
@@ -43,29 +42,15 @@ const RING = [
   };
 });
 
-// Secondary cluster: expert actions, compact and semi-transparent.
-const SECONDARY = [
-  { action: 'hit', label: 'HIT', cls: 't-hit' },
-  { action: 'breach', label: 'JUMP', cls: 't-breach' },
-  { action: 'switch', label: 'SWAP', cls: 't-swap' },
-  { action: 'gamebreaker', label: 'GB', cls: 't-gb' },
-  // CAM toggles ball-cam lock / forward look — writes a ballCamToggle edge (KeyC / RS click).
-  { action: 'ballcam', label: 'CAM', cls: 't-cam' },
-];
-
-// The top N ranks of the auto-swap order get the prime spot and the bright treatment.
-const HOT_SLOTS = 3;
-
-// Live play states. `action` is a real InputManager edge, so the contextual button routes through
-// exactly the same rules as the dedicated keys. `order` auto-swaps the expert row
-// most-practical-first; `dead` lists actions the sim ignores in that state, which dim right down.
-//   carrying:  GB only fires off the dribble, and BREACH is not read at all while carrying
-//   off ball:  BREACH is the leap/block/volley, and GB needs the ball
+// Live play states. `action` is a real InputManager edge, so the contextual anchor routes through
+// exactly the same rules as the dedicated keys.
 const CONTEXTS = {
-  ball: { label: 'TRICK', action: 'trick', order: ['gamebreaker', 'switch', 'hit', 'ballcam', 'breach'], dead: ['breach'] },
-  support: { label: 'JUMP', action: 'breach', order: ['switch', 'breach', 'hit', 'ballcam', 'gamebreaker'], dead: ['gamebreaker'] },
-  defense: { label: 'TACKLE', action: 'hit', order: ['hit', 'breach', 'switch', 'gamebreaker', 'ballcam'], dead: ['gamebreaker'] },
-  loose: { label: 'JUMP', action: 'breach', order: ['breach', 'hit', 'switch', 'gamebreaker', 'ballcam'], dead: ['gamebreaker'] },
+  ball: { label: 'JUKE', action: 'trick' },
+  support: { label: 'JUMP', action: 'breach' },
+  defense: { label: 'TACKLE', action: 'hit' },
+  loose: { label: 'JUMP', action: 'breach' },
+  // In the cage the contextual anchor is the only verb a keeper has, so it becomes the dive.
+  cage: { label: 'DIVE', action: 'breach' },
 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
@@ -109,14 +94,12 @@ export class TouchControls {
         </div>
       </div>
       <div class="touch-actions">
-        <div class="touch-secondary">
-          ${SECONDARY.map((b) => `<button class="touch-btn sec ${b.cls}" data-action="${b.action}" type="button"><span>${b.label}</span></button>`).join('')}
-        </div>
         <div class="touch-primary">
           ${RING.map((b) => `<button class="touch-btn pri ${b.cls}" data-action="${b.action}"${b.action === 'context' ? ' data-context="ball"' : ''} type="button" style="left:${b.x}px;top:${b.y}px"><span>${b.label}</span></button>`).join('')}
           <button class="touch-btn pri t-shoot" data-action="shoot" type="button"><span>SHOOT</span></button>
         </div>
       </div>
+      <button class="touch-cage" type="button" data-action="cage" aria-label="Take the cage"><span>GK</span></button>
       <button class="touch-pause" type="button" aria-label="Pause">II</button>
       <div class="touch-rotate">ROTATE YOUR DEVICE<br /><span>Blitzball X plays in landscape</span></div>
     `;
@@ -140,6 +123,7 @@ export class TouchControls {
       this.stick.style.top = `${y - r.top}px`;
       this.stick.style.bottom = 'auto';
     };
+    let jukeFired = false; // one juke aim per JUKE hold: flick once, then steer freely
     const move = (e) => {
       if (e.pointerId !== this.stickId) return;
       let dx = e.clientX - this.stickOrigin.x;
@@ -153,6 +137,13 @@ export class TouchControls {
       const nx = dx / STICK_RADIUS;
       const ny = dy / STICK_RADIUS;
       const mag = Math.hypot(nx, ny);
+      // JUKE held + a sharp stick flick aims the signature move in that direction (one aim per
+      // hold, so the flick is a deliberate gesture rather than a steering accident).
+      if (t.jukeHeld && !jukeFired && mag > 0.62) {
+        jukeFired = true;
+        t.jukeDir = { x: nx / mag, y: ny / mag };
+        t.edges.add('trick');
+      }
       if (mag < STICK_DEADZONE) {
         t.moveX = 0;
         t.moveZ = 0;
@@ -171,6 +162,7 @@ export class TouchControls {
       t.moveX = 0;
       t.moveZ = 0;
       t.active = false;
+      jukeFired = false;
       this.nub.style.transform = 'translate(-50%, -50%)';
       this.stick.classList.remove('engaged');
     };
@@ -205,8 +197,10 @@ export class TouchControls {
       else if (action === 'shoot') {
         t.shootHeld = true;
         t.edges.add('shoot');
-      } else if (action === 'context') t.edges.add(CONTEXTS[this.contextKey].action);
-      else t.edges.add(action === 'ballcam' ? 'ballcamToggle' : action);
+      } else if (action === 'context') {
+        t.jukeHeld = true;
+        t.edges.add(CONTEXTS[this.contextKey].action);
+      } else t.edges.add(action);
       btn.setPointerCapture?.(e.pointerId);
     };
     const release = (e) => {
@@ -219,6 +213,9 @@ export class TouchControls {
       else if (action === 'shoot') {
         t.shootHeld = false;
         t.edges.add('shootRelease');
+      } else if (action === 'context') {
+        t.jukeHeld = false;
+        t.jukeDir = null;
       }
     };
     btn.addEventListener('pointerdown', press);
@@ -229,12 +226,12 @@ export class TouchControls {
   }
 
   /**
-   * Remap the contextual anchor and auto-swap the expert row for the controlled swimmer's state:
-   * TRICK on the ball, TACKLE on defense, JUMP on a loose ball or when supporting off it.
-   * Fed from the frame loop; cheap enough to call every frame (it no-ops unless the state flips).
+   * Remap the contextual anchor for the controlled swimmer's state: JUKE (trick) on the ball,
+   * TACKLE on defense, JUMP on a loose ball or when supporting off it. Fed from the frame loop;
+   * cheap enough to call every frame (it no-ops unless the state flips).
    */
-  setContext({ onBall = false, defending = false, looseBall = false, support = false } = {}) {
-    const key = onBall ? 'ball' : defending ? 'defense' : looseBall ? 'loose' : support ? 'support' : 'ball';
+  setContext({ onBall = false, defending = false, looseBall = false, support = false, inCage = false } = {}) {
+    const key = inCage ? 'cage' : onBall ? 'ball' : defending ? 'defense' : looseBall ? 'loose' : support ? 'support' : 'ball';
     if (key === this.contextKey) return;
     this.contextKey = key;
     const btn = this.buttons.get('context');
@@ -242,26 +239,6 @@ export class TouchControls {
       btn.dataset.context = key;
       btn.querySelector('span').textContent = CONTEXTS[key].label;
     }
-    this.rankSecondary();
-  }
-
-  /**
-   * Auto-swap the expert row: rank 0 takes the slot nearest the thumb (right-most for a
-   * right-handed pad, left-most when mirrored) and the top few light up, while actions the sim
-   * ignores in this state dim right down. Flex `order` is used so re-ranking never has to move a
-   * node a finger is already holding.
-   */
-  rankSecondary() {
-    const ctx = CONTEXTS[this.contextKey] || CONTEXTS.ball;
-    const flip = this.settings.touchLayout === 'left';
-    const last = ctx.order.length - 1;
-    ctx.order.forEach((action, rank) => {
-      const btn = this.buttons.get(action);
-      if (!btn) return;
-      btn.style.order = String(flip ? rank : last - rank);
-      btn.classList.toggle('hot', rank < HOT_SLOTS);
-      btn.classList.toggle('idle', ctx.dead.includes(action));
-    });
   }
 
   /**
@@ -284,13 +261,23 @@ export class TouchControls {
     this.el.style.setProperty('--touch-scale', String(clamp(settings.touchScale, 0.8, 1.3)));
     this.el.style.setProperty('--touch-opacity', String(clamp(settings.touchOpacity, 0.4, 1)));
     this.placeRing();
-    this.rankSecondary();
   }
 
-  /** Highlight the Gamebreaker button when a meter is full. */
+  /** Light the SHOOT anchor up as the GAMEBREAKER trigger while a meter is full. */
   setGamebreakerReady(ready) {
-    const b = this.buttons.get('gamebreaker');
-    if (b) b.classList.toggle('ready', !!ready);
+    const shoot = this.buttons.get('shoot');
+    if (shoot) {
+      shoot.classList.toggle('gb-ready', !!ready);
+      shoot.querySelector('span').textContent = ready ? 'GAME BREAKER' : 'SHOOT';
+    }
+  }
+
+  /** Light the GK button when the cage is open (play is at your end) and latch it while you hold it. */
+  setCage(available, active) {
+    const btn = this.buttons.get('cage');
+    if (!btn) return;
+    btn.classList.toggle('on', !!active);
+    btn.style.opacity = active ? '1' : available ? '0.85' : '0.3';
   }
 
   dispose() {
@@ -301,6 +288,8 @@ export class TouchControls {
     t.active = false;
     t.turbo = false;
     t.shootHeld = false;
+    t.jukeHeld = false;
+    t.jukeDir = null;
     t.edges.clear();
     this.el.remove();
   }

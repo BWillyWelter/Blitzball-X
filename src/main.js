@@ -10,10 +10,22 @@ import { MatchRenderer } from './render/renderer.js';
 import { InputManager } from './ui/input.js';
 import { AudioSystem } from './ui/audio.js';
 import { HUD } from './ui/hud.js';
+import { BenchPanel } from './ui/bench.js';
+import { ReplayOverlay } from './ui/replay.js';
+import { MontageOverlay } from './ui/montage.js';
+import { ReplayDirector, ReplayRecorder } from './game/replay.js';
 import { Commentary } from './ui/commentary.js';
 import { loadState, saveState, clearState } from './ui/save.js';
 import { TouchControls, isTouchDevice } from './ui/touch.js';
-import { createCareer, currentOpponent, recordResult, careerTitle, awardPlayerProgress } from './game/career.js';
+import {
+  createCareer,
+  currentOpponent,
+  recordResult,
+  careerTitle,
+  awardPlayerProgress,
+  fixtureFor,
+  rollInjuries,
+} from './game/career.js';
 import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import { PHYS } from './data/constants.js';
 import * as Screens from './ui/screens.js';
@@ -57,7 +69,9 @@ export function probeWebGL() {
  */
 function touchContext(sim) {
   const p = sim.controlled;
-  if (!p) return { onBall: false, defending: false, looseBall: false, support: false };
+  if (!p) return { onBall: false, defending: false, looseBall: false, support: false, inCage: false };
+  // In the cage the pad is a different game: the contextual anchor becomes the dive.
+  if (sim.inCage) return { onBall: false, defending: true, looseBall: false, support: false, inCage: true };
   const holder = sim.ball.holder;
   const onBall = !!holder && holder === p;
   return {
@@ -135,6 +149,7 @@ class App {
       title: Screens.TitleScreen,
       teamselect: Screens.TeamSelectScreen,
       career: Screens.CareerScreen,
+      squad: Screens.SquadScreen,
       roster: Screens.RosterScreen,
       howto: Screens.HowToScreen,
       settings: Screens.SettingsScreen,
@@ -148,6 +163,8 @@ class App {
       this.save();
       return this.go('title');
     }
+    // The squad screen only exists inside a live run.
+    if (name === 'squad' && !this.isCareerValid()) return this.go('title');
     this.screen = f(this, params);
     this.screen.name = name;
     this.root.appendChild(this.screen.el);
@@ -173,7 +190,7 @@ class App {
   // Match lifecycle
   // ---------------------------------------------------------------------------
 
-  startMatch({ home, away, userTeam = 0, mode = 'quick' }) {
+  startMatch({ home = TEAMS[0], away = TEAMS[1], userTeam = 0, mode = 'quick' }) {
     // A finished match's delayed results transition must never fire into a NEW match (it would
     // dispose it and route to results mid-game).
     clearTimeout(this.finishTimer);
@@ -182,26 +199,31 @@ class App {
       this.screen = null;
     }
     if (this.match) this.endMatch();
+    // Career fixtures come from the ladder and the coach's own seven, and alternate venue — the
+    // crew is not always the away side any more. Resolved before the tip card is built so the
+    // matchup on screen is the one that actually starts.
+    let careerFixture = null;
+    if (mode === 'career' && this.state.career) {
+      const fx = fixtureFor(this.state.career);
+      if (fx) {
+        careerFixture = fx;
+        home = fx.home;
+        away = fx.away;
+        userTeam = fx.userTeam;
+      }
+    }
     const wrap = document.createElement('div');
     wrap.className = 'match-wrap';
-    wrap.innerHTML = `<canvas class="game-canvas"></canvas><div class="hud"></div><div class="tip-overlay"><div class="tip-box"><div class="tip-teams"><span style="--c1:${home.primary}">${home.city} ${home.name}</span><em>VS</em><span style="--c1:${away.primary}">${away.city} ${away.name}</span></div><div class="tip-rule">TWO HALVES · MOST GOALS WINS · ${mode === 'career' ? 'THEIR SPHERE' : `${home.city.toUpperCase()} SPHERE`}</div></div></div>`;
+    wrap.innerHTML = `<canvas class="game-canvas"></canvas><div class="hud"></div><div class="tip-overlay"><div class="tip-box"><div class="tip-teams"><span style="--c1:${home.primary}">${home.city} ${home.name}</span><em>VS</em><span style="--c1:${away.primary}">${away.city} ${away.name}</span></div><div class="tip-rule">7-A-SIDE · THREE-RING ZONE · TOP RING 3 · LOW RINGS 1${careerFixture ? ` · ${careerFixture.atHome ? 'HOME WATER' : 'AWAY TRIP'}` : ''}</div></div></div>`;
     this.root.appendChild(wrap);
     const canvas = wrap.querySelector('.game-canvas');
-    if (mode === 'career' && this.state.career) {
-      const base = TEAM_BY_ID[this.state.career.teamId];
-      const player = this.state.career.player;
-      home = { ...base, roster: [player, ...base.roster.filter((p) => p.role !== 'GK').slice(1), base.roster.find((p) => p.role === 'GK')] };
-      away = currentOpponent(this.state.career);
-      userTeam = 1;
-    }
     const difficulty = mode === 'career' && this.state.career ? this.state.career.difficulty : this.state.settings.difficulty;
     const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
-    const sim = new MatchSim({ home: mode === 'career' ? away : home, away: mode === 'career' ? home : away, difficulty, seed, userTeam: mode === 'career' ? 1 : userTeam });
+    const sim = new MatchSim({ home, away, difficulty, seed, userTeam });
     let renderer;
     try {
       renderer = new MatchRenderer(canvas, sim, {
         ...this.state.settings,
-        firstPerson: this.state.settings.camera === 'firstPerson',
         onContextLost: () => this.handleContextLost(),
         onContextRestored: () => this.handleContextRestored(),
       });
@@ -220,10 +242,51 @@ class App {
       return;
     }
     const hud = new HUD(wrap.querySelector('.hud'), sim);
+    const bench = new BenchPanel(wrap, { onSub: () => this.audio.uiConfirm() });
+    const replay = new ReplayOverlay(wrap);
+    const montage = new MontageOverlay(wrap);
+    const replayRecorder = new ReplayRecorder();
+    const replayDirector = new ReplayDirector();
     const commentary = new Commentary(sim, (line, pr) => {
       if (this.state.settings.commentary) hud.ticker(line, pr);
     });
-    this.match = { sim, renderer, hud, commentary, wrap, mode, userTeam, home, away, paused: false, tipTimer: 2.2, finished: false, resultsTimer: 0, touchControls: null };
+    this.match = { sim, renderer, hud, commentary, bench, replay, montage, replayRecorder, replayDirector, wrap, mode, userTeam, home, away, careerFixture, paused: false, tipTimer: 2.2, finished: false, resultsTimer: 0, touchControls: null };
+    // Halftime: the break is dead air unless something is said about it. The montage runs over the
+    // frozen pool and auto-dismisses before the second-half kickoff.
+    sim.events.on('halftime', () => {
+      const m = this.match;
+      if (m && m.sim === sim) m.montage.show(sim);
+    });
+    // The goal replay: cut the clip the instant the ball is in, hold the dead ball still while it
+    // plays, then hand the pool back exactly as it was. Recording is a ring buffer fed from the
+    // sim clock, so a dropped frame thins the clip instead of stretching it.
+    sim.events.on('score', (e) => {
+      const m = this.match;
+      if (!m || m.sim !== sim || m.finished) return;
+      if (this.state.settings.replay === 'off') return;
+      const clip = m.replayRecorder.cut({
+        scorer: e.player,
+        scorerId: e.player ? e.player.id : null,
+        team: e.team,
+        ring: e.ring,
+        points: e.points,
+        type: e.type,
+        gb: e.gb,
+      });
+      if (!clip) return;
+      m.replayDirector.capture(sim);
+      if (m.replayDirector.start(clip, { reducedMotion: this.state.settings.reducedMotion })) {
+        m.replay.show(clip);
+        this.audio.stinger('style');
+      } else m.replayDirector.restore(sim);
+    });
+    bench.attach(sim);
+    // Replay skip: any key or any tap. One-shot, so holding a key through the cut doesn't skip
+    // the replay that starts a moment later.
+    this._replayTap = false;
+    const tapToSkip = () => { this._replayTap = true; };
+    wrap.addEventListener('pointerdown', tapToSkip, { passive: true });
+    this._replayTapOff = () => wrap.removeEventListener('pointerdown', tapToSkip);
     // On-screen controls for touch devices (and anyone who forces them on in Settings).
     if (this.touchEnabled()) {
       this.match.touchControls = new TouchControls(wrap, this.input, { onPause: () => this.pause(), settings: this.state.settings });
@@ -235,8 +298,8 @@ class App {
           ? 'WATCHING'
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
-          ? `${this.state.settings.touchLayout === 'left' ? 'RIGHT' : 'LEFT'} STICK move · SHOOT hold, release in the PERFECT window · TURBO to burn meters`
-          : 'WASD move & aim · SHIFT turbo · J shoot · K pass/call · L slide tackle · I hit · U breach · E gamebreaker · Q switch · C ball cam · 1-3/7-9 plays',
+          ? `${this.state.settings.touchLayout === 'left' ? 'RIGHT' : 'LEFT'} STICK move & aim the pass · BURST sprint · JUKE + stick flick to dodge · SHOOT hold & release (lit = GAMEBREAKER) · PASS · GK takes the cage`
+          : 'WASD move & aim (aim the pass lead) · SHIFT burst · J shoot (E = gamebreaker) · K pass/call · L juke/slide tackle · I hit · U breach/dive · Q switch · V take the cage · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim, renderer);
     if (this.audio.unlocked) {
@@ -245,6 +308,27 @@ class App {
       this.audio.whistle();
     }
     setTimeout(() => wrap.querySelector('.tip-overlay')?.classList.add('out'), 1800);
+    this.accum = 0;
+    this.lastT = performance.now();
+  }
+
+  /** Did the player ask to skip the replay? Any key or any tap, one-shot. */
+  replaySkipPressed() {
+    const tap = this._replayTap;
+    const key = this.input.pressed && this.input.pressed.size > 0;
+    this._replayTap = false;
+    return !!(tap || key);
+  }
+
+  /** Hand the pool back: restore every value the replay moved, drop the letterbox, resume. */
+  endReplay(m) {
+    m.replayDirector.restore(m.sim);
+    m.replay.hide();
+    m.renderer.gameCam.clearReplay();
+    m.replayRecorder.reset();
+    // The dead-ball timer kept running while the clip played, so hand the pool back a little
+    // more room to breathe before the restart — no one wants the whistle the instant you cut in.
+    if (m.sim.state === 'dead') m.sim.stateTimer = Math.max(m.sim.stateTimer, 1.1);
     this.accum = 0;
     this.lastT = performance.now();
   }
@@ -268,9 +352,9 @@ class App {
       a.crowdSwell(gb ? 1.5 : 1.1);
       if (gb) a.stinger('gb');
     });
-    ev.on('save', ({ big }) => {
+    ev.on('save', ({ big, dived }) => {
       a.blockHit();
-      a.crowdSwell(big ? 1.1 : 0.6);
+      a.crowdSwell(dived ? 1.3 : big ? 1.1 : 0.6);
     });
     ev.on('shot', ({ gb }) => a.whoosh(gb ? 0.7 : 1.1));
     ev.on('pass', ({ alley }) => a.whoosh(alley ? 0.8 : 1.4));
@@ -313,6 +397,36 @@ class App {
     ev.on('turnover', () => a.whistle());
     ev.on('violation', () => a.whistle());
     ev.on('shotclock', () => a.buzzer());
+    // Discipline has its own sound language: the whistle stops everything, a booking is a short
+    // sting over a groan, and a red card is the loudest thing in the pool. Subs are a soft blip
+    // so a coach's change never masks live action.
+    ev.on('foul', ({ red }) => {
+      a.whistle();
+      if (!red) {
+        a.stinger('style');
+        a.crowdGroan();
+      }
+    });
+    ev.on('card', ({ red }) => {
+      if (red) {
+        a.buzzer();
+        a.stinger('big');
+        a.crowdSwell(1.6);
+      } else a.crowdGroan();
+    });
+    ev.on('sub', () => a.uiConfirm());
+    // Taking the cage is its own sound: a low confirm going in, and a whoosh as the keeper dives.
+    ev.on('cage', ({ on }) => {
+      if (on) {
+        a.uiConfirm();
+        a.crowdGroan();
+      } else a.uiMove();
+    });
+    ev.on('keeperdive', () => a.whoosh(1.3));
+    ev.on('leadpass', ({ big }) => {
+      a.whoosh(0.9);
+      if (big) a.stinger('style');
+    });
     ev.on('horn', () => a.buzzer());
     ev.on('halftime', () => a.crowdSwell(0.8));
     ev.on('overtime', () => a.stinger('gb'));
@@ -401,23 +515,24 @@ class App {
 
   endMatch() {
     clearTimeout(this.finishTimer);
+    // Both overlays live inside the match wrapper and are removed with it, but leaving stale
+    // references here made the NEXT match's pause menu swallow its first ESC: the key handler
+    // found a "settings overlay", removed the detached element and returned instead of resuming.
+    this.overlay = null;
+    this.settingsOverlay = null;
+    this._replayTapOff?.();
+    this._replayTapOff = null;
     if (!this.match) return;
     this.match.touchControls?.dispose();
-    this.persistBallCam();
+    this.match.bench?.dispose();
+    this.match.replay?.dispose();
+    this.match.montage?.dispose();
+    this.match.replayDirector?.dispose();
     this.match.renderer.dispose();
     this.match.wrap.remove();
     this.match = null;
-    this.overlay = null;
     this.audio.stopCrowd();
     this.audio.resume();
-  }
-
-  /** Persist the in-match ball-cam toggle so the next match and Settings reflect it. */
-  persistBallCam() {
-    if (this.match?.renderer?.gameCam) {
-      this.state.settings.ballCam = this.match.renderer.gameCam.ballCam;
-      saveState(this.state);
-    }
   }
 
   finishMatch() {
@@ -442,12 +557,18 @@ class App {
       if (m.mode === 'career' && this.state.career) {
         const c = this.state.career;
         const before = c.rep;
-          recordResult(c, { won, score: [...sim.score], style: myStyle, margin });
-          const progression = awardPlayerProgress(c, { won, style: myStyle, margin });
-          c.lastUnlocks = progression.unlocked;
+        const venue = m.careerFixture && m.careerFixture.atHome ? 'HOME' : 'AWAY';
+        recordResult(c, { won, score: [...sim.score], style: myStyle, margin });
+        const progression = awardPlayerProgress(c, { won, style: myStyle, margin });
+        c.lastUnlocks = progression.unlocked;
+        // Knock-on effects for the next fixture: injuries bite, form swings.
+        const hurt = rollInjuries(c, sim, m.userTeam);
+        const bits = [`+${c.rep - before} REP`, careerTitle(c)];
+        if (progression.unlocked.length) bits.push(progression.unlocked.join(' + '));
+        if (hurt.length) bits.push(`OUT: ${hurt.map((i) => `${i.nick}${i.matches > 1 ? ` (${i.matches})` : ''}`).join(', ')}`);
         careerResult = won
-          ? `+${c.rep - before} REP · ${careerTitle(c)}${c.complete ? ' · YOU BEAT EVERY CREW. LEGEND DIFFICULTY UNLOCKED.' : ` · NEXT: ${currentOpponent(c).city.toUpperCase()}`}`
-          : `+${c.rep - before} REP · Run it back to move up the ladder.`;
+          ? `${venue} · ${bits.join(' · ')}${c.complete ? ' · YOU BEAT EVERY CREW. LEGEND DIFFICULTY UNLOCKED.' : ` · NEXT: ${currentOpponent(c).city.toUpperCase()}`}`
+          : `${venue} · ${bits.join(' · ')} · Run it back to move up the ladder.`;
         if (c.complete) this.state.unlocked.legendMode = true;
       }
       this.save();
@@ -455,13 +576,11 @@ class App {
     this.finishTimer = setTimeout(() => {
       if (!this.match) return;
       const params = { sim, mode: m.mode, userTeam: m.userTeam, careerResult };
-      this.match.touchControls?.dispose();
-      // A natural game end never goes through endMatch, so persist the toggle here too.
-      this.persistBallCam();
-      this.match.renderer.dispose();
-      this.match.wrap.remove();
-      this.match = null;
-      this.audio.stopCrowd();
+      // A natural game end used to dispose the match inline, which skipped the overlay bookkeeping
+      // endMatch() does — so a settings overlay open at the final whistle stayed referenced and
+      // made the next match's pause menu swallow its first ESC. Route it through endMatch so there
+      // is exactly one teardown path.
+      this.endMatch();
       this.go('results', params);
     }, 3200);
   }
@@ -495,16 +614,59 @@ class App {
         return;
       }
       const input = this.input.poll();
-      // Latch the ball-cam edge before the fixed-step loop zeroes the one-shots; it is consumed
-      // below only once a step has actually run, so no-step frames can't double-fire the toggle.
-      const ballCamEdge = input.ballCamToggle;
+      // Halftime montage: runs over the frozen pool, dismissed by a tap or a key, and always
+      // closes itself before the second half starts so it can never sit on top of live play.
+      if (m.montage.shown) {
+        m.montage.tick(dt);
+        if (this.replaySkipPressed()) m.montage.dismiss();
+        m.bench?.close();
+        m.renderer.update(dt);
+        m.hud.update();
+        m.renderer.render();
+        if (m.sim.state === 'live') m.montage.hide();
+        return;
+      }
+      // A goal replay owns the frame: the sim is frozen (the ball is dead anyway) and the recorded
+      // pose is driven straight onto the entities, so the character rig and ball mesh replay the
+      // move for free. Any tap or key skips straight back to live.
+      const replaying = m.replayDirector.playing;
+      if (replaying) {
+        if (this.replaySkipPressed()) this.endReplay(m);
+        else {
+          m.replayDirector.pose(m.sim);
+          const ball = m.replayDirector.ballAt();
+          const focus = m.sim.players.find((p) => p.id === m.replayDirector.clip.scorerId) || null;
+          const prog = m.replayDirector.progress;
+          m.replay.progress(prog);
+          m.renderer.gameCam.replayShot(m.sim, ball, prog, focus, m.replayDirector.clip.team, dt);
+          m.renderer.update(dt, true);
+          m.hud.update();
+          m.renderer.render();
+          m.replayDirector.advance(dt);
+          if (!m.replayDirector.playing) this.endReplay(m);
+        }
+        return;
+      }
       if (m.userTeam !== null) m.sim.setUserInput(input);
+      // Bench hotkeys: T opens the panel; while it is open 1-4 make a change. Handled here rather
+      // than in InputManager because they are UI navigation, not simulation input — and they must
+      // not reach the sim at all, or a sub keypress would also fire a play call.
+      if (m.bench) {
+        if (m.bench.open) {
+          for (const code of ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'KeyT', 'Escape']) {
+            if (this.input.justPressed(code)) m.bench.handleKey(code);
+          }
+        } else if (this.input.justPressed('KeyT') && m.sim.state !== 'live') {
+          m.bench.show();
+        }
+      }
       // Fixed-step simulation
       this.accum += dt;
       const step = PHYS.fixedDt;
       let n = 0;
       while (this.accum >= step && n < 5) {
         m.sim.step(step);
+        m.replayRecorder.record(m.sim, step);
         this.accum -= step;
         n++;
         // One-shot inputs only apply for one sim step.
@@ -516,23 +678,18 @@ class App {
         input.breach = false;
         input.switchPlayer = false;
         input.gamebreaker = false;
-        input.ballCamToggle = false;
+        input.cage = false;
         input.playcall = 0;
       }
       // Only release latched edges once a step has actually consumed them, otherwise a tap that
       // lands on a frame with no fixed step (120 Hz displays) is silently dropped.
       if (n > 0) this.input.flushOneShots();
-      // BALL CAM toggle (C / RS click / touch CAM): flips the player cam between hard-locking
-      // the ball and looking where the swimmer is headed. Popup feedback so the swap reads.
-      if (ballCamEdge && n > 0 && m.renderer.gameCam && m.sim.controlled) {
-        const on = m.renderer.gameCam.toggleBallCam();
-        m.hud.popup(on ? 'BALL CAM' : 'PLAYER CAM', on ? 'LOCKED ON' : 'LOOK AHEAD', m.sim.controlled.team, false, 0);
-      }
-      // Light up the Gamebreaker button as soon as the controlled side's meter is full, and keep
-      // the contextual primary button pointed at whatever the controlled swimmer should do now.
+      // Light up the SHOOT anchor as soon as the controlled side's meter is full, and keep the
+      // contextual primary button pointed at whatever the controlled swimmer should do now.
       if (m.touchControls && m.userTeam !== null) {
         m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
         m.touchControls.setContext(touchContext(m.sim));
+        m.touchControls.setCage(!m.sim.inCage && m.sim.keeperSwitchCd <= 0 && m.sim.cageAvailable(), m.sim.inCage);
       }
       // Swim stroke sound for the controlled / carrying swimmer
       const swimmer = m.sim.controlled || m.sim.ball.holder;
@@ -545,6 +702,10 @@ class App {
       }
       m.renderer.update(dt);
       m.hud.update();
+      // Bench panel: opens itself at a stoppage (foul, goal reset, the break) so the change can be
+      // made while the ball is dead, and never covers live play.
+      if (m.bench && m.sim.subWindow > 0 && m.sim.state !== 'live' && m.sim.userTeam !== null) m.bench.show();
+      else if (m.bench && m.bench.open && m.sim.state === 'live') m.bench.close();
       m.renderer.render();
       this.audio.setCrowdLevel(m.renderer.crowdEnergy);
       if (m.sim.state === 'over' && !m.finished) this.finishMatch();

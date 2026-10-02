@@ -7,37 +7,60 @@
  */
 
 export const ARENA = {
-  sphereRadius: 24, // inner wall of the water sphere (visual + far ball bound)
-  fieldRadius: 13, // playable circle for players
-  ballRadius: 13.4, // ball reflects off the "current" here
-  goalX: 11.6, // goal plane |x|
+  // Scale-up: the pool was tuned too tight for 7-a-side — play collapsed into a scrum around the
+  // ball. ~1.32x the arena (13 -> 17.2 field radius) with player speed up only ~9% stretches the
+  // game back out: more time on the ball, real lanes to pass through, defence has to travel.
+  sphereRadius: 31.6, // inner wall of the water sphere (visual + far ball bound)
+  fieldRadius: 17.2, // playable circle for players
+  ballRadius: 17.7, // ball reflects off the "current" here
+  goalX: 15.3, // goal plane |x|
   goalY: 1.1, // goal centre height (body-centre height of a swimmer at rest)
   goalRadius: 1.7, // hoop radius
   postRadius: 0.16,
-  playerMaxX: 11.3, // outfield swimmers cannot enter the goal
-  keeperMinX: 9.4, // keeper box inner edge (|x| >= this)
-  keeperMaxX: 11.1,
-  keeperMaxZ: 1.9,
-  creaseRadius: 4.2, // holographic crease arc radius around each goal
-  centerCircle: 3.0,
-  ceilingY: 3.4, // ball vertical bounds
-  floorY: -1.7,
-  playerMinY: -1.5, // how deep a free-swimming outfield player can dive before buoyancy floats them home
-  playerMaxY: 2.4, // …and how high they can rise (breaches still launch further on their own arc)
-  keeperMinY: -1.1,
-  keeperMaxY: 1.7,
+  playerMaxX: 14.9, // outfield swimmers cannot enter the goal
+  keeperMinX: 12.4, // keeper box inner edge (|x| >= this)
+  keeperMaxX: 14.6,
+  keeperMaxZ: 2.4,
+  creaseRadius: 5.4, // holographic crease arc radius around each goal
+  centerCircle: 3.8,
+  // The touchdown zone: THREE rings in a triangle at each goal plane. The top ring is worth 3,
+  // the two low rings are worth 1 — so the high look pays double-double but the window is small.
+  zone: {
+    ringRadius: 0.95,
+    topY: 2.85, // top ring centre height
+    lowY: 0.35, // low rings centre height
+    lowSpread: 1.35, // lateral (z) offset of the low rings
+    // Index 0 = top (orange, 3 pts), 1 = blue low (1 pt), 2 = white low (1 pt).
+    rings: [
+      { pts: 3, css: '#ff8a3d', name: 'TOP RING' },
+      { pts: 1, css: '#3bb3ff', name: 'BLUE RING' },
+      { pts: 1, css: '#f5f0e6', name: 'WHITE RING' },
+    ],
+  },
+  ceilingY: 5.2, // ball vertical bounds (clears the top ring)
+  floorY: -2.1,
+  playerMinY: -1.9, // how deep a free-swimming outfield player can dive before buoyancy floats them home
+  playerMaxY: 3.1, // …and how high they can rise (breaches still launch further on their own arc)
+  keeperMinY: -1.4,
+  keeperMaxY: 3.1, // the keeper has to be able to climb to contest the top ring
 };
 
 export const RULES = {
   halfLength: 150, // game seconds per half
   halves: 2,
-  mercyLead: 8,
-  possessionClock: 20, // shoot within this many seconds of gaining possession
+  mercyLead: 12,
+  possessionClock: 24, // shoot within this many seconds of gaining possession (bigger field)
   keeperHold: 4, // keeper must release within this
-  goalPoints: 1,
-  gbPoints: 2,
-  gbSteal: 1,
-  gamebreakerMeterMax: 4500, // ~1 GB per team per match (was 3000 ≈ 1.8, spammy)
+  goalPoints: 1, // a low ring (blue / white)
+  topRingPoints: 3, // the top ring of the triangle
+  gbPoints: 4,
+  gbSteal: 2,
+  // Pre-match presentation: teams swim an intro lap in their half, the ref brings the captains
+  // to centre, then the tip-off race decides first possession. The clock does not tick.
+  warmupDuration: 7,
+  tipoffHold: 1.2, // ref holds the ball at centre before the whistle
+  tipoffRace: 3.0, // captains race for the dropped ball; fallback decides if it stalls
+  gamebreakerMeterMax: 6800, // 7-a-side: 14 swimmers feed style, so the bar is bigger (~1 GB/team/match)
   onFireGoals: 2, // consecutive goals to catch fire
   flowCombo: 3, // style combo that triggers FLOW (Blue Lock hero window)
   flowDuration: 10, // seconds of FLOW once triggered
@@ -48,6 +71,28 @@ export const RULES = {
   goalDeadTime: 2.6,
   halftimeDuration: 3.2,
   overtimeFatigueAfter: 120, // OT seconds after which keepers tire (guarantees a golden goal)
+  // Fouls. Underwater contact is legal only so far: a squared-up big hit above the severity
+  // threshold is a whistle. The victim's crew keeps the ball (a free-swim), the offender eats a
+  // card, and the second offence sends them to the bench for the rest of the match. Turns contact
+  // from "hit harder and nothing happens" into a real risk/reward dial.
+  // Impact tops out at 1.0 for a dead-on hit, so only the cleanest big hits reach the threshold,
+  // and even those are only called some of the time. Hitting a swimmer who is already down is
+  // always one. Tackles never foul — violence lives on the big-hit button.
+  foulThreshold: 0.88,
+  foulCallChance: 0.5, // chance a clean enough hit is actually whistled
+  foulFreeSwim: true, // the fouled side keeps possession, placed at the spot
+  cardThreshold: 2, // offences before a swimmer is sent off
+  redMinSeverity: 1.15, // a genuinely ugly one is an instant red regardless of the count
+  sentOffDuration: 9999, // a red card is permanent for the match
+  // Substitutions: five in the water, four on the bench. Coaches get four changes, made at a
+  // stoppage or queued for the next whistle. A forced replacement (red card) doesn't count.
+  subsPerTeam: 4,
+  // Taking the cage: the player may hand control to their own keeper from any outfield swimmer.
+  // It costs the outfield swimmer (who goes back on AI) and the keeper is slower to turn, so it
+  // is a read on the play rather than a free upgrade — but inside the box you own the shot.
+  keeperSwitchCooldown: 0.8,
+  subDuration: 1.2, // seconds the incoming swimmer waits at the touch wall
+  subWindow: 2.6, // seconds the bench panel stays open at a stoppage
 };
 
 export const PHYS = {
@@ -64,14 +109,23 @@ export const PHYS = {
 export const MOVE = {
   accel: 17,
   decel: 8.5,
-  maxSpeed: 5.4,
-  turboMult: 1.45,
+  maxSpeed: 5.9, // raised with the arena scale-up (was 5.4): travel without deadening the pace
+  turboMult: 1.5,
   turboDrain: 30, // per second while turbo swimming
   turboRegen: 13,
   turboMin: 6,
-  carrierMult: 0.95,
-  keeperSpeed: 6.0,
-  keeperDiveSpeed: 7.5,
+  carrierMult: 0.96,
+  keeperSpeed: 6.4, // keeper must still cover a scaled box
+  keeperDiveSpeed: 7.9,
+  // Committed keeper dive. Taking the cage is a real choice, and the only verb you get in it is
+  // the dive: a fast lateral lunge inside the box that buys reach and save probability for a
+  // moment. It costs body (stamina), has a cooldown, and a mistimed one leaves you out of the
+  // play — so the skill is reading the shooter, not mashing it.
+  keeperDiveWindow: 0.5, // seconds the dive stays live
+  keeperDiveLateral: 15.5, // lateral lunge speed while diving (m/s)
+  keeperDiveCooldown: 1.0,
+  keeperDiveStamina: 5.5,
+  keeperDiveCommit: 0.22, // how long the lunge actually accelerates before you recover
   breachVel: 5.6,
   breachCooldown: 0.45,
   swimVertical: 2.8, // free-swim rise/dive speed (m/s)
@@ -80,6 +134,21 @@ export const MOVE = {
   verticalHome: 5, // buoyancy: rate a swimmer eases back to the playing plane
   fallenDuration: 1.15,
   stumbleDuration: 0.85,
+  reelDuration: 0.55, // soft knockdown: staggered but back on their feet fast
+  // Stamina. A separate meter from turbo: turbo is the burst button, stamina is the body.
+  // Cruising is nearly free (the sport is meant to be played continuously), sprinting is what
+  // costs, and committed contact costs more than everything. `end` scales all of it, so a
+  // high-endurance player can grind a whole half and a sprinter needs rotating.
+  staminaMax: 100,
+  staminaSprintDrain: 2.4, // per second under turbo
+  staminaSwimDrain: 0.25, // per second cruising — deliberately gentle
+  staminaContactDrain: { tackle: 3.5, wash: 1.6, bigHit: 6.5, trick: 4.5, breach: 2.5, fall: 3 },
+  staminaRegen: 4.2, // per second, scaled down by how hard you are swimming
+  staminaRegenFloor: 0.35, // effort (0-1) at which regen stops entirely
+  staminaGassedSpeed: 0.82, // max-speed multiplier at an empty tank (floored, never a statue)
+  staminaGassedTurbo: 0.12, // turbo regen bleed while gassed
+  moveTurboCost: 22, // turbo burned by a turbo signature move
+  moveCommitBase: 0.3, // baseline off-balance window after any signature move
   separation: 0.72,
 };
 
@@ -91,7 +160,7 @@ export const ACTION = {
   perfectHi: 0.86,
   goodLo: 0.45,
   goodHi: 0.97,
-  shotMaxRange: 14,
+  shotMaxRange: 17, // scaled with the arena (was 14) — long shots open up
   passSpeed: 15,
   lobSpeed: 9.5,
   lobHeight: 1.75,
@@ -104,13 +173,26 @@ export const ACTION = {
   trickDuration: 0.45,
   trickCooldown: 0.5,
   washRange: 1.9,
-  volleyRange: 7.5,
+  volleyRange: 9.5, // scaled with the arena (was 7.5)
   pickupRadius: 1.15,
   keeperPickupRadius: 1.6,
   keeperReach: 1.0,
+  keeperDiveReach: 0.9, // extra save reach while a dive is live
+  keeperDiveSave: 0.16, // extra save probability while a dive is live (and aimed the right way)
+  keeperDiveWrongSide: 0.1, // penalty when the dive went the other way — overcommitting is punished
+  // Aiming the pass. The stick no longer picks only WHO you pass to: at the moment of release it
+  // biases WHERE the ball lands, so the lead is a decision. Holding the run pushes the ball in
+  // front of the receiver (a lead pass, worth style, but a defender can read it); holding it
+  // short drops it at their feet (safe, worth nothing).
+  leadAimAhead: 2.6, // metres the aim can push the landing spot down the aimed line
+  leadAimCheck: 1.5, // metres the aim can pull it back to a check pass
+  // What counts as a lead pass when it is caught. Tight on purpose: the receiver must be running,
+  // the ball must genuinely be in front of them, and nobody may be standing in that spot.
+  leadPassMin: 0.85,
+  leadPassOpen: 1.8,
   gbDriveSpeed: 9.5,
   gbDriveTime: 2.2,
-  gbShotRange: 7,
+  gbShotRange: 9, // scaled with the arena (was 7)
   gbSlowmo: 0.42,
   blockRadius: 0.75,
 };
@@ -124,6 +206,9 @@ export const STYLE = {
   block: 150,
   save: 45,
   saveBig: 110,
+  saveDive: 160, // keeper dove into the shot and kept it out
+  leadPass: 34,
+  leadPassBig: 75,
   goal: 120,
   goalLong: 220,
   goalVolley: 260,
@@ -135,6 +220,33 @@ export const STYLE = {
   comboWindow: 2.2,
   comboStep: 0.25,
   comboMax: 2.5,
+};
+
+// Contact. The sim is arcade-first: contact has to read instantly and punish a bad commitment, so
+// impacts carry an angle, an impulse, a hitstop and a recovery that the loser actually feels.
+export const COMBAT = {
+  hitstop: { tackle: 0.05, wash: 0.06, hit: 0.075, bigHit: 0.13 },
+  // Angle of impact. 1.0 is a dead-on hit, a clipped shoulder is ~0.55, catching someone from
+  // behind is the worst case at ~1.35 — so defenders learn to turn their back to the ball.
+  impactFloor: 0.55,
+  impactSpan: 0.45,
+  // Impulse given to the victim, scaled by the hitter's power and the impact angle.
+  pushFallen: 3.6,
+  pushReel: 2.1,
+  // Reeling: a soft knockdown that keeps a defender out of the play for a beat.
+  reelBase: 0.5,
+  reelPerImpact: 0.45,
+  // Dive tackle. This is the "commit harder" dial: you launch yourself, and a whiff costs real time.
+  diveSpeed: 4.8,
+  diveCommit: 0.8,
+  hitWhiff: 0.62,
+  // Big contact drops the pool into slow motion for a beat so the player can see it land.
+  slowmo: 0.3,
+  slowmoScale: 0.35,
+  slowmoImpact: 0.95,
+  // Signature moves shove a defender aside rather than felling them.
+  brushRange: 1.5,
+  brushSpeed: 2.2,
 };
 
 export const DIFFICULTY = {
@@ -179,4 +291,7 @@ export const DIFFICULTY = {
   },
 };
 
-export const ROLES = { FW: 'Striker', MF: 'Midfield', DF: 'Defender', GK: 'Keeper' };
+export const ROLES = { GK: 'KEEPER', FD: 'FIELDER', SH: 'SHOOTER' };
+
+/** Starter shape: 1 keeper + 4 fielders + 2 shooters (the captains) = 7 in the water. */
+export const STARTER_SHAPE = { GK: 1, FD: 4, SH: 2 };

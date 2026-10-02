@@ -2,11 +2,31 @@ import { Vec3, clamp, lerp } from '../core/vec3.js';
 import { ARENA, ACTION, PHYS, RULES, STYLE } from '../data/constants.js';
 
 /**
- * Ball flight physics, goal-crossing, keeper saves, blocks, interceptions and pickups,
+ * Ball flight physics, zone-ring crossing, keeper saves, blocks, interceptions and pickups,
  * extracted from MatchSim. Functions take the sim as their first argument and mutate it
  * exactly as the original class methods did; MatchSim keeps thin delegating methods.
  * No DOM/three.js dependency.
  */
+
+/**
+ * Which touchdown-zone ring contains the point (y, z) on a goal plane?
+ * Returns { ring, points } or null. The three rings sit in a triangle: top ring (3 pts),
+ * blue low (1 pt) and white low (1 pt).
+ */
+export function zoneRingAt(y, z) {
+  const zone = ARENA.zone;
+  const rings = [
+    { i: 0, y: zone.topY, z: 0 },
+    { i: 1, y: zone.lowY, z: -zone.lowSpread },
+    { i: 2, y: zone.lowY, z: zone.lowSpread },
+  ];
+  for (const r of rings) {
+    if (Math.hypot(y - r.y, z - r.z) < zone.ringRadius) {
+      return { ring: r.i, points: zone.rings[r.i].pts };
+    }
+  }
+  return null;
+}
 
 export function releaseLoose(sim, from, velocity) {
     const ball = sim.ball;
@@ -188,6 +208,9 @@ export function updateBall(sim, dt, deadBall) {
             sim.events.emit('catch', {
               player: target,
             });
+            // Grade the pass that just arrived: a ball aimed ahead of the run into space is a lead
+            // pass and pays the passer, whoever threw it.
+            sim.gradePass(flight, target);
           }
         } else {
           ball.flight = {
@@ -533,25 +556,24 @@ export function checkGoalCrossing(sim, previous, current) {
         amount
       );
 
-      const distance =
-        Math.hypot(
-          y - ARENA.goalY,
-          z
-        );
+      // Touchdown zone: the ball must pass through one of the three rings.
+      const hit = zoneRingAt(y, z);
 
-      if (
-        distance <
-        ARENA.goalRadius - 0.08
-      ) {
+      if (hit) {
         sim.ringRattle(team);
+        sim.zoneHit = hit;
         return team;
       }
 
+      // Near-miss on any ring frame: clang off the triangle and stay live.
+      const nearRing = [
+        { y: ARENA.zone.topY, z: 0 },
+        { y: ARENA.zone.lowY, z: -ARENA.zone.lowSpread },
+        { y: ARENA.zone.lowY, z: ARENA.zone.lowSpread },
+      ].some((r) => Math.hypot(y - r.y, z - r.z) < ARENA.zone.ringRadius + ARENA.postRadius + 0.1);
+
       if (
-        distance <
-        ARENA.goalRadius +
-          ARENA.postRadius +
-          0.1
+        nearRing
       ) {
         sim.ball.vel.x *=
           -PHYS.wallRestitution;
@@ -674,7 +696,7 @@ export function checkKeeperSave(sim, ) {
       )
     );
 
-    const reach =
+    let reach =
       ACTION.keeperReach *
       (
         0.8 +
@@ -686,6 +708,19 @@ export function checkKeeperSave(sim, ) {
           ? 0.55
           : 0
       );
+
+    // Committed dive. A live dive buys real reach, and — the whole point of the mechanic — only
+    // helps if it was aimed at the ball. Diving the other way is worse than standing still,
+    // because the keeper's body is committed and the shot has already found the far corner.
+    let diveBonus = 0;
+    let diveWrong = false;
+    if (keeper.diveT > 0) {
+      const side = Math.sign(dz) || 1;
+      const aimed = Math.sign(keeper.diveDir) || 0;
+      diveWrong = aimed !== 0 && aimed !== side;
+      reach += ACTION.keeperDiveReach * (diveWrong ? 0.3 : 1);
+      diveBonus = diveWrong ? -ACTION.keeperDiveWrongSide : ACTION.keeperDiveSave;
+    }
 
     if (
       dz > reach + 0.6 ||
@@ -727,6 +762,8 @@ export function checkKeeperSave(sim, ) {
     probability +=
       (keeper.data.blk / 99) *
       0.15;
+
+    probability += diveBonus;
 
     probability *=
       sim.rubber[keeper.team];
@@ -798,21 +835,29 @@ export function checkKeeperSave(sim, ) {
         distance > reach * 0.6 ||
         ball.vel.length() > 20;
 
+      // A dive that got there is worth more than a save that happened to him — that is the
+      // reward for reading the shooter instead of standing in the lane.
+      const dived = keeper.diveT > 0;
       sim.addStyle(
         keeper,
-        big
-          ? STYLE.saveBig
-          : STYLE.save,
-        big
-          ? 'HUGE SAVE'
-          : 'SAVE',
-        { big }
+        dived
+          ? STYLE.saveDive
+          : big
+            ? STYLE.saveBig
+            : STYLE.save,
+        dived
+          ? 'DIVING SAVE'
+          : big
+            ? 'HUGE SAVE'
+            : 'SAVE',
+        { big, dived }
       );
 
       sim.events.emit('save', {
         keeper,
         shooter: flight.shooter,
         big,
+        dived,
         caught: catches,
       });
 

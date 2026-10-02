@@ -52,16 +52,20 @@ await page.evaluate(() => {
   const app = window.app;
   app.audio.unlock = () => {};
   app.startMatch({ home: app.teams[0], away: app.teams[3], userTeam: 0, mode: 'quick' });
-  // Take the rAF loop out of the picture so this harness owns the simulation.
+  // Take the rAF loop out of the picture so this harness owns the simulation, then skip the
+  // pre-match presentation (warm-up laps + captains' tip-off, ~11s) so the play checks below
+  // exercise live play rather than a pinned formation.
   app.match.paused = true;
   const m = app.match;
+  let guard = 0;
+  while (m.sim.state !== 'live' && guard++ < 60 * 20) m.sim.step(1 / 60);
   for (let i = 0; i < 180; i++) m.sim.step(1 / 60);
 });
 const ui = await page.evaluate(() => ({
   overlay: !!document.querySelector('.match-wrap.touch .touch-ui'),
   buttons: document.querySelectorAll('.touch-ui .touch-btn').length,
   primary: document.querySelectorAll('.touch-ui .touch-primary .touch-btn').length,
-  secondary: document.querySelectorAll('.touch-ui .touch-secondary .touch-btn').length,
+  secondaryRow: !!document.querySelector('.touch-ui .touch-secondary'),
   contextLabel: document.querySelector('.touch-ui .touch-btn[data-action="context"] span')?.textContent || '',
   stick: !!document.querySelector('.touch-ui .touch-stick'),
   vertical: document.querySelectorAll('.touch-ui .touch-vertical .touch-btn').length,
@@ -69,8 +73,8 @@ const ui = await page.evaluate(() => ({
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('4 primary + 5 secondary + 2 depth buttons + stick + pause rendered', ui.buttons === 11 && ui.primary === 4 && ui.secondary === 5 && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
-ok('contextual button defaults to TRICK', ui.contextLabel === 'TRICK', `label=${ui.contextLabel}`);
+ok('4 primary + 2 depth buttons + stick + pause rendered (expert row removed)', ui.buttons === 6 && ui.primary === 4 && ui.secondaryRow === false && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
+ok('contextual button defaults to JUKE', ui.contextLabel === 'JUKE', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
 // ------------------------------------------------------------------- stick
@@ -233,22 +237,8 @@ const buttons = await page.evaluate(() => {
   out.pass = pi.pass === true && sim.ball.holder !== pa;
   out.passDebug = `sim=${sim.state} holder=${sim.ball.holder ? sim.ball.holder.id : 'none'}`;
 
-  // SWAP — off the ball, the switch button hands control to another swimmer
-  ensureLive();
-  const beforeSwap = sim.controlled ? sim.controlled.id : null;
-  tap('switch');
-  const wi = step(1);
-  out.swap = wi.switchPlayer === true && sim.controlled && sim.controlled.id !== beforeSwap;
-  out.swapDebug = `before=${beforeSwap} after=${sim.controlled ? sim.controlled.id : null} sw=${wi.switchPlayer}`;
-
-  // CAM — the ball-cam toggle edge must survive the poll (routes to the game camera)
-  ensureLive();
-  tap('ballcam');
-  const ci = step(1);
-  out.cam = ci.ballCamToggle === true;
-  out.camDebug = `ballCamToggle=${ci.ballCamToggle}`;
-
-  // JUMP (breach) — off the ball, so give possession to a team-mate but keep control on `b`.
+  // JUMP — off the ball with a team-mate carrying, the contextual anchor remaps to JUMP
+  // (breach); the tap must still drive the swimmer's leap.
   ensureLive();
   const b = sim.outfield(0)[1];
   fresh(b);
@@ -258,7 +248,8 @@ const buttons = await page.evaluate(() => {
   sim.controlled = b;
   b.controlled = true;
   b.state = 'idle';
-  tap('breach');
+  app.match.touchControls.setContext({ support: true });
+  tap('context');
   out.breachImmediate = JSON.stringify([...app.input.touch.edges]);
   const bi = step(1);
   out.breachInp = `breach=${bi.breach} trick=${bi.trick} pass=${bi.pass} shoot=${bi.shootPressed} hit=${bi.hit} gb=${bi.gamebreaker} sw=${bi.switchPlayer} rel=${bi.shootReleased}`;
@@ -329,9 +320,7 @@ const buttons = await page.evaluate(() => {
 });
 ok('CONTEXT button fires a trick while carrying', buttons.trick === true, `${buttons.trickDebug} | label=${buttons.ballLabel}`);
 ok('PASS button fires a pass', buttons.pass === true, `${buttons.passDebug} | ${buttons.passInp}`);
-ok('SWAP button switches swimmer', buttons.swap === true, buttons.swapDebug);
-ok('CAM button toggles ball cam edge', buttons.cam === true, buttons.camDebug);
-ok('JUMP button breaches', buttons.breach === true, `${buttons.breachDebug} | immediate=${buttons.breachImmediate} | ${buttons.breachInp}`);
+ok('context JUMP (support) breaches', buttons.breach === true, `${buttons.breachDebug} | immediate=${buttons.breachImmediate} | ${buttons.breachInp}`);
 ok('SHOOT button starts a wind-up', buttons.windup === true, `${buttons.shootDebug} | immediate=${buttons.shootImmediate} | ${buttons.shootInp}`);
 ok('SHOOT button holds (charge)', buttons.held === true);
 ok('SHOOT release fires a shot', buttons.flightKind === 'shot', `kind=${buttons.flightKind}`);
@@ -363,13 +352,20 @@ const gb = await page.evaluate(() => {
   sim.gb[0] = sim.rules.gamebreakerMeterMax;
   sim.gbReady[0] = true;
   window.app.match.touchControls.setGamebreakerReady(!!sim.gbReady[0]);
-  const lit = document.querySelector('.touch-ui .touch-btn[data-action="gamebreaker"]').classList.contains('ready');
+  const shoot = document.querySelector('.touch-ui .touch-btn[data-action="shoot"]');
+  const lit = shoot.classList.contains('gb-ready');
+  const litLabel = shoot.querySelector('span').textContent;
   sim.gbReady[0] = false;
   window.app.match.touchControls.setGamebreakerReady(false);
-  return { lit, unlit: !document.querySelector('.touch-ui .touch-btn[data-action="gamebreaker"]').classList.contains('ready') };
+  return {
+    lit,
+    litLabel,
+    unlit: !shoot.classList.contains('gb-ready'),
+    unlitLabel: shoot.querySelector('span').textContent,
+  };
 });
-ok('GB button lights when the meter is full', gb.lit === true);
-ok('GB button dims when spent', gb.unlit === true);
+ok('SHOOT anchor lights up as GAME BREAKER when the meter is full', gb.lit === true && gb.litLabel === 'GAME BREAKER', gb.litLabel);
+ok('SHOOT anchor returns to SHOOT when spent', gb.unlit === true && gb.unlitLabel === 'SHOOT', gb.unlitLabel);
 
 // ------------------------------------------------- contextual remap + layout
 const adaptive = await page.evaluate(() => {
@@ -384,43 +380,26 @@ const adaptive = await page.evaluate(() => {
     window.app.input.touch.edges.clear();
     return edges;
   };
-  // The expert row reads left-to-right by flex order: `*` marks a prime (hot) slot, `-` an action
-  // the sim ignores in this state. The right-most entry is the slot nearest a right thumb.
-  const row = () =>
-    [...document.querySelectorAll('.touch-secondary .touch-btn')]
-      .sort((a, b) => Number(a.style.order) - Number(b.style.order))
-      .map((b) => `${b.dataset.action}${b.classList.contains('hot') ? '*' : b.classList.contains('idle') ? '-' : ''}`)
-      .join(',');
   tc.setContext({ defending: true });
-  const defense = { label: label(), edges: fire(), row: row() };
+  const defense = { label: label(), edges: fire() };
   tc.setContext({ looseBall: true });
-  const loose = { label: label(), edges: fire(), row: row() };
+  const loose = { label: label(), edges: fire() };
   tc.setContext({ support: true });
-  const support = { label: label(), edges: fire(), row: row() };
+  const support = { label: label(), edges: fire() };
   tc.setContext({ onBall: true });
-  const ball = { label: label(), edges: fire(), row: row() };
+  const ball = { label: label(), edges: fire() };
   const el = document.querySelector('.touch-ui');
   tc.applySettings({ touchLayout: 'left' });
   const leftLayout = el.dataset.layout;
-  const leftRow = row(); // mirrored pad: prime slots move to the near (left) edge for a left thumb
   tc.applySettings({ touchLayout: 'right', touchScale: 9, touchOpacity: 0 });
   const clamped = { scale: el.style.getPropertyValue('--touch-scale'), opacity: el.style.getPropertyValue('--touch-opacity') };
   tc.applySettings({ touchLayout: 'right', touchScale: 1, touchOpacity: 1 });
-  return { defense, loose, support, ball, leftLayout, leftRow, clamped, restored: el.dataset.layout };
+  return { defense, loose, support, ball, leftLayout, clamped, restored: el.dataset.layout };
 });
 ok('context remaps to TACKLE on defense', adaptive.defense.label === 'TACKLE' && adaptive.defense.edges.join() === 'hit', `label=${adaptive.defense.label} edges=${adaptive.defense.edges}`);
 ok('context remaps to JUMP on a loose ball', adaptive.loose.label === 'JUMP' && adaptive.loose.edges.join() === 'breach', `label=${adaptive.loose.label} edges=${adaptive.loose.edges}`);
 ok('context remaps to JUMP when supporting off the ball', adaptive.support.label === 'JUMP' && adaptive.support.edges.join() === 'breach', `label=${adaptive.support.label} edges=${adaptive.support.edges}`);
-ok('context remaps back to TRICK on the ball', adaptive.ball.label === 'TRICK' && adaptive.ball.edges.join() === 'trick', `label=${adaptive.ball.label} edges=${adaptive.ball.edges}`);
-ok(
-  'expert row auto-swaps with the play state',
-  adaptive.ball.row === 'breach-,ballcam,hit*,switch*,gamebreaker*' &&
-    adaptive.defense.row === 'ballcam,gamebreaker-,switch*,breach*,hit*' &&
-    adaptive.loose.row === 'ballcam,gamebreaker-,switch*,hit*,breach*' &&
-    adaptive.support.row === 'gamebreaker-,ballcam,hit*,breach*,switch*',
-  `ball=${adaptive.ball.row} defense=${adaptive.defense.row} loose=${adaptive.loose.row} support=${adaptive.support.row}`,
-);
-ok('left-handed pad mirrors the row so the prime slot is left-most', adaptive.leftRow === 'gamebreaker*,switch*,hit*,ballcam,breach-', adaptive.leftRow);
+ok('context remaps back to JUKE on the ball', adaptive.ball.label === 'JUKE' && adaptive.ball.edges.join() === 'trick', `label=${adaptive.ball.label} edges=${adaptive.ball.edges}`);
 ok('left-handed layout applies', adaptive.leftLayout === 'left' && adaptive.restored === 'right');
 ok('touch size / opacity settings clamp', adaptive.clamped.scale === '1.3' && adaptive.clamped.opacity === '0.4', JSON.stringify(adaptive.clamped));
 
@@ -506,7 +485,7 @@ ok('all touch buttons stay on screen', geom.outside.length === 0, geom.outside.j
 ok('SHOOT is the largest button, anchored bottom-right', geom.shootIsLargest && geom.shootInCorner);
 const ringSpread = Math.max(...geom.ringDist) - Math.min(...geom.ringDist);
 const ringGap = Math.min(...geom.ringDist) / (geom.shootR + geom.ringR);
-ok('PASS / TRICK / TURBO ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join(',')}`);
+ok('PASS / JUKE / BURST ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join(',')}`);
 ok('the ring sits a clear thumb-width off the anchor', ringGap > 1 && ringGap < 1.2, `${ringGap.toFixed(2)}x the two radii`);
 ok('right-handed: cluster on the right half, stick zone on the left', geom.rightHanded.actionsLeftEdge > geom.vw / 2 && geom.rightHanded.stickLeft === 0, JSON.stringify(geom.rightHanded));
 ok('left-handed: cluster and stick swap sides', geom.mirrored.actionsFromLeft < 20 && geom.mirrored.stickFromRight === 0, JSON.stringify(geom.mirrored));
@@ -601,6 +580,29 @@ await page.evaluate(() => window.app.go('title'));
 await new Promise((r) => setTimeout(r, 300));
 const afterQuit = await page.evaluate(() => ({ touch: !!document.querySelector('.touch-ui'), canvas: !!document.querySelector('canvas'), webgl: !!document.querySelector('canvas') }));
 ok('overlay + canvas removed on quit', !afterQuit.touch && !afterQuit.canvas);
+
+// Regression: a match torn down while the in-match SETTINGS overlay is open (quit to menu, or the
+// final whistle while settings are up) used to leave a stale overlay reference behind, so the NEXT
+// match's pause menu swallowed its first ESC — it "closed" the detached element and returned
+// instead of resuming. Both teardown paths now clear the references.
+const staleOverlay = await page.evaluate(() => {
+  const app = window.app;
+  const open = () => {
+    app.startMatch({ home: app.teams[0], away: app.teams[1], userTeam: 0, mode: 'quick' });
+  };
+  open();
+  app.pause();
+  app.openSettingsOverlay();
+  app.go('title'); // quit with the settings overlay still open
+  open();
+  const pausedByFirst = app.input.onPause() === true && app.match.paused === true;
+  const resumedBySecond = app.input.onPause() === true && app.match.paused === false;
+  const overlayCleared = app.settingsOverlay === null && app.overlay === null;
+  app.go('title');
+  return { pausedByFirst, resumedBySecond, overlayCleared };
+});
+ok('a match torn down with settings open leaves no stale overlay', staleOverlay.overlayCleared === true);
+ok('the next match pause menu still closes on its first ESC', staleOverlay.pausedByFirst && staleOverlay.resumedBySecond, JSON.stringify(staleOverlay));
 
 // ---------------------------------------------------- settings: touch layout
 const settings = await page.evaluate(() => {

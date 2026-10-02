@@ -12,14 +12,15 @@ export const DEFAULT_SETTINGS = {
   commentary: true,
   screenShake: true,
   reducedMotion: false,
-  touchControls: 'auto', // auto | on | off — on-screen stick + buttons
   touchLayout: 'right', // right (stick left, actions right) | left (left-handed mirror)
   touchScale: 1, // 0.8 – 1.3 on-screen button size
   touchOpacity: 1, // 0.4 – 1 on-screen button opacity
-  camera: 'broadcast', // broadcast | firstPerson — career no longer forces first-person
-  cameraAngle: 'corner', // corner (3D three-quarter) | side (classic side-on)
-  playerCam: true, // Rematch-style player-lock third-person camera (broadcast when off)
-  ballCam: true, // player cam mode: true = hard-lock the ball, false = look where you swim
+  replay: 'on', // on | off — goal replay cinematic
+  // Legacy camera keys — the game now uses the Rematch-style shoulder cam only; these are kept
+  // so old saves merge cleanly and are otherwise unused.
+  camera: 'broadcast',
+  playerCam: true,
+  ballCam: true,
 };
 
 export function defaultState() {

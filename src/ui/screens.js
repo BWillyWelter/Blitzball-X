@@ -1,6 +1,23 @@
 import { TEAMS, TEAM_BY_ID, playerOverall, teamOverall, starters } from '../data/teams.js';
+import { moveFor } from '../game/moves.js';
 import { DIFFICULTY } from '../data/constants.js';
-import { currentOpponent, careerTitle } from '../game/career.js';
+import {
+  currentOpponent,
+  careerTitle,
+  careerTeam,
+  fixtureFor,
+  squadCards,
+  squadFor,
+  squadOverall,
+  moraleOf,
+  MORALE_LABELS,
+  rivalryOf,
+} from '../game/career.js';
+import { RecapPanel } from './recap.js';
+// Single source of truth for the build number: the release workflow already refuses to publish a
+// tag that disagrees with this file, and the title screen used to advertise a hardcoded "v1.0"
+// that silently drifted every release.
+import { version } from '../../package.json';
 
 /**
  * DOM screens. Each screen is a function(app) → { el, onNav(navInput), destroy }.
@@ -99,7 +116,7 @@ export function TitleScreen(app) {
           { action: 'settings', label: 'SETTINGS' },
         ])}
       </div>
-      <div class="title-foot"><span>${app.state.records.wins}W – ${app.state.records.losses}L</span><span>BEST STYLE ${app.state.records.styleBest}</span><span>v1.0</span></div>
+      <div class="title-foot"><span>${app.state.records.wins}W – ${app.state.records.losses}L</span><span>BEST STYLE ${app.state.records.styleBest}</span><span>v${version}</span></div>
     </section>`);
   const menu = wireMenu(el, (action) => {
     if (action === 'quick') app.go('teamselect', { mode: 'quick' });
@@ -219,26 +236,47 @@ export function CareerScreen(app) {
   const c = app.state.career;
   const team = TEAM_BY_ID[c.teamId];
   const opp = currentOpponent(c);
+  const fx = fixtureFor(c);
+  const morale = moraleOf(c);
+  const cards = squadCards(c);
+  const fit = cards.filter((x) => x.slot >= 0);
+  const out = cards.filter((x) => x.injured);
+  const rivals = opp ? rivalryOf(c, opp.id) : null;
   const ladder = c.ladder
     .map((id, i) => {
       const t = TEAM_BY_ID[id];
       const st = i < c.stage ? 'done' : i === c.stage ? 'now' : 'locked';
-      return `<li class="ladder-item ${st}" style="--c1:${t.primary};--c3:${t.accent}"><span class="li-n">${i + 1}</span><span class="li-abbr">${t.abbr}</span><span class="li-name">${t.city} ${t.name}</span><span class="li-ovr">OVR ${teamOverall(t)}</span><span class="li-state">${st === 'done' ? 'BEAT' : st === 'now' ? 'NEXT' : ''}</span></li>`;
+      const rv = rivalryOf(c, id);
+      const tag = rv.met ? `<span class="li-rival">${rv.met > 1 ? `RIVAL ${rv.won}-${rv.lost}` : `${rv.won ? 'BEAT' : 'LOST TO'}`}</span>` : '';
+      return `<li class="ladder-item ${st}" style="--c1:${t.primary};--c3:${t.accent}"><span class="li-n">${i + 1}</span><span class="li-abbr">${t.abbr}</span><span class="li-name">${t.city} ${t.name}</span>${tag}<span class="li-ovr">OVR ${teamOverall(t)}</span><span class="li-state">${st === 'done' ? 'BEAT' : st === 'now' ? 'NEXT' : ''}</span></li>`;
     })
+    .join('');
+  const seven = fit
+    .sort((a, b) => a.slot - b.slot)
+    .map((x) => `<span class="sq-chip ${x.you ? 'you' : ''}" style="--c1:${team.primary};--c3:${team.accent}"><b>${x.data.nick}</b><i>${x.data.role}</i></span>`)
+    .join('');
+  // Whoever is carrying a knock is not in the seven, so name them rather than let them vanish.
+  const hurt = out
+    .map((x) => `<span class="sq-chip hurt"><b>${x.data.nick}</b><i>OUT ${c.injuries[x.data.id]}</i></span>`)
     .join('');
   const el = h(`
     <section class="screen career" style="--c1:${team.primary};--c2:${team.secondary};--c3:${team.accent}">
-      <header class="screen-head"><h1>${c.player.name.toUpperCase()}</h1><div class="head-sub">LV ${c.player.level} · ${c.player.archetype} · ${team.city} ${team.name} · ${careerTitle(c)} · XP ${c.player.xp} · ${c.wins}W ${c.losses}L</div></header>
+      <header class="screen-head"><h1>${c.player.name.toUpperCase()}</h1><div class="head-sub">LV ${c.player.level} · ${c.player.archetype} · ${team.city} ${team.name} · ${careerTitle(c)} · XP ${c.player.xp} · ${c.wins}W ${c.losses}L · FORM <b class="form-${morale > 0 ? 'up' : morale < 0 ? 'down' : 'flat'}">${MORALE_LABELS[String(morale)]}</b></div></header>
       <div class="career-body">
         <div class="career-left">
           <div class="career-next">
             <div class="cn-title">${c.player.gear.length ? `GEAR: ${c.player.gear.join(' · ')}` : 'NO GEAR UNLOCKED'}</div>
             <div class="cn-sub">${c.player.items.length ? `SPECIAL ITEMS: ${c.player.items.join(' · ')}` : 'SPECIAL ITEMS: LOCKED'}</div>
-            ${c.complete ? `<div class="cn-title">YOU RUN THIS CITY</div><div class="cn-sub">Every crew beaten. Legend difficulty unlocked.</div>` : `<div class="cn-title">NEXT UP</div>${teamCard(opp, { cls: 'cpu' })}<div class="cn-court">@ ${opp.city.toUpperCase()} · THEIR SPHERE</div>`}
+            ${c.complete ? `<div class="cn-title">YOU RUN THIS CITY</div><div class="cn-sub">Every crew beaten. Legend difficulty unlocked.</div>` : `<div class="cn-title">NEXT UP · ${fx && fx.atHome ? 'HOME WATER' : 'AWAY TRIP'}</div>${teamCard(opp, { cls: 'cpu' })}<div class="cn-court">${fx && fx.atHome ? `${team.city.toUpperCase()} SPHERE · YOUR CAGE` : `@ ${opp.city.toUpperCase()} · THEIR SPHERE`}</div>${rivals && rivals.repeat ? `<div class="cn-rival">RIVALRY · ${rivals.won}–${rivals.lost} OVER ${rivals.met} MEETINGS</div>` : ''}`}
+          </div>
+          <div class="squad-strip">
+            <div class="ss-head">STARTING SEVEN · CREW OVR <b>${squadOverall(c)}</b>${out.length ? ` · <b class="ss-out">${out.length} INJURED</b>` : ''}</div>
+            <div class="ss-chips">${seven}${hurt}</div>
           </div>
           ${menuList([
-            ...(c.complete ? [] : [{ action: 'play', label: 'PLAY NEXT GAME', sub: `${DIFFICULTY[c.difficulty].label} difficulty` }]),
-            { action: 'roster', label: 'MY CREW' },
+            ...(c.complete ? [] : [{ action: 'play', label: 'PLAY NEXT GAME', sub: `${DIFFICULTY[c.difficulty].label} · ${fx && fx.atHome ? 'home' : 'away'}` }]),
+            { action: 'squad', label: 'PICK THE SEVEN', sub: 'Starters, keeper and injuries' },
+            { action: 'roster', label: 'FULL ROSTER' },
             { action: 'abandon', label: 'ABANDON RUN', sub: 'Deletes career progress' },
             { action: 'back', label: 'BACK' },
           ])}
@@ -247,7 +285,8 @@ export function CareerScreen(app) {
       </div>
     </section>`);
   const menu = wireMenu(el, (action) => {
-    if (action === 'play') app.startMatch({ home: opp, away: team, userTeam: 1, mode: 'career' });
+    if (action === 'play') app.startMatch({ mode: 'career' });
+    else if (action === 'squad') app.go('squad');
     else if (action === 'roster') app.go('roster', { teamId: team.id, back: 'career' });
     else if (action === 'abandon') {
       if (confirm('Abandon this run? Progress will be deleted.')) {
@@ -267,6 +306,124 @@ export function CareerScreen(app) {
 }
 
 // ---------------------------------------------------------------------------
+// Squad selection (career)
+// ---------------------------------------------------------------------------
+
+const SLOT_ROLES = ['GK', 'SH', 'SH', 'FD', 'FD', 'FD', 'FD'];
+
+/**
+ * Name the seven. The slot roles are fixed (keeper, two shooters, four fielders) because the sim
+ * reads them, so picking is a swap inside a role: tap a swimmer and he takes the weakest slot his
+ * role owns. Injured swimmers are shown out and cannot be named — that is what the week off is for.
+ */
+export function SquadScreen(app) {
+  const c = app.state.career;
+  const team = careerTeam(c) || TEAM_BY_ID[c.teamId];
+  const cards = squadCards(c);
+  const byId = new Map(cards.map((x) => [x.data.id, x]));
+  let squad = squadFor(c).slice();
+  let idx = 0;
+
+  const cardHtml = (x, i) => {
+    const p = x.data;
+    const slot = squad.indexOf(p.id);
+    const cls = ['squad-card'];
+    if (slot >= 0) cls.push('in');
+    if (x.injured) cls.push('hurt');
+    if (x.you) cls.push('you');
+    if (i === idx) cls.push('sel');
+    return `<button type="button" class="${cls.join(' ')}" data-id="${p.id}"${x.injured ? ' disabled' : ''}>
+      <span class="sc-slot">${slot >= 0 ? SLOT_ROLES[slot] : 'BENCH'}</span>
+      <span class="sc-nick">${p.nick}</span>
+      <span class="sc-name">${p.name}</span>
+      <span class="sc-meta">${p.archetype} · OVR ${playerOverall(p)}</span>
+      ${x.you ? '<span class="sc-tag you-tag">YOU</span>' : ''}
+      ${x.injured ? `<span class="sc-tag hurt-tag">OUT ${c.injuries[p.id]}</span>` : ''}
+    </button>`;
+  };
+
+  const el = h(`
+    <section class="screen squad" style="--c1:${team.primary};--c2:${team.secondary};--c3:${team.accent}">
+      <header class="screen-head"><h1>PICK THE SEVEN</h1><div class="head-sub">${team.city} ${team.name} · CREW OVR <b class="sq-ovr">0</b> · TAP A SWIMMER TO NAME HIM IN HIS SLOT</div></header>
+      <div class="sq-slots"></div>
+      <div class="squad-grid"></div>
+      <footer class="screen-foot">
+        <div class="foot-left"><span class="key">◀ ▶</span> browse <span class="key">ENTER</span> name him <span class="key">ESC</span> back</div>
+        <div class="foot-right"><button class="btn auto-btn">BEST AVAILABLE</button><button class="btn primary play-btn">PLAY NEXT GAME</button></div>
+      </footer>
+    </section>`);
+  const grid = el.querySelector('.squad-grid');
+  const slotsEl = el.querySelector('.sq-slots');
+
+  /** Name `id`: he takes the weakest slot his role owns. False when he cannot be named. */
+  const name = (id) => {
+    const x = byId.get(id);
+    if (!x || x.injured) return false;
+    const role = x.data.role;
+    if (squad.includes(id)) return false;
+    const slots = SLOT_ROLES.map((r, i) => (r === role ? i : -1)).filter((i) => i >= 0);
+    if (!slots.length) return false;
+    // Weakest incumbent of that role — your own swimmer is never the weakest, so he always swims.
+    let target = slots[0];
+    for (const i of slots) {
+      const inc = byId.get(squad[i]);
+      if (inc && inc.you) continue;
+      if (inc && playerOverall(inc.data) > playerOverall(byId.get(squad[target]).data)) continue;
+      target = i;
+    }
+    squad[target] = id;
+    c.squad = squad.slice();
+    app.save();
+    return true;
+  };
+
+  const render = () => {
+    grid.innerHTML = cards.map((x, i) => cardHtml(x, i)).join('');
+    el.querySelector('.sq-ovr').textContent = String(squadOverall({ ...c, squad }));
+    slotsEl.innerHTML = SLOT_ROLES.map((role, i) => {
+      const x = byId.get(squad[i]);
+      if (!x) return `<div class="sq-slot empty"><b>${role}</b><span>—</span></div>`;
+      return `<div class="sq-slot ${x.you ? 'you' : ''}"><b>${role}</b><span>${x.data.nick}</span><i>${playerOverall(x.data)}</i></div>`;
+    }).join('');
+  };
+
+  grid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.squad-card');
+    if (!btn || btn.disabled) return;
+    app.audio[name(btn.dataset.id) ? 'uiConfirm' : 'uiBack']();
+    render();
+  });
+  el.querySelector('.auto-btn').addEventListener('click', () => {
+    squad = squadFor({ ...c, squad: null });
+    c.squad = squad.slice();
+    app.audio.uiConfirm();
+    app.save();
+    render();
+  });
+  el.querySelector('.play-btn').addEventListener('click', () => {
+    app.audio.uiConfirm();
+    app.startMatch({ mode: 'career' });
+  });
+
+  render();
+  return {
+    el,
+    onNav(n) {
+      if (n.left) idx = (idx - 1 + cards.length) % cards.length;
+      if (n.right) idx = (idx + 1) % cards.length;
+      if (n.up) idx = Math.max(0, idx - 4);
+      if (n.down) idx = Math.min(cards.length - 1, idx + 4);
+      if (n.confirm) {
+        app.audio[name(cards[idx].data.id) ? 'uiConfirm' : 'uiBack']();
+        render();
+      }
+      if (n.back) app.go('career');
+      else render();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Roster viewer
 // ---------------------------------------------------------------------------
 
@@ -278,7 +435,7 @@ export function RosterScreen(app, params) {
     <section class="screen roster" style="--c1:${team.primary};--c2:${team.secondary};--c3:${team.accent}">
       <header class="screen-head"><h1>${team.city.toUpperCase()} ${team.name.toUpperCase()}</h1><div class="head-sub">“${team.motto}” · OVR ${teamOverall(team)}</div></header>
       <div class="roster-grid">
-        ${[...starters(team), ...team.roster.filter((p) => !starters(team).includes(p))].map((p, i) => `<div class="pcard-big ${i < 4 ? 'starter' : 'sub'}"><div class="pb-num">#${p.number}</div><div class="pb-nick">${p.nick}</div><div class="pb-name">${p.name}</div><div class="pb-arch">${p.archetype} · OVR ${playerOverall(p)}</div><div class="pb-sig">GB: ${p.signature}</div><div class="pb-stats">${bars(p)}</div></div>`).join('')}
+        ${[...starters(team), ...team.roster.filter((p) => !starters(team).includes(p))].map((p, i) => `<div class="pcard-big ${i < 7 ? 'starter' : 'sub'}"><div class="pb-num">#${p.number}</div><div class="pb-nick">${p.nick}</div><div class="pb-name">${p.name}</div><div class="pb-arch">${p.archetype} · OVR ${playerOverall(p)}</div><div class="pb-sig">MOVE: ${moveFor(p).name}<br>GB: ${p.signature}</div><div class="pb-stats">${bars(p)}</div></div>`).join('')}
       </div>
       <footer class="screen-foot"><button class="btn back-btn">BACK</button></footer>
     </section>`);
@@ -298,18 +455,25 @@ export function HowToScreen(app) {
         <div class="howto-col">
           <h2>RULES</h2>
           <ul>
-            <li><b>3-on-3 plus keepers</b> inside a sphere of water. Two halves of 2:30. Most goals wins; level at full time = <b>golden-goal overtime</b>.</li>
+            <li><b>7-a-side underwater rugby</b> (11-swimmer crews) inside a sphere of water: <b>1 keeper</b> guards the zone, <b>4 fielders</b> move the ball, <b>2 shooters</b> — the <b>captains</b> — score it. On defense, fielders mirror the enemy shooters as stoppers. Two halves of 2:30; level at full time = <b>golden-goal overtime</b>.</li>
+            <li>Every match opens with <b>warm-up laps</b>, then the ref brings both captains to centre for the <b>TIP-OFF</b> — first swimmer to the dropped ball takes possession.</li>
+            <li><b>The touchdown zone is three rings in a triangle.</b> Through the <b>orange TOP RING = 3 points</b>; the <b>blue</b> and <b>white</b> low rings are <b>1 point</b> each. Rise as you release to go top-ring hunting.</li>
             <li><b>20-second possession clock.</b> Shoot before it runs out or the ball goes over.</li>
-            <li><b>Keepers</b> guard the ring and must release the ball within 4 seconds.</li>
-            <li><b>Mercy rule.</b> Go up by 8 in the second half and it's over.</li>
-            <li><b>No refs.</b> Hit people. Wash defenders. Nobody's calling anything.</li>
+            <li><b>Keepers</b> guard the zone and must release the ball within 4 seconds.</li>
+            <li><b>Mercy rule.</b> Go up by 12 in the second half and it's over.</li>
+          </ul>
+          <h2>SIGNATURE MOVES</h2>
+          <ul>
+            <li>Every swimmer owns a move — check the roster screen. With the ball, <b>L</b> plays it.</li>
+            <li>They are not interchangeable. A <b>SPIN</b> only beats a defender staring at you, a <b>BACK-FLIP FEINT</b> punishes one who has already committed, a <b>WAVE CREST</b> knocks anyone in front of you down, and a <b>DOLPHIN KICK</b> or <b>UNDERTOW</b> goes over/under the challenge entirely — you are untackleable while you're off the plane.</li>
+            <li><b>Every move costs you.</b> You land off balance, and the bigger commitments (JET STREAM, WAVE CREST, PIERCER) leave you wide open. Commit or hold your position — both are plays.</li>
           </ul>
           <h2>STYLE &amp; FLOW</h2>
           <ul>
             <li>Dribble past tacklers, land slide tackles, big hits and perfect shots to earn <b>Style</b>.</li>
             <li>Chain moves for a <b>combo multiplier</b>. Turnovers drain it.</li>
             <li>Combo <b>×3</b> while attacking and your striker enters <b>FLOW</b>: ~10 seconds of faster swimming, unpokeable dribbling and far sharper shooting. This is your hero window — use it.</li>
-            <li>Fill the meter and press <b>E</b> (LT+RT) with the ball to unleash a <b>GAMEBREAKER</b>: an unstoppable signature shot worth <b>2 goals that also takes 1 off their score</b>.</li>
+            <li>Fill the meter and press <b>E</b> (or SHOOT — the button lights up) with the ball to unleash a <b>GAMEBREAKER</b>: an unstoppable signature shot through the <b>top ring</b> worth <b>4 points that also takes 2 off their score</b>.</li>
             <li>Two straight goals and your crew is <b>ON FIRE</b>: sharper shooting, harder to tackle.</li>
           </ul>
           <h2>REMATCH-STYLE CONTROL</h2>
@@ -319,7 +483,6 @@ export function HowToScreen(app) {
             <li><b>K</b> passes to whoever you steer toward; off the ball, <b>K calls for the pass</b> — a teammate flags open and the carrier finds you.</li>
             <li><b>L</b> is now a committed <b>slide tackle</b>: bigger lunge, real chance to win the ball, real punishment if you whiff.</li>
             <li><b>Q</b> switches swimmers even while your team carries — take control of the support runner.</li>
-            <li><b>C</b> toggles <b>ball cam</b>: locked onto the ball at all times, or looking where you swim. The camera trims against the arena wall so it never clips the sphere.</li>
           </ul>
         </div>
         <div class="howto-col">
@@ -328,15 +491,15 @@ export function HowToScreen(app) {
             <tr><th></th><th>KEYBOARD</th><th>GAMEPAD</th></tr>
             <tr><td>Swim</td><td>WASD / Arrows</td><td>Left stick</td></tr>
             <tr><td>Rise / dive (free swim)</td><td>R / F</td><td>Right stick ↑ ↓</td></tr>
-            <tr><td>Turbo</td><td>SHIFT</td><td>RT / RB</td></tr>
+            <tr><td>Burst (short underwater sprint)</td><td>SHIFT</td><td>RT / RB</td></tr>
             <tr><td>Shoot (hold to charge, release on PERFECT)</td><td>J / SPACE</td><td>A / ✕</td></tr>
             <tr><td>Pass · Lob for a volley (hold turbo)</td><td>K</td><td>X / ▢</td></tr>
-            <tr><td>Slide / poke tackle</td><td>L</td><td>B / ○</td></tr>
+            <tr><td>Juke / signature move (with the ball)</td><td>L</td><td>B / ○</td></tr>
+            <tr><td>Slide / poke tackle (off-ball)</td><td>L</td><td>B / ○</td></tr>
             <tr><td>Call for the pass (off-ball)</td><td>K</td><td>X / ▢</td></tr>
             <tr><td>Big hit</td><td>I</td><td>Y / △</td></tr>
             <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td></tr>
             <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td></tr>
-            <tr><td>Ball cam / player cam toggle</td><td>C</td><td>R3 (stick click)</td></tr>
             <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td></tr>
             <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td></tr>
             <tr><td>Pause</td><td>ESC</td><td>START</td></tr>
@@ -350,6 +513,7 @@ export function HowToScreen(app) {
           </ul>
           <h2>TIPS</h2>
           <ul>
+            <li>On touch: <b>swipe the stick while holding JUKE</b> to aim a dodge in any direction — flick up to go over the tackle, down to duck under it.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>
@@ -393,19 +557,15 @@ export function SettingsScreen(app, params = {}) {
         ${row('sfxVolume', 'SFX & CROWD', 'range')}
         ${row('quality', 'GRAPHICS', 'select', [['low', 'LOW (no shadows / bloom)'], ['medium', 'MEDIUM'], ['high', 'HIGH']])}
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
-        ${row('camera', 'CAMERA', 'select', [['broadcast', 'BROADCAST (default)'], ['firstPerson', 'FIRST-PERSON SWIM']])}
-        ${row('playerCam', 'PLAYER LOCK CAM', 'toggle')}
-        ${row('ballCam', 'BALL CAM (player cam mode)', 'toggle')}
-        ${row('cameraAngle', 'BROADCAST ANGLE', 'select', [['corner', 'CORNER (3D depth)'], ['side', 'SIDE (classic)']])}
         ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('reducedMotion', 'REDUCED MOTION', 'toggle')}
+        ${row('replay', 'GOAL REPLAY', 'select', [['on', 'ON'], ['off', 'OFF']])}
         ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}
         ${row('touchLayout', 'PAD PRESET', 'pick', [['right', 'RIGHT-HAND'], ['left', 'LEFT-HAND']])}
         ${row('touchScale', 'PAD SIZE', 'range', { min: 0.8, max: 1.3, step: 0.05 })}
         ${row('touchOpacity', 'PAD OPACITY', 'range', { min: 0.4, max: 1, step: 0.05 })}
-        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. The expert row re-ranks itself as the play changes.</div>
-        <div class="set-note">BALL CAM is also toggled in-match with <b>C</b> (gamepad R3 / touch CAM button).</div>
+        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. The contextual button re-maps itself as the play changes (JUKE / TACKLE / JUMP).</div>
       </div>
       <div class="set-actions"><button class="btn danger reset-btn">RESET ALL DATA</button><button class="btn back-btn">BACK</button></div>
     </section>`);
@@ -436,9 +596,6 @@ export function SettingsScreen(app, params = {}) {
         if (key !== 'musicVolume') app.audio.uiMove();
       } else if (input.type === 'checkbox') {
         s[key] = input.checked;
-        // Live-apply the ball-cam toggle to an in-progress match so the change is felt
-        // immediately and the camera's persisted value at match end can't clobber this setting.
-        if (key === 'ballCam' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.ballCam = input.checked;
         if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
         if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
       } else s[key] = input.value;
@@ -478,6 +635,7 @@ export function ResultsScreen(app, params) {
         <div class="res-sub">${sim.teams[sim.winner].city.toUpperCase()} ${sim.teams[sim.winner].name.toUpperCase()} WIN${sim.overtime ? ' IN OVERTIME' : ''} · MATCH MVP: ${mvp.data.nick} (${mvp.stats.goals} G · ${mvp.stats.style} STYLE)</div>
         ${careerResult ? `<div class="res-career">${careerResult}</div>` : ''}
       </div>
+      ${RecapPanel(sim)}
       <div class="res-tables">
         ${[0, 1].map((t) => `<table class="box" style="--c1:${sim.teams[t].primary};--c3:${sim.teams[t].accent}"><thead><tr><th class="r-name">${sim.teams[t].city.toUpperCase()} ${sim.teams[t].name.toUpperCase()}</th><th>G</th><th>SOG/SH</th><th>AST</th><th>TKL</th><th>HIT</th><th>BLK</th><th>SAV</th><th>WSH</th><th>STYLE</th></tr></thead><tbody>${rows(t)}</tbody></table>`).join('')}
       </div>
@@ -506,6 +664,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
         <div class="pause-title">PAUSED</div>
         ${menuList([
           { action: 'resume', label: 'RESUME' },
+          { action: 'bench', label: 'BENCH', sub: 'Substitutions' },
           { action: 'controls', label: 'CONTROLS' },
           { action: 'settings', label: 'SETTINGS' },
           ...(onRestart ? [{ action: 'restart', label: 'RESTART MATCH' }] : []),
@@ -513,7 +672,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
         ])}
         <div class="pause-controls hidden">
           <div><b>WASD</b> swim · <b>SHIFT</b> turbo · <b>J/SPACE</b> shoot (hold, release on PERFECT) · <b>K</b> pass (<b>+SHIFT</b> lob for a volley)</div>
-          <div><b>L</b> trick / tackle · <b>I</b> big hit · <b>U</b> breach / block · <b>Q</b> switch · <b>C</b> ball cam · <b>E</b> Gamebreaker</div>
+          <div><b>L</b> trick / tackle · <b>I</b> big hit · <b>U</b> breach / block · <b>Q</b> switch · <b>E</b> Gamebreaker</div>
         </div>
       </div>
     </div>`);
@@ -521,6 +680,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
     if (action === 'resume') onResume();
     else if (action === 'quit') onQuit();
     else if (action === 'restart') onRestart();
+    else if (action === 'bench') app.match?.bench?.toggle();
     else if (action === 'controls') el.querySelector('.pause-controls').classList.toggle('hidden');
     else if (action === 'settings') app.openSettingsOverlay();
   }, app);

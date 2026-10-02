@@ -1,6 +1,19 @@
 import * as THREE from 'three';
 import { makeCanvas, canvasTexture } from './materials.js';
 
+/** The frame length the decay factors below were tuned against (60 fps). */
+const REF_DT = 1 / 60;
+
+/**
+ * Turn a per-frame multiplier authored at the 60 fps reference into the equivalent multiplier for
+ * a frame of `dt` seconds. `frameDecay(d, REF_DT) === d`, so 60 fps play is unchanged, while a
+ * 120 Hz display no longer decays twice as fast (nor a 30 fps one half as fast). Multiplying these
+ * per frame composes exactly, so particle motion matches at any step size for the same elapsed time.
+ */
+export function frameDecay(perFrame, dt) {
+  return Math.pow(perFrame, dt / REF_DT);
+}
+
 /**
  * Lightweight particle / decal effects: dust puffs, impact bursts, ball trail,
  * shockwave rings, confetti for gamebreakers. (FX layer.)
@@ -194,16 +207,18 @@ export class FXSystem {
     this.rings.push({ mesh: m, life, maxLife: life, maxScale });
   }
 
-  updateTrail(ballPos, active, color) {
+  updateTrail(ballPos, active, color, dt = REF_DT) {
     const m = this.trail.material;
     if (color) this.trailColor.set(color);
+    // The ribbon fade is a rate too: the old per-frame factors made a high-refresh display dim the
+    // trail faster. frameDecay keeps the fade identical at 60 fps and proportional elsewhere.
     if (active) {
       this.trailHistory.push([ballPos.x, ballPos.y, ballPos.z]);
       if (this.trailHistory.length > this.trailN) this.trailHistory.shift();
-      m.opacity += (0.95 - m.opacity) * 0.3;
+      m.opacity += (0.95 - m.opacity) * (1 - frameDecay(0.7, dt));
     } else {
       if (this.trailHistory.length) this.trailHistory.shift();
-      m.opacity *= 0.85;
+      m.opacity *= frameDecay(0.85, dt);
     }
     // Rebuild the ribbon: vertex pairs straddle the trail path, pushed onto the plane facing the
     // camera; width and brightness taper to nothing toward the tail.
@@ -275,8 +290,11 @@ export class FXSystem {
         continue;
       }
       p.vy += p.gravity * dt;
-      p.vx *= p.drag;
-      p.vz *= p.drag;
+      // Drag is authored as a per-60-fps-frame multiplier; apply it as a rate over the real frame
+      // time instead of once per rendered frame, so motion no longer speeds up with frame rate.
+      const decay = frameDecay(p.drag, dt);
+      p.vx *= decay;
+      p.vz *= decay;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;

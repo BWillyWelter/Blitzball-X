@@ -211,28 +211,33 @@ export function fireShot(
       0.85
     );
 
-    const spread =
-      ARENA.goalRadius * 0.8;
+    // Which ring is this shot going for? The user steers laterally with the stick (aim) and
+    // vertically with swim depth at release (aiming high at the 3-ring, low at the 1-rings);
+    // the CPU picks its ring from its shot rating and the keeper's position.
+    const zone = ARENA.zone;
 
     let aimZ =
       side *
-      spread *
+      zone.lowSpread *
       (
         0.45 +
         sim.rng.next() * 0.55
       );
 
     if (steer !== 0) {
-      aimZ = steer * spread;
+      aimZ = steer * zone.lowSpread * 1.15;
     }
 
     let aimY =
-      ARENA.goalY +
-      (
-        sim.rng.next() - 0.5
-      ) *
-        ARENA.goalRadius *
-        1.1;
+      lerp(zone.lowY, zone.topY, clamp(sim.rng.next() * 0.7, 0, 1));
+
+    if (sim.isUser(player)) {
+      // Depth at release picks the ring tier: head high and the ball climbs at the top ring,
+      // stay on the plane and it drills a low ring.
+      const high = clamp((player.y + 1.1) / 3.4, 0, 1);
+      aimY = lerp(zone.lowY + 0.1, zone.topY + 0.15, high);
+      aimY += (sim.rng.next() - 0.5) * 0.35;
+    }
 
     const accuracy =
       (player.data.sht / 99) *
@@ -280,7 +285,7 @@ export function fireShot(
       ) *
       2 *
       spreadAmount *
-      ARENA.goalRadius;
+      zone.lowSpread;
 
     aimY +=
       (
@@ -288,17 +293,13 @@ export function fireShot(
       ) *
       2 *
       spreadAmount *
-      ARENA.goalRadius *
+      zone.lowSpread *
       0.8;
 
     if (gb) {
-      aimZ =
-        side *
-        spread *
-        0.9;
-
-      aimY =
-        ARENA.goalY + 0.3;
+      // The Gamebreaker drive always rips the top ring.
+      aimZ = 0;
+      aimY = zone.topY;
     }
 
     if (
@@ -429,7 +430,7 @@ export function tryVolley(sim, player) {
 
     if (
       horizontalDistance > reach ||
-      ball.pos.y > 2.8 ||
+      ball.pos.y > 3.2 ||
       ball.pos.y < 0.3
     ) {
       return false;

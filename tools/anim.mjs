@@ -4,8 +4,8 @@
  *   url: app root (bench query is appended automatically), default http://localhost:5173/
  *   dir: default screenshots/anim
  *
- * Sweep: 15 states x 3 samples, 6 tricks x 3, swim at 3 speeds x 4 phases,
- * save mirrored, turbo tackle, carry pose for ball states. ~80 shots.
+ * Sweep: 17 states x 3 samples, 10 tricks x 3, swim at 3 speeds x 4 phases,
+ * save mirrored, turbo tackle, carry pose for ball states. ~100 shots.
  * Exit code 1 if the page threw.
  */
 import chromium from '@sparticuz/chromium';

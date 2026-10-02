@@ -621,6 +621,214 @@ select {
   text-align: right;
   font-weight: 900;
 }
+.li-rival {
+  font-family: var(--font-tag);
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+  justify-self: start;
+}
+.ladder-item {
+  grid-template-columns: 34px 70px 1fr auto 80px 60px;
+}
+.ladder-item.now .li-rival {
+  color: var(--ink);
+}
+.form-up {
+  color: #7dffb2;
+}
+.form-down {
+  color: var(--pink);
+}
+.form-flat {
+  color: var(--cyan);
+}
+.cn-rival {
+  margin-top: 8px;
+  font-family: var(--font-tag);
+  font-size: 19px;
+  letter-spacing: 2px;
+  color: var(--yellow);
+}
+
+/* Starting-seven strip on the career hub */
+.squad-strip {
+  background: rgba(0, 0, 0, 0.35);
+  border-left: 5px solid var(--c1);
+  padding: 10px 12px 12px;
+}
+.ss-head {
+  font-weight: 900;
+  letter-spacing: 2px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 8px;
+}
+.ss-head b {
+  color: var(--cyan);
+}
+.ss-head b.ss-out {
+  color: var(--pink);
+}
+.ss-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sq-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--c1) 35%, #000);
+  border: 2px solid var(--c1);
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-size: 13px;
+}
+.sq-chip i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--c3);
+}
+.sq-chip.you {
+  border-color: var(--yellow);
+}
+.sq-chip.hurt {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* ------------------------------------------------------------------ Squad */
+.squad {
+  display: flex;
+  flex-direction: column;
+}
+.sq-slots {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+.sq-slot {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c1) 45%, #000), rgba(0, 0, 0, 0.5));
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 8px 6px;
+  text-align: center;
+  color: #fff;
+}
+.sq-slot b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 2px;
+  color: var(--c3);
+}
+.sq-slot span {
+  display: block;
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sq-slot i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--cyan);
+}
+.sq-slot.you {
+  border-color: var(--yellow);
+  box-shadow: 4px 4px 0 var(--yellow);
+}
+.sq-slot.empty {
+  opacity: 0.45;
+}
+.squad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 12px 0 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.squad-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 3px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-cond, sans-serif);
+}
+.squad-card:hover:not(:disabled) {
+  border-color: var(--yellow);
+  background: rgba(255, 210, 63, 0.14);
+}
+.squad-card.sel {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px var(--cyan);
+}
+.squad-card.in {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c1) 55%, #000), rgba(0, 0, 0, 0.55));
+  border-color: var(--c1);
+}
+.squad-card.you {
+  border-left-width: 8px;
+  border-left-color: var(--yellow);
+}
+.squad-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+  text-decoration: line-through;
+}
+.sc-slot {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--c3);
+}
+.sc-nick {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+.sc-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+.sc-meta {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--cyan);
+}
+.sc-tag {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 1px 5px;
+}
+.you-tag {
+  background: var(--yellow);
+  color: var(--ink);
+}
+.hurt-tag {
+  background: var(--pink-deep, #a3123f);
+  color: #fff;
+}
 
 /* ------------------------------------------------------------------ Roster */
 .roster-grid {
@@ -1093,6 +1301,15 @@ select {
   color: #fff;
   text-shadow: 1px 1px 0 var(--ink);
 }
+.pcard-move {
+  font-family: var(--font-cond);
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 1px 1px 0 var(--ink);
+}
 .turbo {
   position: relative;
   width: 220px;
@@ -1514,6 +1731,12 @@ select {
   .howto-cols {
     grid-template-columns: 1fr;
   }
+  .squad-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .sq-slots {
+    grid-template-columns: repeat(4, 1fr);
+  }
   .banner-text {
     font-size: 56px;
   }
@@ -1666,48 +1889,6 @@ select {
   border-color: #fff;
 }
 
-/* Secondary row: expert actions, small and dimmed so they never fight the primary four. The row
-   auto-swaps its ranking per play state (see touch.js): `.hot` slots take the near edge of the row
-   under the thumb and light up, `.idle` ones are ignored by the sim right now and fade out. */
-.touch-secondary {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-bottom: 8px;
-  opacity: var(--touch-opacity, 1);
-}
-.touch-secondary .touch-btn {
-  width: 48px;
-  height: 48px;
-  font-size: 11px;
-  letter-spacing: 0.4px;
-  border-width: 2px;
-  background: rgba(10, 12, 22, 0.45);
-  border-color: rgba(255, 255, 255, 0.28);
-}
-.touch-secondary .touch-btn.t-gb {
-  width: 56px;
-  height: 56px;
-  font-size: 15px;
-  opacity: 0.5;
-}
-.touch-secondary .touch-btn.t-cam {
-  font-size: 10px;
-  letter-spacing: 1px;
-  opacity: 0.7;
-}
-.touch-secondary .touch-btn.hot {
-  opacity: 1;
-  background: rgba(255, 210, 63, 0.24);
-  border-color: rgba(255, 210, 63, 0.85);
-  box-shadow: 0 0 12px rgba(255, 210, 63, 0.22);
-}
-.touch-secondary .touch-btn.idle {
-  opacity: 0.32;
-  border-style: dashed;
-}
-
 /* Primary pad: SHOOT is the giant anchor tucked into the thumb corner, with PASS, the contextual
    action and TURBO ringing it on a one-thumb arc. The arc geometry lives in touch.js (published
    here as --pad-size / --shoot-size / --ring-size) so the two can never drift apart. */
@@ -1740,22 +1921,20 @@ select {
   background: var(--pink, #ff2ea6);
   color: #fff;
 }
+/* Meter full: the SHOOT anchor IS the Gamebreaker trigger — light it up. */
+.touch-btn.t-shoot.gb-ready {
+  background: rgba(92, 242, 255, 0.5);
+  border-color: var(--cyan, #5cf2ff);
+  color: #04121a;
+  font-size: 14px;
+  box-shadow: 0 0 26px rgba(92, 242, 255, 0.85);
+  animation: gbPulse 0.7s infinite alternate;
+}
 .touch-btn.t-turbo {
   background: rgba(92, 242, 255, 0.18);
   border-color: rgba(92, 242, 255, 0.6);
 }
-.touch-btn.t-gb.ready {
-  opacity: 1;
-  border-color: var(--cyan, #5cf2ff);
-  background: rgba(92, 242, 255, 0.5);
-  color: #04121a;
-  box-shadow: 0 0 20px rgba(92, 242, 255, 0.8);
-  animation: gbPulse 0.7s infinite alternate;
-}
-@keyframes gbPulse {
-  from { transform: scale(1); }
-  to { transform: scale(1.07); }
-}
+/* GAMEBREAKER lighting now lives on the SHOOT anchor itself (.t-shoot.gb-ready). */
 
 .touch-pause {
   position: absolute;
@@ -1775,6 +1954,33 @@ select {
 .touch-pause:active {
   background: var(--yellow, #ffd23f);
   color: #111;
+}
+
+/* Take the cage. Sits beside PAUSE rather than in the thumb arc — it is a situational switch,
+   not something you press mid-dribble, and the pad must stay six buttons. */
+.touch-cage {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  top: calc(max(14px, env(safe-area-inset-top)) + 58px);
+  width: 48px;
+  height: 40px;
+  border-radius: 12px;
+  border: 3px solid rgba(92, 242, 255, 0.55);
+  background: rgba(10, 12, 22, 0.5);
+  color: #5cf2ff;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 2px;
+  padding: 0;
+}
+.touch-cage:active,
+.touch-cage.on {
+  background: var(--cyan, #5cf2ff);
+  color: #06101a;
+}
+.touch-ui[data-layout="left"] .touch-cage {
+  right: auto;
+  left: max(16px, env(safe-area-inset-left));
 }
 
 /* Portrait hint — the pool needs width to read. */
@@ -1815,9 +2021,6 @@ select {
   align-items: flex-start;
   transform-origin: bottom left;
 }
-.touch-ui[data-layout="left"] .touch-secondary {
-  justify-content: flex-start;
-}
 .touch-ui[data-layout="left"] .touch-btn.t-shoot {
   right: auto;
   left: 0;
@@ -1839,6 +2042,10 @@ select {
 .touch-btn.t-context[data-context="defense"] {
   background: rgba(255, 92, 92, 0.35);
   border-color: rgba(255, 120, 120, 0.7);
+}
+.touch-btn.t-context[data-context="cage"] {
+  background: rgba(92, 242, 255, 0.35);
+  border-color: rgba(92, 242, 255, 0.85);
 }
 .touch-btn.t-context[data-context="loose"],
 .touch-btn.t-context[data-context="support"] {

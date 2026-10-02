@@ -1,4 +1,5 @@
 import { Vec3 } from '../core/vec3.js';
+import { MOVE } from '../data/constants.js';
 
 /**
  * Runtime entities for the Blitzball simulation. Plain objects so they serialise for tests.
@@ -9,8 +10,12 @@ export function createPlayer(data, team, slot) {
     id: data.id,
     data,
     team,
-    slot, // 0..2 outfield, 3 keeper
+    slot, // 0 keeper, 1-2 shooters (1 is the captain), 3-6 fielders
     isKeeper: data.role === 'GK',
+    isShooter: data.role === 'SH',
+    isFielder: data.role === 'FD',
+    isCaptain: !!data.captain,
+    role: data.role,
     pos: new Vec3(0, 0, 0),
     vel: new Vec3(0, 0, 0),
     y: 0, // vertical offset from the playing plane (breaches)
@@ -22,12 +27,31 @@ export function createPlayer(data, team, slot) {
     airborne: false,
     turbo: 100,
     turboActive: false,
+    // Stamina: the body meter behind the turbo button (see MOVE.stamina*). Starts full; drains
+    // with effort and contact, recovers when idle, and a gassed swimmer is a reason to reach for
+    // the bench.
+    stamina: MOVE.staminaMax,
+    gassed: false,
+    // Discipline: fouls committed. Two bookable offences and the swimmer is off for the match,
+    // replaced automatically from the bench.
+    cards: 0,
+    sentOff: false,
+    sentOffAt: 0, // match clock at which the red was shown
+    // Substitution bookkeeping.
+    subbedIn: false,
+    subbedOff: false,
+    minutesPlayed: 0,
     stun: 0,
     hasBall: false,
     controlled: false,
     combo: 0,
     comboTimer: 0,
-    cd: { tackle: 0, hit: 0, trick: 0, breach: 0, catch: 0, shot: 0 },
+    cd: { tackle: 0, hit: 0, trick: 0, breach: 0, catch: 0, shot: 0, dive: 0 },
+    // Committed keeper dive: `diveT` is the live window (extra reach + save chance), `diveDir`
+    // the lateral direction it was aimed, `diveCommit` how much of it is still accelerating.
+    diveT: 0,
+    diveDir: 0,
+    diveCommit: 0,
     shot: null,
     trick: null,
     input: emptyInput(),
@@ -39,6 +63,7 @@ export function createPlayer(data, team, slot) {
     dribbleTouch: 0, // glue-dribble touch time (drives Dribble ×N style)
     callingForPass: false, // set when a teammate calls for the pass (Rematch-style)
     knockDir: new Vec3(1, 0, 0),
+    moveArmor: 0, // seconds of roll/vault left: untackleable while > 0
   };
 }
 
@@ -65,6 +90,8 @@ export function emptyInput() {
     moveX: 0,
     moveZ: 0,
     moveY: 0, // vertical (free-swim) intent: +1 rise, -1 dive
+    jukeHeld: false, // JUKE button held (touch): a stick flick while held aims the move
+    jukeDir: null, // { x, y } stick direction at flick time, or null
     turbo: false,
     playcall: 0, // one-shot numeric: 1-3 offense play, 7-9 defense play, 0 none
     shoot: false, // held
@@ -76,7 +103,7 @@ export function emptyInput() {
     breach: false,
     switchPlayer: false,
     gamebreaker: false,
-    ballCamToggle: false, // one-shot: flips the player cam between ball lock and forward look
+  cage: false, // one-shot: take the cage (hand control to your own keeper)
   };
 }
 
@@ -91,6 +118,8 @@ export function copyInput(dst, src) {
   dst.moveX = src.moveX;
   dst.moveZ = src.moveZ;
   dst.moveY = src.moveY;
+  dst.jukeHeld = src.jukeHeld;
+  dst.jukeDir = src.jukeDir;
   dst.turbo = src.turbo;
   dst.shoot = src.shoot;
   dst.shootPressed = src.shootPressed;
@@ -101,7 +130,6 @@ export function copyInput(dst, src) {
   dst.breach = src.breach;
   dst.switchPlayer = src.switchPlayer;
   dst.gamebreaker = src.gamebreaker;
-  dst.ballCamToggle = src.ballCamToggle;
   dst.playcall = src.playcall;
   return dst;
 }

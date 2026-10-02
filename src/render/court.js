@@ -285,37 +285,72 @@ function buildGoal(sign, theme) {
   const g = new THREE.Group();
   g.name = sign > 0 ? 'goalPos' : 'goalNeg';
   const x = ARENA.goalX * sign;
-  const ringMat = toon('#d92632');
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(ARENA.goalRadius, ARENA.postRadius, 12, 48), ringMat);
-  ring.rotation.y = Math.PI / 2;
-  ring.position.set(x, ARENA.goalY, 0);
-  ring.castShadow = true;
-  g.add(withOutline(ring, 0.03));
-  // inner glow ring
-  const glow = new THREE.Mesh(new THREE.TorusGeometry(ARENA.goalRadius - 0.1, 0.05, 8, 48), new THREE.MeshBasicMaterial({ color: theme.accent }));
-  glow.rotation.y = Math.PI / 2;
-  glow.position.set(x, ARENA.goalY, 0);
-  g.add(glow);
-  g.userData.glow = glow;
-  // Net: a cone of lines behind the ring
-  const netMat = new THREE.LineBasicMaterial({ color: 0xf5f0e6, transparent: true, opacity: 0.55 });
+  // --- The touchdown zone: THREE rings in a triangle (top 3 pts, blue low, white low) ---
+  const zone = ARENA.zone;
+  const ringDefs = [
+    { y: zone.topY, z: 0, color: zone.rings[0].css },
+    { y: zone.lowY, z: -zone.lowSpread, color: zone.rings[1].css },
+    { y: zone.lowY, z: zone.lowSpread, color: zone.rings[2].css },
+  ];
+  // Triangle frame connecting the three rings so the shape reads as one goal.
+  const frameMat = new THREE.MeshBasicMaterial({ color: '#c8d6e5', transparent: true, opacity: 0.55 });
+  const framePts = [];
+  const frameRings = [
+    new THREE.Vector3(x, zone.topY, 0),
+    new THREE.Vector3(x, zone.lowY, -zone.lowSpread),
+    new THREE.Vector3(x, zone.lowY, zone.lowSpread),
+  ];
+  for (let i = 0; i < 3; i++) {
+    const a = frameRings[i];
+    const b = frameRings[(i + 1) % 3];
+    const segs = 12;
+    for (let s = 0; s < segs; s++) {
+      const t0 = s / segs;
+      const t1 = (s + 1) / segs;
+      framePts.push(new THREE.Vector3(x, a.y + (b.y - a.y) * t0, a.z + (b.z - a.z) * t0));
+      framePts.push(new THREE.Vector3(x, a.y + (b.y - a.y) * t1, a.z + (b.z - a.z) * t1));
+    }
+  }
+  g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(framePts), frameMat));
+  const glows = [];
+  for (const def of ringDefs) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(zone.ringRadius, ARENA.postRadius, 12, 40),
+      toon(def.color)
+    );
+    ring.rotation.y = Math.PI / 2;
+    ring.position.set(x, def.y, def.z);
+    ring.castShadow = true;
+    g.add(withOutline(ring, 0.03));
+    const glow = new THREE.Mesh(
+      new THREE.TorusGeometry(zone.ringRadius - 0.08, 0.045, 8, 40),
+      new THREE.MeshBasicMaterial({ color: def.color })
+    );
+    glow.rotation.y = Math.PI / 2;
+    glow.position.set(x, def.y, def.z);
+    g.add(glow);
+    glows.push(glow);
+  }
+  g.userData.glows = glows; // [top, blue, white] — renderer pulses the scored ring
+  // Backboard-less: a shallow net pocket behind the triangle catches nothing but reads depth.
+  const netMat = new THREE.LineBasicMaterial({ color: 0xf5f0e6, transparent: true, opacity: 0.35 });
   const netPts = [];
-  const depth = 1.7;
-  const segs = 20;
+  const depth = 1.4;
+  const segs = 24;
   for (let i = 0; i < segs; i++) {
     const a = (i / segs) * Math.PI * 2;
-    const r = ARENA.goalRadius;
-    netPts.push(new THREE.Vector3(x, ARENA.goalY + Math.cos(a) * r, Math.sin(a) * r));
-    netPts.push(new THREE.Vector3(x + sign * depth, ARENA.goalY + Math.cos(a) * r * 0.25, Math.sin(a) * r * 0.25));
+    const r = zone.ringRadius * 1.35;
+    netPts.push(new THREE.Vector3(x, zone.topY + Math.cos(a) * r, Math.sin(a) * r));
+    netPts.push(new THREE.Vector3(x + sign * depth, zone.topY + Math.cos(a) * r * 0.25, Math.sin(a) * r * 0.25));
   }
   for (let ringI = 1; ringI <= 3; ringI++) {
     const t = ringI / 4;
-    const r = ARENA.goalRadius * (1 - t * 0.75);
+    const r = zone.ringRadius * 1.35 * (1 - t * 0.75);
     for (let i = 0; i < segs; i++) {
       const a0 = (i / segs) * Math.PI * 2;
       const a1 = ((i + 1) / segs) * Math.PI * 2;
-      netPts.push(new THREE.Vector3(x + sign * depth * t, ARENA.goalY + Math.cos(a0) * r, Math.sin(a0) * r));
-      netPts.push(new THREE.Vector3(x + sign * depth * t, ARENA.goalY + Math.cos(a1) * r, Math.sin(a1) * r));
+      netPts.push(new THREE.Vector3(x + sign * depth * t, zone.topY + Math.cos(a0) * r, Math.sin(a0) * r));
+      netPts.push(new THREE.Vector3(x + sign * depth * t, zone.topY + Math.cos(a1) * r, Math.sin(a1) * r));
     }
   }
   const net = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(netPts), netMat);
@@ -324,14 +359,14 @@ function buildGoal(sign, theme) {
   const armMat = toon('#3a3a42');
   for (const dz of [-1, 1]) {
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.2, 8), armMat);
-    arm.position.set(x + sign * 1.4, ARENA.goalY + 0.2, dz * 1.2);
+    arm.position.set(x + sign * 1.4, zone.topY * 0.6, dz * 1.2);
     arm.rotation.z = Math.PI / 2;
     arm.rotation.y = dz * 0.35;
     g.add(arm);
   }
-  // Goal-line light bar
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, ARENA.goalRadius * 2 + 1.2), new THREE.MeshBasicMaterial({ color: theme.accent }));
-  bar.position.set(x, ARENA.goalY - ARENA.goalRadius - 0.35, 0);
+  // Zone-line light bar under the low rings
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, zone.lowSpread * 2 + 1.4), new THREE.MeshBasicMaterial({ color: theme.accent }));
+  bar.position.set(x, zone.lowY - zone.ringRadius - 0.35, 0);
   g.add(bar);
   // Team-ish banner behind goal (on the sphere wall)
   const c = makeCanvas(512, 192);

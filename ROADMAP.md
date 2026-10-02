@@ -22,10 +22,12 @@ landed on `main` with the commit that closed them.
       coverage sags toward the crease while Legend stays tighter on the man.
 - [x] Touch pad rework: SHOOT is a giant anchor in the resting-thumb corner with PASS / the
       contextual action / TURBO ringing it on one thumb arc, so no core action needs a grid hunt.
-      The expert row (HIT / JUMP / SWAP / GB / CAM) auto-swaps: each play state re-ranks it, lights
-      the prime slots nearest the thumb and dims what the sim ignores right now (BREACH while
-      carrying, GB off the dribble), and the contextual anchor gained an off-ball *support* state
-      so it stops offering a trick to a player without the ball. Covered by `tools/touchtest.mjs`.
+      A five-button **expert row** (HIT / JUMP / SWAP / GB / CAM) used to sit above it, auto-swapping
+      per play state and re-ranking itself; with the camera unified and the pad carrying the ball,
+      it was more surface to hunt than depth it added, so it is **gone** and the pad is six buttons
+      (four primary + RISE/DIVE, stick, pause). Gamebreaker now fires off the SHOOT anchor lighting
+      up as "GAMEBREAKER", and the contextual anchor has an off-ball *support* state so it stops
+      offering a trick to a player without the ball. Covered by `tools/touchtest.mjs`.
 - [x] Fixed: a dropped ball was stranded. Loose balls sank under gravity to the pool floor (y=-1.7)
       while pickup only reached 1.1 above a swimmer's body centre, so once a hit/tackle knocked the
       ball loose nobody could ever grab it again. Loose balls are now buoyant (they drift back to
@@ -39,6 +41,77 @@ landed on `main` with the commit that closed them.
       viewport coordinates inside the stick zone (its offset parent), so it drew a whole zone-height
       too low — usually off-screen. It now subtracts the zone origin and sits exactly under the
       thumb, asserted by `tools/touchtest.mjs`.
+- [x] **Stamina, benches and substitutions.** The sim got a body meter behind the turbo button
+      (`MOVE.stamina*`): sprinting, contact and repeated effort drain it, rest recovers it, and a
+      gassed swimmer is slower with almost no turbo left. Both crews carry **4 substitutes** and
+      **4 changes**. A sub swaps the slot in place (the replacement inherits the slot index, so
+      formation and role never break) and the outgoing swimmer joins the bench. A stoppage opens a
+      **substitution window** — goal, foul, turnover, halftime — and the bench panel shows water
+      against wall with live stamina bars, so the change is a decision rather than a menu. CPU
+      coaches make their own (`cpuCoach`). Covered by `tests/sim.test.mjs` and `tools/benchtest.mjs`.
+- [x] **Discipline: fouls, bookings and red cards.** Swinging at a swimmer who is already down is
+      always a whistle; a clean square big hit over the line is called some of the time, so
+      aggression is a gamble rather than a certainty. The fouled side keeps the ball at the spot.
+      Bookings accumulate, a second booking (or one outright ugly hit) is a **red**, and the
+      swimmer is off for the match with the bench coming straight on at no cost to your changes.
+      **Tackles are deliberately never whistled** — a dive tackle is the sport's legal answer to a
+      carrier, and making it whistlable would make defending unplayable. The violence is the
+      big-hit button, where the risk is visible and chosen. The player card escalates with the
+      bookings (amber ring at one, flashing red pips and a struck-through name at a red) and the
+      announcer calls every whistle, booking and send-off.
+- [x] **Goal replay cinematic.** Every goal cuts to a broadcast replay: a 3.4 s ring buffer of poses
+      recorded off the **sim** clock (a dropped frame thins the clip, it never stretches it) is
+      frozen at the whistle and played back at 0.38x. The recorded pose is written onto the live
+      entities, so the existing character rig and ball mesh animate the replay for free — no video,
+      no re-simulation, no second scene graph, and no cleanup on exit. Poses are keyed by player id
+      so a substitution mid-clip cannot swap a body between frames. Two scripted camera shots with
+      a hard cut (a low tracking dolly, then a long lens from behind the cage), letterbox bars, a
+      REPLAY flag, a caption naming the scorer and the window, a progress hairline, and skip on any
+      key or tap. Reduced-motion users get a shortened, cut-free clip; the whole thing is off in
+      Settings. `src/game/replay.js`, `src/ui/replay.js`, covered by `tests/sim.test.mjs` and
+      `tools/benchtest.mjs`.
+- [x] **Halftime montage and match recap.** The break used to be two minutes of dead air, so it now
+      explains the half: the score, where each side's points came from (the top ring is worth triple,
+      so the window split is the story), the top scorer, the discipline bill and the biggest hit of
+      the half — auto-dismissing before the second-half kickoff. Full time gets a **shot chart**
+      (a pip per goal in the order it happened, ring-weighted), the half-by-half split, the ring
+      split, the biggest hit, the biggest run, and the discipline/bench bill. Both read the same
+      `buildReport()` output, so they can never disagree with each other or with the box score
+      below. `src/game/report.js`, `src/ui/montage.js`, `src/ui/recap.js`.
+
+- [x] **Career that survives a bad week.** The ladder was a conveyor belt: every rung was the same
+  auto-picked seven at the same venue. Now you **name the seven** from the twelve you manage (your
+  created swimmer swims as a third shooter), and the sim reads a real lineup instead of assuming
+  "first keeper, first two shooters, first four fielders" (`lineupOf()` — an illegal or half-written
+  save degrades to the default seven instead of booting). **Venues alternate** by rung, so the crew
+  is home on even stages and away on odd, and the fixture card and results line say which.
+  **Injuries carry over**: the roll reads the match story the sim already recorded (the hardest hit
+  landed on your crew, plus anyone whose contact count says they spent the night on the floor), costs
+  one or two fixtures, heals gradually, and can never rule out your own swimmer. **Form swings the
+  crew** a couple of rating points either way (SHAKEN → UNSTOPPABLE) and is shown on the career hub.
+  A crew met twice is flagged as a **rivalry** with the running record on the ladder. Squad screen
+  at `PICK THE SEVEN`, injuries on the hub strip, `rollInjuries`/`squadFor`/`fixtureFor` covered by
+  `tests/sim.test.mjs` and `tools/benchtest.mjs`.
+- [x] **Keeper switch and pass lead as skill expression.** The keeper was a wall you watched: the
+      only defensive verbs lived on the other six swimmers, and the two goalmouth decisions in the
+      sport — *should I take the cage?* and *where do I aim the pass?* — were both fixed costs.
+      **Taking the cage** (V / L3, plus a GK button on the touch pad) hands control to your own
+      keeper once the ball comes within 19 m of your goal, and the actions remap to a **dive**: a
+      committed lateral lunge that extends the reach on the side you chose, is punished on the wrong
+      side, costs stamina and locks out for a second. A dive is a commitment, not a block — and the
+      CPU keeper dives too (`ai.js`), so leaving one alone in the cage is a decision with a price.
+      **Passing became a lead.** The aim no longer points at a swimmer, it points at a *landing
+      spot*: `passLanding()` solves the intercept with a fixed-point iteration over the receiver's
+      live velocity, clamped inside the pool, so a pass held down the line finds the runner instead
+      of trailing him. Grading is measured at the catch against the receiver's frame at release
+      (not the passer's intent), so a **LEAD PASS** only pays when the receiver was genuinely running
+      into space and the spot was genuinely open. The first tuning pass was a lesson: a fixed 0.28 s
+      lead was shorter than real flight time, so 74% of catches scored a "lead pass" that actually
+      landed *behind* the runner. Fixing the solve, freezing release state, and grading on outcome
+      brought it to ~12% of catches at a stable sim average (363.8 s, 8 matches, +5% style with
+      flowstart and scores unmoved). Player card, style popup, commentary, audio and the HUD
+      dive-cooldown bar all read the same events. Covered by `tests/sim.test.mjs` (64) and
+      `tools/benchtest.mjs`.
 
 ## 2. Graphics & FX
 
@@ -65,6 +138,13 @@ landed on `main` with the commit that closed them.
 - [x] Touch UI: reduced-motion option, safe-area insets on notched phones.
 - [x] Touch UI presets: right/left-handed pad (which mirrors the whole scheme, ring included) plus
       size and opacity sliders, all applied live — including mid-match from the pause menu.
+- [x] Camera: the multi-mode rig (broadcast / first-person / player-chase / ball-cam) is gone in
+      favour of a single **Rematch-style shoulder cam** — a low tight boom behind the controlled
+      swimmer, off-axis so you see past them, yaw following their heading and easing back to the
+      attack direction when idle, a soft ball-forward look bias (never a hard lock, which was ball
+      cam), FLOW widening the FOV, and a boom trimmed against the sphere so the lens can never clip
+      the wall. The touch pad lost its expert row at the same time: six buttons, one thumb arc,
+      and Gamebreaker now fires off the SHOOT anchor lighting up.
 - [x] Fixed: BACK in the in-match settings overlay also ran the screen's own back handler
       (`app.go('title')`), so tweaking settings mid-match threw the paused game away. The overlay
       now closes itself and returns to the pause menu.

@@ -1,5 +1,6 @@
 import { Vec3, clamp } from '../core/vec3.js';
 import { ARENA, ACTION, MOVE, RULES } from '../data/constants.js';
+import { moveFor } from './moves.js';
 
 /**
  * CPU brains for Blitzball. Called once per sim step for every non-user-controlled player.
@@ -142,7 +143,12 @@ function carrierAI(sim, p, dt, roll) {
     const u = p.stateTime / p.shot.wind;
     // In FLOW the striker's timing sharpens — release closer to perfect.
     const target = sim.flow[p.team] ? 0.86 : (ai.releaseAt || 0.77);
-    if (u >= target) p.input.shootReleased = true;
+    if (u >= target) {
+      p.input.shootReleased = true;
+    } else {
+      // Rise for the top ring, stay flat for a low ring — depth at release picks the tier.
+      p.input.moveY = ai.wantTopRing ? 1 : -0.4;
+    }
     return;
   }
 
@@ -155,6 +161,8 @@ function carrierAI(sim, p, dt, roll) {
     if (pressure) shootDesire += 0.1;
     if (clockLow) shootDesire += 0.6;
     if (sim.momentum[p.team] >= 2) shootDesire += 0.12;
+    // Shooters hunt their shot; fielders only shoot as a last resort.
+    if (p.isShooter) shootDesire *= 1.35;
     // In the zone the CPU striker becomes an egoist: hunt the goal instead of recycling.
     if (sim.flow[p.team]) shootDesire += 0.5;
     shootDesire *= 0.6 + (p.data.sht / 99) * 0.6;
@@ -165,6 +173,10 @@ function carrierAI(sim, p, dt, roll) {
     // timing skill: better shooters release closer to perfect
     const skill = (p.data.sht / 99) * diff.shotAccuracy;
     ai.releaseAt = 0.77 + (rng.next() - 0.5) * (0.5 - skill * 0.36);
+    // Ring choice: a confident sniper rises for the 3-ring; everyone else drills a low ring.
+    // The swimmer's depth at release drives which tier the shot aims at (see fireShot).
+    const wantTop = p.data.sht > 78 && rng.chance(0.45 + (p.data.sht - 78) / 60);
+    ai.wantTopRing = wantTop;
     return;
   }
 
@@ -195,21 +207,38 @@ function carrierAI(sim, p, dt, roll) {
     const lob = bestMate.pos.distanceToXZ(g) < 7 && (nearestOpponentDist(sim, bestMate).d > 1.2 || bestMate.ai.cutting) && rng.chance(0.6);
     p.input.pass = true;
     p.input.turbo = lob;
-    // steer the pass selection toward that mate
-    const d = Vec3.dirXZ(p.pos, bestMate.pos);
+    // Steer the pass selection toward that mate. The aim vector doubles as the lead (see
+    // passing.js), so where the CPU POINTS decides where the ball lands: a mate who is running
+    // into space is aimed at down his run (a real lead pass, and the one the player is trying to
+    // play by hand), and a mate who is standing still or tightly marked gets a plain ball at
+    // his feet. It never aims backwards — that would select a different receiver.
+    let aimAt = bestMate.pos;
+    if (!lob && bestMate.vel.lengthXZ() > 2 && nearestOpponentDist(sim, bestMate).d > 1.8) {
+      aimAt = new Vec3(bestMate.pos.x + bestMate.vel.x * 0.5, 0, bestMate.pos.z + bestMate.vel.z * 0.5);
+    }
+    const d = Vec3.dirXZ(p.pos, aimAt);
     p.input.moveX = d.x;
     p.input.moveZ = d.z;
     return;
   }
 
-  // Tricks: when a defender is closing in front of us
+  // Signature move: what this swimmer's move is actually FOR decides when they reach for it, so
+  // the CPU uses each move the way the move is meant to be used instead of mashing TRICK.
   if (roll && near.q && near.d < 2.4 && p.cd.trick <= 0) {
     const toDef = Vec3.dirXZ(p.pos, near.q.pos);
     const toGoal = Vec3.dirXZ(p.pos, g);
     const inFront = toDef.dot(toGoal) > 0.3;
+    const kind = moveFor(p).kind;
     let trickDesire = inFront ? 0.28 : 0.08;
     trickDesire *= 0.5 + (p.data.hnd / 99) * 0.8;
     if (near.q.state === 'tackle') trickDesire += 0.3;
+    // Reach for the move when its mechanic actually fits the situation.
+    if (kind === 'surge') trickDesire *= 0.4 + (p.data.pow / 99) * 1.1; // only worth it if you can hit hard
+    else if (kind === 'spin') trickDesire *= near.q.state === 'tackle' ? 1.5 : 0.7; // wants a defender staring at you
+    else if (kind === 'feint') trickDesire *= near.q.state === 'tackle' ? 1.6 : 0.6; // wants a committed defender
+    else if (kind === 'roll' || kind === 'vault' || kind === 'undertow') trickDesire *= near.q.state === 'tackle' ? 1.4 : 0.8;
+    else if (kind === 'dash' || kind === 'climb') trickDesire *= 0.85;
+    else trickDesire *= near.d < 1.6 ? 1.25 : 0.75; // glance: tight and close
     if (rng.chance(clamp(trickDesire, 0, 0.8))) {
       p.input.trick = true;
       // side-step direction: perpendicular to the defender, biased toward goal
@@ -267,20 +296,24 @@ function offBallOffenseAI(sim, p, dt, roll) {
     ai.cutTimer -= dt;
     if (ai.cutTimer <= 0) ai.cutting = false;
   }
-  // Spacing: two lanes (wide left / wide right) and a spot near the crease. The lanes sit a
-  // little closer to the goal than before so volleys come from inside the strike zone instead
-  // of from the edge of it. SPREAD FLOOR widens the whole shape for safer passing lanes.
+  // Role shapes: shooters live high near the zone looking for their shot; fielders work the
+  // wings and the slot, moving the ball and setting screens so the shooters can release.
   const spacing = sim.offensePlayOf(p.team).spacing || 1;
-  const slotIdx = (p.slot + (holder.slot || 0)) % 3;
-  const spots = [
-    new Vec3(g.x - dir * 4.8, 0, 3.4 * spacing),
-    new Vec3(g.x - dir * 4.8, 0, -3.4 * spacing),
-    new Vec3(g.x - dir * (5.5 + 2 * spacing), 0, 0),
-  ];
-  let spot = spots[slotIdx];
-  if (ai.cutting) spot = new Vec3(g.x - dir * 3.8, 0, (p.pos.z > 0 ? 1 : -1) * 1.6);
-  // Occasional cut to the crease
-  if (roll && !ai.cutting && holder.pos.distanceToXZ(g) < 9 && rng.chance(0.12)) {
+  const shooterIdx = p.isShooter ? (p.slot === 1 ? 0 : 1) : null;
+  const spots = p.isShooter
+    ? [new Vec3(g.x - dir * 3.2, 0, 2.2 * spacing), new Vec3(g.x - dir * 3.4, 0, -2.2 * spacing)]
+    : [
+        new Vec3(g.x - dir * 5.6, 0, 4.4 * spacing),
+        new Vec3(g.x - dir * 5.6, 0, -4.4 * spacing),
+        new Vec3(g.x - dir * 7.4, 0, 1.6 * spacing),
+        new Vec3(g.x - dir * 7.4, 0, -1.6 * spacing),
+      ];
+  const slotIdx = p.isShooter ? shooterIdx : 2 + (p.slot - 3) % 4;
+  let spot = spots[slotIdx % spots.length];
+  if (ai.cutting) spot = new Vec3(g.x - dir * 3.0, 0, (p.pos.z > 0 ? 1 : -1) * 1.6);
+  // Shooters cut to the crease often (they are the scorers); fielders mostly hold shape.
+  const cutChance = p.isShooter ? 0.2 : 0.06;
+  if (roll && !ai.cutting && holder.pos.distanceToXZ(g) < 9 && rng.chance(cutChance)) {
     ai.cutting = true;
     ai.cutTimer = 1.5;
   }
@@ -301,16 +334,28 @@ function offBallOffenseAI(sim, p, dt, roll) {
 /**
  * Assign one presser and stable-ish man marks. The assignment is recomputed from current distances
  * so a cut-back or a loose-ball recovery naturally rotates the nearest defender onto the threat.
+ *
+ * Stoppers mirror the enemy shooters: defenders who are fielders take the two enemy shooters
+ * as their primary marks (goal-side, tight), so the scorers never get a free look at the rings.
  */
 function defensiveAssignments(sim, p, holder) {
   const mates = [...sim.outfield(p.team)].sort((a, b) => a.pos.distanceToXZ(holder.pos) - b.pos.distanceToXZ(holder.pos));
-  const remaining = sim.outfield(1 - p.team).filter((q) => q !== holder && q.state !== 'fallen');
+  const enemies = sim.outfield(1 - p.team).filter((q) => q !== holder && q.state !== 'fallen');
+  // Enemy shooters first — they are the designated scorers.
+  enemies.sort((a, b) => (b.isShooter ? 1 : 0) - (a.isShooter ? 1 : 0));
   const marks = new Map();
   for (let i = 1; i < mates.length; i++) {
     const defender = mates[i];
-    remaining.sort((a, b) => defender.pos.distanceToXZ(a.pos) - defender.pos.distanceToXZ(b.pos));
-    const mark = remaining.shift();
-    if (mark) marks.set(defender, mark);
+    // A fielder takes a shooter if one is unmarked; otherwise nearest-man marking.
+    const priority = p.isFielder && i <= 2 ? enemies.find((q) => q.isShooter && ![...marks.values()].includes(q)) : null;
+    const pool = priority ? [priority, ...enemies.filter((q) => q !== priority)] : enemies;
+    pool.sort((a, b) => defender.pos.distanceToXZ(a.pos) - defender.pos.distanceToXZ(b.pos));
+    const mark = pool.shift();
+    if (mark) {
+      marks.set(defender, mark);
+      const idx = enemies.indexOf(mark);
+      if (idx >= 0) enemies.splice(idx, 1);
+    }
   }
   return { presser: mates[0], marks };
 }
@@ -335,17 +380,18 @@ function defenseAI(sim, p, dt, roll) {
     const target = new Vec3(holder.pos.x + toGoal.x * cushion, 0, holder.pos.z + toGoal.z * cushion);
     moveToward(p, target, 1, dHolder > 3 && p.turbo > 25 && rng.next() < diff.aiTurbo);
     if (roll) {
-      // Tackle attempt (more aggressive than before: defenders should actually win the ball)
+      // Dive tackle. Committing costs real time on a miss, so the CPU only dives when the odds
+      // justify going to ground — but when it does, it goes.
       if (dHolder < ACTION.tackleRange + 0.1 && p.cd.tackle <= 0 && !holder.airborne) {
-        let pTackle = 0.16 + diff.tackleRate * 0.16;
+        let pTackle = 0.2 + diff.tackleRate * 0.2;
         if (holder.state === 'idle' && holder.stateTime > 0.8) pTackle *= 1.8;
         if (holder.state === 'trick') pTackle *= 0.35;
         if (holder.state === 'shoot') pTackle *= 1.5;
         if (p.data.tkl > 80) pTackle *= 1.4;
-        if (rng.chance(clamp(pTackle, 0, 0.45))) p.input.trick = true;
+        if (rng.chance(clamp(pTackle, 0, 0.6))) p.input.trick = true;
       }
       // Big hit
-      if (!p.input.trick && dHolder < ACTION.hitRange && p.cd.hit <= 0 && p.data.pow > 68 && rng.chance((0.06 + (p.data.pow - 68) / 250) * diff.hitRate)) p.input.hit = true;
+      if (!p.input.trick && dHolder < ACTION.hitRange && p.cd.hit <= 0 && p.data.pow > 68 && rng.chance((0.1 + (p.data.pow - 68) / 200) * diff.hitRate)) p.input.hit = true;
       // Block a shot wind-up by breaching
       if (holder.state === 'shoot' && holder.shot && !holder.shot.released && dHolder < 2.2 && p.cd.breach <= 0 && rng.chance(0.35 * reaction)) p.input.breach = true;
     }
@@ -364,8 +410,10 @@ function defenseAI(sim, p, dt, roll) {
   const mark = marks.get(p);
   if (mark) {
     const toGoal = Vec3.dirXZ(mark.pos, ownGoal);
-    let target = new Vec3(mark.pos.x + toGoal.x * 1.2, 0, mark.pos.z + toGoal.z * 1.2);
-    const zoneBias = sim.defenseMods(p.team).block ? 0.55 : (diff.zoneBias || 0);
+    // Stoppers sit tighter on shooters than on anyone else — deny the ring look entirely.
+    const cushion = mark.isShooter && p.isFielder ? 0.9 : 1.2;
+    let target = new Vec3(mark.pos.x + toGoal.x * cushion, 0, mark.pos.z + toGoal.z * cushion);
+    const zoneBias = sim.defenseMods(p.team).block ? 0.55 : (diff.zoneBias || 0) * (mark.isShooter ? 0.4 : 1);
     if (zoneBias > 0) {
       const crease = new Vec3(ownGoal.x + dir * 3.2, 0, mark.pos.z * 0.35);
       target = new Vec3(target.x + (crease.x - target.x) * zoneBias, 0, target.z + (crease.z - target.z) * zoneBias);
@@ -499,7 +547,8 @@ function keeperAI(sim, p, dt, roll) {
   const windUp = holder && holder.team !== p.team && holder.state === 'shoot' && holder.shot && !holder.shot.released;
   const ballToGoal = b.pos.distanceToXZ(own);
 
-  // Read the shot: lead the ball to the point it will cross the goal line.
+  // Read the shot: lead the ball to the point it will cross the goal line. The three-ring zone
+  // is tall (top ring near the ceiling of the goal frame), so the keeper climbs with the ball.
   let targetZ = b.pos.z;
   let targetY = b.pos.y - ARENA.goalY;
   if ((shot || windUp) && Math.abs(b.vel.x) > 1) {
@@ -535,6 +584,17 @@ function keeperAI(sim, p, dt, roll) {
     if (rng.chance(0.5 * diff.aiReaction)) {
       ai.diving = 0.4;
       keeperDive(p, dt, targetY, 1.6);
+    }
+  }
+
+  // Lateral dive — the same committed lunge the player gets, aimed at where the ball is crossing
+  // the line. The CPU keeper is not allowed to be worse at the one verb the mechanic is built on,
+  // so both sides read the shot the same way; difficulty only changes how reliably they do it.
+  if (roll && (shot || windUp) && p.diveT <= 0 && p.cd.dive <= 0 && p.stamina > 18 && ballToGoal < 11) {
+    const want = clamp(b.pos.z + b.vel.z * 0.18, -ARENA.keeperMaxZ, ARENA.keeperMaxZ);
+    const dz = want - p.pos.z;
+    if (Math.abs(dz) > 0.7 && rng.chance((0.12 + (p.data.cat / 99) * 0.22) * diff.aiReaction)) {
+      sim.keeperDive(p, { z: dz, x: 0 });
     }
   }
 }

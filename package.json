@@ -16,6 +16,7 @@
     "qa:probe": "node tools/probe.mjs",
     "qa:touch": "node tools/touchtest.mjs",
     "qa:context": "node tools/contexttest.mjs",
+    "qa:bench": "node tools/benchtest.mjs",
     "qa:perf": "node tools/perfshot.mjs",
     "qa:lighthouse": "node tools/lighthouse.mjs",
     "qa:anim": "node tools/anim.mjs"

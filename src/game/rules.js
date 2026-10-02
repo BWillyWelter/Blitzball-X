@@ -1,5 +1,5 @@
 import { clamp } from '../core/vec3.js';
-import { RULES, STYLE } from '../data/constants.js';
+import { ARENA, RULES, STYLE } from '../data/constants.js';
 
 /**
  * Flow, style meter, scoring and game-over rules, extracted from MatchSim. Functions take
@@ -74,7 +74,7 @@ export function updateRules(sim, dt) {
   }
 
 export function turnover(sim, team, reason) {
-    sim.loseStyle(
+  sim.loseStyle(
       team,
       STYLE.lossOnTurnover
     );
@@ -84,10 +84,11 @@ export function turnover(sim, team, reason) {
       reason,
     });
 
-    sim.deadReason = 'turnover';
-    sim.pendingPossession = 1 - team;
-    sim.state = 'dead';
-    sim.stateTimer = 1;
+  sim.deadReason = 'turnover';
+  sim.pendingPossession = 1 - team;
+  sim.state = 'dead';
+  sim.stateTimer = 1;
+  sim.openSubWindow(sim.userTeam);
 
     if (sim.ball.holder) {
       sim.ball.holder.hasBall = false;
@@ -97,6 +98,131 @@ export function turnover(sim, team, reason) {
     sim.ball.flight = null;
     sim.ball.vel.set(0, 0, 0);
   }
+
+// ---------------------------------------------------------------------------
+// Discipline
+// ---------------------------------------------------------------------------
+
+/**
+ * Was this contact over the line? Two things are a foul in this pool, and both are things a player
+ * can choose to do or avoid:
+ *
+ *   1. Swiping a swimmer who is already on the floor. The classic. Always a whistle.
+ *   2. A near dead-on square big hit. Impact tops out at 1.0 (combat.js impactOf), so only the
+ *      cleanest connections reach the threshold, and even then the ref waves it up most of the
+ *      time — swinging hard is a gamble, not a certainty.
+ *
+ * Tackles are deliberately NOT in here: a dive tackle is the sport's legal answer to a carrier,
+ * and making it whistlable would make defending unplayable. The violence has to be the big-hit
+ * button, where the risk is visible and chosen.
+ */
+export function isFoul(sim, offender, victim, impact, victimWasDown = false) {
+  if (sim.state !== 'live' || !victim || victim.team === offender.team) return false;
+  if (victim.isKeeper) return false; // keepers are in their own box; contact there is the save
+  if (offender.sentOff) return false;
+  if (victimWasDown) return true;
+  if (impact < RULES.foulThreshold) return false;
+  // Only a fraction of the very cleanest hits get called, so contact stays an aggressive option.
+  return sim.rng.chance(RULES.foulCallChance);
+}
+
+/**
+ * Blow the whistle. The fouled crew keeps the ball and the play restarts from the spot, the
+ * offender is booked, and a second booking (or an outright ugly one) is a red: the swimmer is off
+ * for the rest of the match and the bench goes on immediately.
+ */
+export function callFoul(sim, offender, victim, impact, kind = 'bigHit', victimWasDown = false) {
+  if (!isFoul(sim, offender, victim, impact, victimWasDown)) return false;
+  if (sim.state !== 'live') return false;
+
+  offender.cards++;
+  sim.cards[offender.team].push({ player: offender, t: sim.time, severity: impact, kind });
+
+  const instantRed = impact >= RULES.redMinSeverity;
+  const sendOff = instantRed || offender.cards >= RULES.cardThreshold;
+
+  sim.events.emit('foul', {
+    team: offender.team,
+    offender,
+    victim,
+    impact,
+    kind,
+    card: offender.cards,
+    red: sendOff,
+  });
+
+  // Dead ball: the fouled side gets it. The ball goes to the victim's feet where they were hit —
+  // they keep the momentum of the collision (the hit still reads), the restart just hands them
+  // the ball instead of the other team.
+  if (sim.ball.holder) {
+    sim.ball.holder.hasBall = false;
+    sim.ball.holder = null;
+  }
+  sim.ball.flight = null;
+  sim.ball.vel.set(0, 0, 0);
+  sim.ball.pos.copy(victim.pos);
+  sim.ball.pos.y = 0.9 + victim.y;
+  sim.possession = victim.team;
+  sim.possessionClock = sim.rules.possessionClock;
+  sim.deadReason = 'foul';
+  sim.pendingPossession = victim.team;
+  sim.state = 'dead';
+  sim.stateTimer = RULES.resetDuration;
+  // A whistle is the best substitution window in the match — both crews get the chance to react.
+  sim.openSubWindow(null);
+  sim.stats.fouls = (sim.stats.fouls || 0) + 1;
+
+  if (RULES.foulFreeSwim && victim) {
+    sim.giveBall(victim, false);
+    sim.possession = victim.team;
+  }
+
+  if (sendOff) sendOffPlayer(sim, offender);
+  return true;
+}
+
+/** Red card: the swimmer is out for the match, replaced from the bench. */
+export function sendOffPlayer(sim, p) {
+  if (p.sentOff) return false;
+  p.sentOff = true;
+  p.sentOffAt = sim.time;
+  p.state = 'sentoff';
+  p.stateTime = 0;
+  if (sim.ball.holder === p) {
+    p.hasBall = false;
+    sim.ball.holder = null;
+  }
+  sim.events.emit('card', { team: p.team, player: p, red: true, cards: p.cards });
+
+  // Straight off and straight on: the bench brings up the replacement.
+  const idx = sim.players.indexOf(p);
+  const replacement = sim.bestSubFor(p.team, p);
+  if (idx >= 0 && replacement) {
+    replacement.subbedIn = true;
+    replacement.sentOff = false;
+    replacement.cards = 0;
+    replacement.pos.copy(p.pos);
+    replacement.y = p.y;
+    replacement.facing = p.facing;
+    replacement.state = 'idle';
+    replacement.stateTime = 0;
+    replacement.turbo = Math.max(replacement.turbo, 60);
+    replacement.ai = {};
+    for (const k in replacement.cd) replacement.cd[k] = 0;
+    replacement.subbedIn = true;
+    sim.players[idx] = replacement;
+    sim.benches[p.team] = sim.benches[p.team].filter((b) => b !== replacement);
+    // A forced replacement doesn't burn a substitution: the coach had no choice.
+    p.subbedOff = true;
+    p.state = 'sentoff';
+    if (sim.controlled === p) {
+      sim.controlled = null;
+      if (sim.userTeam !== null) sim.autoSelectControlled();
+    }
+    sim.events.emit('sub', { team: p.team, out: p, in: replacement, remaining: sim.subsLeft[p.team], forced: true });
+  }
+  return true;
+}
 
 export function addStyle(sim, player, base, label, options = {}) {
     const team = player.team;
@@ -201,9 +327,14 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
         flight.gb
       );
 
+    // A clean strike through a ring scores that ring's value; the Gamebreaker drive rips
+    // through the top ring for its flat bonus payout.
+    const hitRing = sim.zoneHit;
+    sim.zoneHit = null;
+    const ringPoints = hitRing && hitRing.points ? hitRing.points : sim.rules.goalPoints;
     const points = gamebreaker
       ? sim.rules.gbPoints
-      : sim.rules.goalPoints;
+      : ringPoints;
 
     sim.score[team] += points;
     player.stats.goals += points;
@@ -230,13 +361,15 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
 
     const type = gamebreaker
       ? 'gamebreaker'
-      : flight && flight.volley
-        ? 'volley'
-        : ownGoal
-          ? 'own'
-          : flight && flight.dist > 9
-            ? 'long'
-            : 'shot';
+      : ownGoal
+        ? 'own'
+        : ringPoints >= sim.rules.topRingPoints
+          ? 'topring'
+          : flight && flight.volley
+            ? 'volley'
+            : flight && flight.dist > 9
+              ? 'long'
+              : 'shot';
 
     for (
       const teammate of
@@ -286,11 +419,29 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
     sim.lastGoalTime = sim.time;
     sim.ball.flight = null;
     sim.ball.vel.set(0, 0, 0);
+    // Match story: log the goal and the window it came through. The half split is banked on the
+    // score as it stands now, so the montage reads the same numbers the results screen will.
+    sim.halfScore[team][sim.half - 1] += points;
+    if (sim.ringGoals[team]) sim.ringGoals[team][hitRing ? hitRing.ring : 0]++;
+    if (sim.goalLog) {
+      sim.goalLog.push({
+        t: sim.time,
+        team,
+        id: player.id,
+        nick: player.data.nick,
+        points,
+        ring: hitRing ? hitRing.ring : 0,
+        type,
+        ownGoal,
+        half: sim.half,
+      });
+    }
 
     sim.events.emit('score', {
       team,
       player,
       points,
+      ring: hitRing ? hitRing.ring : 0,
       type,
       gb: gamebreaker,
       stolen,
@@ -316,6 +467,9 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
     sim.stateTimer = gamebreaker
       ? 3
       : sim.rules.goalDeadTime;
+
+    // A goal is the longest dead ball in the match — the natural place to spend a change.
+    sim.openSubWindow(sim.userTeam);
 
     sim.setState(
       player,

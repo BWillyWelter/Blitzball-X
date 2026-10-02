@@ -217,6 +217,37 @@ export const STUMBLE = buildTrack('stumble', [
   }, { hy: 1.0 }),
 ]);
 
+/**
+ * REEL — soft contact. The swimmer is knocked off balance, throws their arms wide to catch
+ * themselves and is back on their feet long before a full knockdown would finish. Used for a
+ * poked carrier, a washed defender and a pierced one, so a routine challenge still reads as
+ * contact without the match stopping dead.
+ */
+export const REEL = buildTrack('reel', [
+  k(0.00, { e: 'out' }, {
+    [J.body]: [0.5, 0, 0],
+    [J.shL]: [-0.6, 0, -1.7], [J.shR]: [-0.6, 0, 1.7],
+    [J.elL]: [-0.2, 0, 0], [J.elR]: [-0.2, 0, 0],
+  }, { hy: 0.95, by: -0.15 }),
+  k(0.35, {
+    [J.body]: [-0.55, 0.35, 0.45],
+    [J.shL]: [-1.3, 0, -1.9], [J.shR]: [-1.3, 0, 1.9],
+    [J.hipL]: [-0.5, 0, 0], [J.kneeL]: [0.9, 0, 0],
+    [J.hipR]: [-0.2, 0, 0], [J.kneeR]: [0.4, 0, 0],
+  }, { hy: 0.86, by: -0.35 }),
+  k(0.7, {
+    [J.body]: [0.15, 0, -0.2],
+    [J.shL]: [-0.5, 0, -1.2], [J.shR]: [-0.5, 0, 1.2],
+  }, { hy: 0.95 }),
+  k(1.00, {
+    [J.body]: [0, 0, 0],
+    [J.shL]: [-0.4, 0, -1.0], [J.elL]: [-0.9, 0, 0],
+    [J.shR]: [-0.4, 0, 1.0], [J.elR]: [-0.9, 0, 0],
+    [J.hipL]: [0.25, 0, 0], [J.kneeL]: [0.55, 0, 0],
+    [J.hipR]: [0.25, 0, 0], [J.kneeR]: [0.55, 0, 0],
+  }, { hy: 1.0 }),
+]);
+
 export const FALLEN = buildTrack('fallen', [
   k(0.00, { e: 'out' }, {
     [J.shL]: [-0.5, 0, -1.4], [J.shR]: [-0.5, 0, 1.4],
@@ -276,8 +307,10 @@ export const GBWIND = buildTrack('gbwind', [
 ]);
 
 // ---------------------------------------------------------------------------
-// TRICKS — articulated replacements for the old statue spins. Indexed by TRICKS def id
-// from game/combat.js. Ball-carry arm pose (shR/elR tuck) is authored into every key.
+// TRICKS — one dedicated track per signature move (game/moves.js), in MOVES order:
+// a def's `track` index selects its pose, so two swimmers never share a silhouette
+// mid-move. Ball-carry arm pose (shR/elR tuck) is authored into every key except where
+// the move itself carries the ball differently (the PIERCER two-hand drive).
 // ---------------------------------------------------------------------------
 export const TRICKS = [
   // 0 SPIN -> corkscrew: yaw rotation with a mid-spin tuck and opposite arm sweep.
@@ -360,7 +393,8 @@ export const TRICKS = [
     }, { hy: 1.0 }),
   ]),
 
-  // 3 CORKSCREW (turbo): full roll with a lateral sway — reads as a helix, not a rotor.
+  // 3 CORKSCREW (climb): rising helix — the roll sways laterally while the swimmer crests
+  // upward, finishing tucked above the challenge.
   buildTrack('trick_corkscrew', [
     k(0.00, { e: 'linear' }, {
       [J.body]: [0.9, 0, 0],
@@ -370,21 +404,23 @@ export const TRICKS = [
     k(0.25, {
       [J.body]: [0.9, 0.55, Math.PI * 0.5],
       [J.hipL]: [-1.2, 0, 0], [J.kneeL]: [1.5, 0, 0],
-    }),
+    }, { hy: 1.05 }),
     k(0.5, {
-      [J.body]: [0.9, 0, Math.PI],
+      [J.body]: [0.75, 0, Math.PI],
       [J.hipL]: [-1.4, 0, 0], [J.kneeL]: [1.6, 0, 0],
       [J.hipR]: [-1.4, 0, 0], [J.kneeR]: [1.6, 0, 0],
-    }),
+    }, { hy: 1.1 }),
     k(0.75, {
-      [J.body]: [0.9, -0.55, Math.PI * 1.5],
-      [J.hipL]: [-1.2, 0, 0], [J.kneeL]: [1.5, 0, 0],
-    }),
+      [J.body]: [0.6, -0.55, Math.PI * 1.5],
+      [J.hipL]: [-0.9, 0, 0], [J.kneeL]: [1.3, 0, 0],
+    }, { hy: 1.14 }),
     k(1.00, {
-      [J.body]: [0.9, 0, Math.PI * 2],
+      [J.body]: [0.35, 0, Math.PI * 2],
       [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
       [J.shL]: [-2.5, 0, -0.25], [J.elL]: [-0.3, 0, 0],
-    }, { hy: 1.0 }),
+      [J.hipL]: [0.55, 0, 0], [J.kneeL]: [0.7, 0, 0],
+      [J.hipR]: [0.55, 0, 0], [J.kneeR]: [0.7, 0, 0],
+    }, { hy: 1.18 }),
   ], { raw: [J.body] }),
 
   // 4 BACK-FLIP FEINT: full backward pitch rotation, then held feint crouch.
@@ -432,9 +468,116 @@ export const TRICKS = [
       [J.kneeL]: [0.1, 0, 0], [J.kneeR]: [0.1, 0, 0],
     }, { hy: 0.98 }),
   ]),
+
+  // 6 UNDERTOW: a shallow dive that never surfaces — pitches past vertical to slip under the
+  // tackle plane, skims the floor, then climbs straight back up into the carry.
+  buildTrack('trick_undertow', [
+    k(0.00, { e: 'inout' }, {
+      [J.body]: [0.9, 0, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-2.4, 0, -0.3], [J.elL]: [-0.5, 0, 0],
+    }, { hy: 1.0 }),
+    k(0.25, { e: 'in' }, {
+      [J.body]: [2.0, 0, 0], [J.neck]: [0.35, 0, 0],
+      [J.shL]: [-2.9, 0, -0.1], [J.elL]: [-0.1, 0, 0],
+      [J.hipL]: [0.55, 0, 0], [J.hipR]: [0.55, 0, 0],
+      [J.kneeL]: [0.2, 0, 0], [J.kneeR]: [0.2, 0, 0],
+    }, { hy: 0.85 }),
+    k(0.55, {
+      [J.body]: [2.6, 0.15, 0], [J.neck]: [0.45, 0, 0],
+      [J.shR]: [-2.2, 0, 0.55], [J.elR]: [-0.7, 0, 0],
+      [J.hipL]: [-0.35, 0, 0], [J.kneeL]: [0.55, 0, 0],
+      [J.hipR]: [-0.1, 0, 0], [J.kneeR]: [0.25, 0, 0],
+    }, { hy: 0.72, by: -0.1 }),
+    k(1.00, {
+      [J.body]: [0.9, 0, 0], [J.neck]: [-0.1, 0, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-2.4, 0, -0.3], [J.elL]: [-0.5, 0, 0],
+      [J.hipL]: [0.2, 0, 0], [J.hipR]: [0.2, 0, 0],
+      [J.kneeL]: [0.2, 0, 0], [J.kneeR]: [0.2, 0, 0],
+    }, { hy: 1.0, by: 0 }),
+  ], { raw: [J.body] }),
+
+  // 7 WAVE CREST: a running shoulder-charge — wind the torso back, drive forward off a buried
+  // leg, and the free arm sweeps the follow-through of the slam.
+  buildTrack('trick_surge', [
+    k(0.00, { e: 'inout' }, {
+      [J.body]: [0.45, 0, 0], [J.torso]: [0, 0.6, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-0.6, 0, -0.7], [J.elL]: [-1.4, 0, 0],
+      [J.hipL]: [0.6, 0, 0], [J.kneeL]: [1.0, 0, 0],
+    }, { hy: 0.95 }),
+    k(0.45, { e: 'in' }, {
+      [J.body]: [0.7, 0, 0], [J.torso]: [0, -0.45, 0],
+      [J.shL]: [-1.7, 0, -0.55], [J.elL]: [-0.2, 0, 0],
+      [J.hipL]: [-0.7, 0, 0], [J.kneeL]: [0.25, 0, 0],
+      [J.hipR]: [0.75, 0, 0], [J.kneeR]: [1.05, 0, 0],
+      [J.neck]: [-0.2, 0, 0],
+    }, { hy: 0.92, by: -0.08, bz: 0.3 }),
+    k(1.00, {
+      [J.body]: [0.55, 0, 0], [J.torso]: [0, -0.15, 0],
+      [J.shL]: [-0.8, 0, -0.7], [J.elL]: [-0.9, 0, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.hipL]: [-0.2, 0, 0], [J.kneeL]: [0.35, 0, 0],
+      [J.hipR]: [0.25, 0, 0], [J.kneeR]: [0.45, 0, 0],
+    }, { hy: 0.96, by: -0.04, bz: 0.1 }),
+  ]),
+
+  // 8 GLANCE: pure lateral release — the head fakes one way while the whole body snaps the
+  // other, arms trailing the cut. Three phases crammed into barely a third of a second.
+  buildTrack('trick_glance', [
+    k(0.00, { e: 'in' }, {
+      [J.body]: [0.7, 0, 0], [J.torso]: [0, -0.45, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-1.0, 0, -0.5], [J.elL]: [-0.9, 0, 0],
+      [J.neck]: [0, 0.5, 0],
+    }, { hy: 1.0 }),
+    k(0.45, {
+      [J.body]: [0.75, 0, 0.35], [J.torso]: [0, 0.5, 0],
+      [J.hipL]: [-0.85, 0, 0], [J.kneeL]: [1.2, 0, 0],
+      [J.hipR]: [0.3, 0, 0], [J.kneeR]: [0.5, 0, 0],
+      [J.shL]: [-0.4, 0, -0.35], [J.elL]: [-0.3, 0, 0],
+      [J.neck]: [0, -0.35, 0],
+    }, { hy: 0.96, bz: 0.1 }),
+    k(1.00, {
+      [J.body]: [0.7, 0, 0], [J.torso]: [0, 0.1, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-0.8, 0, -0.6], [J.elL]: [-0.8, 0, 0],
+      [J.hipL]: [0.25, 0, 0], [J.kneeL]: [0.5, 0, 0],
+      [J.hipR]: [0.25, 0, 0], [J.kneeR]: [0.5, 0, 0],
+      [J.neck]: [0, 0.15, 0],
+    }, { hy: 1.0, bz: 0 }),
+  ]),
+
+  // 9 PIERCER: the two-hand drive — hands slide onto the ball, the whole swimmer becomes one
+  // straight line into the defender, and the settle at the end is the shudder of holding it.
+  buildTrack('trick_spear', [
+    k(0.00, { e: 'inout' }, {
+      [J.body]: [0.5, 0, 0],
+      [J.shR]: [-0.9, 0, 0.25], [J.elR]: [-1.9, 0, 0],
+      [J.shL]: [-1.0, 0, -0.5], [J.elL]: [-1.1, 0, 0],
+    }, { hy: 1.0 }),
+    k(0.35, { e: 'in' }, {
+      [J.body]: [0.85, 0, 0],
+      [J.shL]: [-2.4, 0, -0.25], [J.elL]: [-0.25, 0, 0], [J.wrL]: [0.35, 0, 0],
+      [J.shR]: [-2.4, 0, 0.25], [J.elR]: [-0.25, 0, 0], [J.wrR]: [0.35, 0, 0],
+      [J.hipL]: [0.7, 0, 0], [J.kneeL]: [0.95, 0, 0],
+      [J.hipR]: [-0.35, 0, 0],
+      [J.neck]: [-0.25, 0, 0],
+    }, { hy: 0.98, by: -0.06, bz: 0.28 }),
+    k(1.00, {
+      [J.body]: [0.9, 0, 0],
+      [J.shL]: [-2.75, 0, -0.15], [J.elL]: [-0.1, 0, 0], [J.wrL]: [0.2, 0, 0],
+      [J.shR]: [-2.75, 0, 0.15], [J.elR]: [-0.1, 0, 0], [J.wrR]: [0.2, 0, 0],
+      [J.hipL]: [-0.25, 0, 0], [J.kneeL]: [0.3, 0, 0],
+      [J.hipR]: [-0.25, 0, 0], [J.kneeR]: [0.3, 0, 0],
+      [J.neck]: [-0.15, 0, 0],
+    }, { hy: 1.02, by: -0.02, bz: 0.08 }),
+  ]),
 ];
 
-// Lookup mirrors the old render switch: trick def id -> track.
+// Lookup mirrors the render switch: move def `track` index -> track. Out-of-range indexes
+// clamp to 0 (SPIN) so a mistuned def can never crash a match mid-move.
 export function trickTrack(id) {
-  return TRICKS[id] || TRICKS[0];
+  return TRICKS[id] ?? TRICKS[0];
 }

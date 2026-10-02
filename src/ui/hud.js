@@ -1,5 +1,6 @@
 import { RULES } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
+import { moveFor } from '../game/moves.js';
 
 /**
  * Compact HUD override. Injected once as a scoped <style>; !important guarantees it wins over
@@ -65,6 +66,108 @@ const HUD_CSS = `
 }
 .hud-compact .turbo span {
   font-size: 7px !important;
+}
+/* Stamina bar: sits under turbo on the player card. Cool when there's plenty left, amber as a
+   change becomes worth considering, red when this swimmer is done. */
+.stam {
+  position: relative;
+  margin-top: 3px;
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(10, 14, 26, 0.6);
+  overflow: hidden;
+}
+.stam-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  background: linear-gradient(90deg, #4ad6a0, #8ff7ff);
+  transition: width 0.15s linear, background 0.2s;
+}
+.stam.low .stam-fill {
+  background: linear-gradient(90deg, #ffb347, #ffd23f);
+}
+.stam.out .stam-fill {
+  background: linear-gradient(90deg, #ff5a5a, #ff2ea6);
+  animation: stamPulse 0.6s infinite alternate;
+}
+@keyframes stamPulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.stam span {
+  position: absolute;
+  right: 2px;
+  top: -8px;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* Bookings on the player card. */
+.pcard-cards {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 2px;
+  color: var(--yellow, #ffd23f);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+/* Two bookings is the end of the match, and the card should say so before the whistle does. */
+.pcard-cards.red {
+  color: #ff2d55;
+  animation: cardFlash 0.5s ease-in-out infinite alternate;
+}
+@keyframes cardFlash {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.pcard.cage {
+  border-color: var(--cyan, #5cf2ff);
+  box-shadow: 0 0 22px rgba(92, 242, 255, 0.4);
+}
+.pcard.booked {
+  box-shadow: 0 0 0 2px rgba(255, 210, 63, 0.55), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.pcard.off {
+  box-shadow: 0 0 0 2px rgba(255, 45, 85, 0.85), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.pcard.off .pcard-nick,
+.pcard.off .pcard-name,
+.pcard.off .pcard-move,
+.pcard.off .pcard-num {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+/* Bench strip: substitutions left + who is waiting. Only visible when it matters. */
+.subs-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%) translateY(8px);
+  padding: 4px 14px;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 12, 22, 0.78);
+  color: #fff;
+  font-family: var(--font-cond, sans-serif);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 1.4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.subs-strip.show {
+  opacity: 0.9;
+  transform: translateX(-50%) translateY(0);
+}
+.subs-strip.urgent {
+  border-color: var(--yellow, #ffd23f);
+  color: var(--yellow, #ffd23f);
 }
 .hud-compact .ticker {
   font-size: 11px !important;
@@ -139,9 +242,14 @@ export class HUD {
       clear: this.$('.sb-clear'),
       turbo: this.$('.turbo-fill'),
       turboWrap: this.$('.turbo'),
+      stam: this.$('.stam-fill'),
+      stamWrap: this.$('.stam'),
+      cards: this.$('.pcard-cards'),
+      subsStrip: this.$('.subs-strip'),
       pcard: this.$('.pcard'),
       pname: this.$('.pcard-name'),
       pnick: this.$('.pcard-nick'),
+      pmove: this.$('.pcard-move'),
       pnum: this.$('.pcard-num'),
       popups: this.$('.popups'),
       banner: this.$('.banner'),
@@ -202,9 +310,13 @@ export class HUD {
         <div class="pcard-info">
           <div class="pcard-nick">NICK</div>
           <div class="pcard-name">Name</div>
+          <div class="pcard-move">MOVE</div>
           <div class="turbo"><div class="turbo-fill"></div><span>TURBO</span></div>
+          <div class="stam"><div class="stam-fill"></div><span>STAM</span></div>
         </div>
+        <div class="pcard-cards"></div>
       </div>
+      <div class="subs-strip"></div>
       <div class="ticker"><span class="ticker-mic">🎙</span><span class="ticker-text"></span></div>
       <div class="plays">
         <div class="play t0" data-side="offense"><span class="play-key">1·2·3</span><span class="play-name"></span></div>
@@ -230,20 +342,39 @@ export class HUD {
     });
     ev.on('gamebreaker', ({ team, player }) => this.banner('GAMEBREAKER!', player.data.signature.toUpperCase(), team, 2600, true));
     ev.on('washed', ({ player }) => this.banner('WASHED', '', player.team, 1400));
+    // Discipline: the whistle, the card, and the red. Read them loudly — a booking is a real
+    // consequence and the player needs to know which of their swimmers is one hit from the bench.
+    ev.on('foul', ({ team, offender, victim, red }) => {
+      if (!red) this.popup('FOUL', `${offender.data.nick} ON ${victim.data.nick}`, team, false, 0);
+    });
+    ev.on('card', ({ team, player, red }) => {
+      if (red) this.banner('RED CARD', `${player.data.nick} OFF`, team, 2800, true);
+      else this.banner('YELLOW CARD', player.data.nick, team, 1400);
+      this.popup(red ? 'OFF' : 'BOOKED', player.data.nick, team, red, 0);
+    });
+    ev.on('sub', ({ team, in: incoming }) => {
+      this.popup(incoming.data.nick, `ON · ${incoming.data.role}`, team, false, 0);
+    });
     ev.on('block', ({ blocker }) => this.banner('DENIED', '', blocker.team, 1100));
-    ev.on('save', ({ keeper, big }) => {
-      if (big) this.banner('HUGE SAVE', keeper.data.nick, keeper.team, 1300);
+    ev.on('save', ({ keeper, big, dived }) => {
+      if (dived) this.banner('DIVING SAVE', keeper.data.nick, keeper.team, 1300);
+      else if (big) this.banner('HUGE SAVE', keeper.data.nick, keeper.team, 1300);
+    });
+    ev.on('cage', ({ keeper, on }) => {
+      if (on) this.banner('IN THE CAGE', `${keeper.data.nick} · U TO DIVE`, keeper.team, 1400);
     });
     ev.on('bighit', ({ player, hadBall }) => {
       if (hadBall) this.banner('BIG HIT', 'BALL LOOSE', player.team, 1200);
     });
     ev.on('alleyoop', ({ finisher }) => this.banner('LOB & VOLLEY', '', finisher.team, 1300));
-    ev.on('score', ({ team, points, gb, stolen, player, type, ownGoal }) => {
+    ev.on('score', ({ team, points, gb, stolen, player, type, ownGoal, ring }) => {
       if (gb) this.banner(`+${points}  /  -${stolen}`, 'GAMEBREAKER GOAL', team, 2400, true);
+      else if (type === 'topring') this.banner(`TOP RING +${points}`, 'THROUGH THE ORANGE', team, 1800, true);
       else if (type === 'volley') this.banner('GOAL!', 'VOLLEY FINISH', team, 1600, true);
       else if (type === 'long') this.banner('GOAL!', 'FROM DOWNTOWN', team, 1600, true);
       else if (ownGoal) this.banner('GOAL!', 'OWN GOAL', team, 1600, true);
-      else this.banner('GOAL!', player.data.nick, team, 1500, true);
+      else if (points > 1 && ring === 0) this.banner(`+${points}`, 'TOP RING', team, 1500, true);
+      else this.banner(`GOAL +${points}`, player.data.nick, team, 1500, true);
       this.pulseScore(team);
     });
     ev.on('halftime', () => this.banner('HALFTIME', '', null, 2600, true));
@@ -398,17 +529,80 @@ export class HUD {
     const p = sim.controlled || sim.ball.holder || this._lastCard;
     if (p) {
       this._lastCard = p;
-      this.els.turbo.style.width = `${p.turbo}%`;
-      this.els.turboWrap.classList.toggle('low', p.turbo < 20);
-      if (this._cardId !== p.id) {
+      // Stamina: the body meter. Turns amber when a change is worth making and red when this
+      // swimmer is done — that readout is what turns the bench from a menu into a decision.
+      this.els.stam.style.width = `${Math.max(0, Math.min(100, p.stamina))}%`;
+      this.els.stamWrap.classList.toggle('low', p.stamina < 45);
+      this.els.stamWrap.classList.toggle('out', p.stamina < 18);
+      // In the cage the dive REPLACES turbo as the thing you are watching, so the bar shows the
+      // dive cooldown filling: a dive on cooldown has to read as "not yet", not "broken".
+      const inCage = !!sim.inCage && p.isKeeper;
+      this.els.pcard.classList.toggle('cage', inCage);
+      if (inCage) {
+        const ready = p.cd.dive <= 0;
+        this.els.turbo.style.width = `${ready ? 100 : Math.max(0, 100 - (p.cd.dive / 1.0) * 100)}%`;
+        this.els.turboWrap.classList.toggle('low', !ready);
+        // Refreshed here rather than inside the card guard below: the cooldown changes every
+        // frame, and a label that only updated on a player swap would lie about being ready.
+        this.els.pmove.textContent = ready ? 'DIVE READY' : 'DIVE RECOVER';
+      } else {
+        this.els.turbo.style.width = `${p.turbo}%`;
+        this.els.turboWrap.classList.toggle('low', p.turbo < 20);
+      }
+      if (this._cardId !== p.id || this._cardCards !== p.cards || this._cardOff !== !!p.sentOff || this._cardCage !== !!sim.inCage) {
         this._cardId = p.id;
+        this._cardCards = p.cards;
+        this._cardOff = !!p.sentOff;
+        this._cardCage = !!sim.inCage;
         this.els.pname.textContent = p.data.name;
         this.els.pnick.textContent = p.data.nick;
+        // Signature move lives on the card so you always know what TRICK is about to do.
+        this.els.pmove.textContent = p.isKeeper ? 'KEEPER' : moveFor(p).name;
         this.els.pnum.textContent = `#${p.data.number}`;
         this.els.pcard.style.setProperty('--c1', sim.teams[p.team].primary);
         this.els.pcard.style.setProperty('--c2', sim.teams[p.team].secondary);
+        this.els.cards.textContent = p.cards > 0 ? '●'.repeat(Math.min(2, p.cards)) : '';
+        this.els.cards.classList.toggle('red', p.sentOff || p.cards >= 2);
+        this.els.pcard.classList.toggle('booked', !p.sentOff && p.cards > 0);
+        this.els.pcard.classList.toggle('off', !!p.sentOff);
+        if (p.sentOff) {
+          this.els.pnick.textContent = 'SENT OFF';
+          this.els.pmove.textContent = p.sentOffAt != null ? `OUT ${Math.round(p.sentOffAt)}'` : 'OFF';
+        }
+        // In the cage the dive label is owned by the per-frame block above; don't stomp it.
+        if (inCage) this.els.pmove.textContent = p.cd.dive <= 0 ? 'DIVE READY' : 'DIVE RECOVER';
       }
     }
+    this.renderSubs();
+  }
+
+  /**
+   * Bench strip: how many changes are left and who is waiting. Only shown for the player's crew,
+   * and only when it matters (a change in reserve, someone gassed, or the window is open), so it
+   * never becomes permanent HUD furniture.
+   */
+  renderSubs() {
+    const sim = this.sim;
+    const team = sim.userTeam;
+    const strip = this.els.subsStrip;
+    if (!strip || team === null) {
+      if (strip) strip.classList.remove('show');
+      return;
+    }
+    const left = sim.subsLeft ? sim.subsLeft[team] : 0;
+    const bench = sim.benchOf ? sim.benchOf(team) : [];
+    const gassed = sim.players.some((p) => p.team === team && p.stamina < 30);
+    const open = sim.subWindow > 0 && sim.state !== 'live';
+    if (!open && !(gassed && left > 0) && left >= sim.rules.subsPerTeam) {
+      strip.classList.remove('show');
+      return;
+    }
+    const waiting = bench.filter((b) => !b.subbedIn).length;
+    strip.textContent = open
+      ? `SUBS ${left} · TAP THE BENCH`
+      : `SUBS ${left} · ${gassed ? 'SWIMMER GASSED' : `${waiting} WAITING`}`;
+    strip.classList.add('show');
+    strip.classList.toggle('urgent', open || gassed);
   }
 }
 

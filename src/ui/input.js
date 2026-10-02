@@ -3,12 +3,13 @@ import { emptyInput } from '../game/entities.js';
 /**
  * Keyboard + gamepad input mapped into the sim's input struct.
  *
- * Keyboard:  WASD/Arrows move (also steers shot aim) · SHIFT turbo · J/Space shoot (hold to charge) ·
- *            K pass / call for pass off-ball (K+turbo = lob) · L slide/poke tackle · I big hit ·
- *            U breach (jump/block) · Q switch player · E gamebreaker · C ball cam · ESC pause
+ * Keyboard:  WASD/Arrows move (also steers shot aim, and aims the pass lead) · SHIFT turbo ·
+ *            J/Space shoot (hold to charge) · K pass / call for pass off-ball (K+turbo = lob) ·
+ *            L slide/poke tackle · I big hit · U breach (jump/block) · Q switch player ·
+ *            E gamebreaker · V take the cage (control your keeper) · ESC pause
  * Gamepad:   Left stick move · RT/RB turbo · A/Cross shoot · X/Square pass ·
  *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker ·
- *            R3 (right-stick click) ball cam · Start pause
+ *            L3 (left-stick click) take the cage · Start pause
  */
 /** One-shot input fields: true for a single fixed step, then consumed. */
 const ONE_SHOT = [
@@ -20,7 +21,7 @@ const ONE_SHOT = [
   'breach',
   'switchPlayer',
   'gamebreaker',
-  'ballCamToggle',
+  'cage',
 ];
 
 const PLAY_KEYS = {
@@ -40,7 +41,6 @@ const TOUCH_EDGE = {
   breach: 'breach',
   switch: 'switchPlayer',
   gamebreaker: 'gamebreaker',
-  ballcamToggle: 'ballCamToggle',
 };
 
 const GAMEPLAY_CODES = new Set([
@@ -50,6 +50,7 @@ const GAMEPLAY_CODES = new Set([
   'ArrowLeft',
   'ArrowRight',
   'Tab',
+  'KeyV',
 ]);
 
 function axisWithDeadZone(value, deadZone = 0.18) {
@@ -103,6 +104,8 @@ export class InputManager {
       active: false,
       turbo: false,
       shootHeld: false,
+      jukeHeld: false,
+      jukeDir: null, // stick direction captured mid-flick while JUKE is held
       edges: new Set(),
     };
 
@@ -318,7 +321,8 @@ export class InputManager {
     );
 
     let gamebreaker = this.justPressed('KeyE');
-    let ballCamToggle = this.justPressed('KeyC');
+    // Take the cage: hand control to your own keeper (and take it back again).
+    let cage = this.justPressed('KeyV');
     let playcall = 0;
 
     if (this.down('KeyA', 'ArrowLeft')) {
@@ -407,8 +411,8 @@ export class InputManager {
         switchPlayer = true;
       } else if (field === 'gamebreaker') {
         gamebreaker = true;
-      } else if (field === 'ballCamToggle') {
-        ballCamToggle = true;
+      } else if (field === 'cage') {
+        cage = true;
       }
     }
 
@@ -488,9 +492,11 @@ export class InputManager {
         switchPlayer = true;
       }
 
-      if (this.gamepadPressed(pad, 11)) {
-        ballCamToggle = true; // R3: right-stick click
+      if (this.gamepadPressed(pad, 10)) {
+        cage = true;
       }
+
+      // R3 (button 11) is unused now that ball-cam is gone.
 
       const leftTrigger =
         this.gamepadButton(pad, 6);
@@ -572,12 +578,23 @@ export class InputManager {
     output.shootPressed = !!shootPressed;
     output.shootReleased = !!shootReleased;
     output.pass = !!pass;
+    // JUKE held + stick flick: the flick direction aims the signature move. A plain tap keeps
+    // the old behaviour (forward move, AI/target chosen by the sim).
+    if (touch.jukeHeld && touch.jukeDir) {
+      const d = touch.jukeDir;
+      output.moveX = Math.max(-1, Math.min(1, d.x));
+      output.moveZ = Math.max(-1, Math.min(1, d.y));
+      output.jukeDir = { x: d.x, y: d.y };
+    } else {
+      output.jukeDir = null;
+    }
+    output.jukeHeld = !!touch.jukeHeld;
     output.trick = !!trick;
     output.hit = !!hit;
     output.breach = !!breach;
     output.switchPlayer = !!switchPlayer;
     output.gamebreaker = !!gamebreaker;
-    output.ballCamToggle = !!ballCamToggle;
+    output.cage = !!cage;
     output.playcall = playcall;
 
     // Preserve one-shot actions until a fixed simulation

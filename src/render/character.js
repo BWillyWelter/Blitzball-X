@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { applyTrack, applyTurbulence } from './posetracks.js';
 import {
   SHOOT, PASS, CATCH_ABSORB, TACKLE, HIT, SAVE, VOLLEY,
-  STUMBLE, FALLEN, CELEBRATE, GBWIND, trickTrack,
+  STUMBLE, FALLEN, REEL, CELEBRATE, GBWIND, trickTrack,
 } from './animtracks.js';
 import { swimCycle, treadWater } from './swimcycle.js';
 import {
@@ -55,6 +55,21 @@ export class CharacterView {
     this.motion = MOTION_PROFILES[playerData.archetype] || MOTION_PROFILES['All-Around'];
 
     this.build();
+  }
+
+  /**
+   * Release every GPU resource this view owns. Substitutions swap a slot's swimmer, so the old
+   * view is torn down mid-match instead of waiting for the renderer-wide scene clear in dispose().
+   */
+  dispose() {
+    this.root.traverse((obj) => {
+      obj.geometry?.dispose?.();
+      const mat = obj.material;
+      if (Array.isArray(mat)) for (const m of mat) m?.dispose?.();
+      else mat?.dispose?.();
+    });
+    this.root.removeFromParent();
+    this.root = null;
   }
 
   build() {
@@ -1041,10 +1056,12 @@ export class CharacterView {
   }
 
   case 'trick': {
-    const trickId = p.trick?.def?.id ?? 0;
-    hipY = applyTrack(this, trickTrack(trickId), stateTime / stateDuration);
-    // Dolphin kick and Jet Stream keep a fast flutter on top of the track.
-    if (trickId === 2 || trickId === 5) {
+    // The swimmer's signature move picks its own dedicated track (moves.js `track`).
+    const track = p.trick?.def?.track ?? 0;
+    hipY = applyTrack(this, trickTrack(track), stateTime / stateDuration);
+    // Moves that travel straight through the water keep a fast kick on top of the track.
+    const trickKind = p.trick?.def?.kind;
+    if (trickKind === 'vault' || trickKind === 'dash' || trickKind === 'climb') {
       const flutter = Math.sin(time * 26) * 0.35;
       legs[0].hip.rotation.x += flutter;
       legs[1].hip.rotation.x -= flutter;
@@ -1111,6 +1128,21 @@ export class CharacterView {
 
   case 'stumble': {
     hipY = applyTrack(this, STUMBLE, stateTime / stateDuration);
+    break;
+  }
+
+  // Soft contact: knocked off balance, thrown a step, back up fast. Mirror by the direction the
+  // impact came from so you can always see which way the contact pushed them.
+  case 'reel': {
+    hipY = applyTrack(this, REEL, stateTime / stateDuration);
+    this.body.rotation.z *= (p.knockDir?.z ?? 0) >= 0 ? 1 : -1;
+    break;
+  }
+
+  // Committed to a dive or a swing and missed: off balance and out of the play.
+  case 'commit': {
+    hipY = applyTrack(this, STUMBLE, stateTime / stateDuration);
+    this.body.rotation.z += Math.sin(time * 14) * 0.12;
     break;
   }
 
