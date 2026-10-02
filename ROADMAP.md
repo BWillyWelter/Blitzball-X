@@ -113,8 +113,29 @@ landed on `main` with the commit that closed them.
       dive-cooldown bar all read the same events. Covered by `tests/sim.test.mjs` (64) and
       `tools/benchtest.mjs`.
 
-## 2. Graphics & FX
+- [x] **Announcer voice, and four backing tracks instead of one.** The announcer had never had a
+      voice: `voice` in `moves.js` is only the spoken-form *string* for a commentary line, and
+      nothing ever spoke it — every "call" was text on a ticker. It now speaks through the Web
+      Speech API, pitched and sped up as a poolside caster, ducking the music under each line and
+      letting a goal cut off the previous call. The important part was not assuming an empty
+      `getVoices()` means speech is dead: headless Chromium and Linux report **zero** voices and
+      still speak through the engine default, so a missing voice falls back rather than silencing
+      the announcer (verified: lines speak with an empty voice list). Music went from one four-bar
+      loop to four tracks — BADDIES / DEEP END / DEAD WEIGHT / HYPERFLOW — each with its own tempo
+      pocket, drum grid, key, bassline and swing, and AUTO picks a fresh one per match.
+      `ANNOUNCER VOICE`, `ANNOUNCER VOLUME` and `MUSIC TRACK` in Settings; the ticker is unchanged
+      so the lines survive when speech is unavailable.
+- [x] **Fixed: the match went choppy part way through and never recovered.** The fixed-step loop
+      ran at most 5 sim steps per rendered frame, but `dt` is clamped to 0.1s — six steps at
+      1/60. So any frame slower than 100ms deposited backlog the loop could never drain, and each
+      further slow frame added more: a textbook spiral of death. The sim fell permanently behind the
+      wall clock, so the match crawled in slow motion and never got better, which is exactly the
+      "fine for a while, then laggy" report. The leftover is now dropped so the sim falls back onto
+      real time — the match clock is simulated anyway, so this only skips catch-up frames.
+      Reproduced arithmetically (600 consecutive 100ms frames left a 10s backlog) and covered by
+      the accumulator now peaking at one step.
 
+## 2. Graphics & FX
 - [x] Fast perf spot-check tool (`tools/perfshot.mjs`) reporting frame time, draw calls and
       triangles, wired into CI (`2b81697`).
 - [x] Bubble wakes on turbo and richer goal-shock FX: turbo swimmers now emit a shared particle

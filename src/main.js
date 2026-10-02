@@ -28,6 +28,12 @@ import {
 } from './game/career.js';
 import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import { PHYS } from './data/constants.js';
+
+/**
+ * Ceiling on fixed sim steps per rendered frame. Bounds the worst-case cost of one slow frame,
+ * and pairs with the accumulator clamp below so a hitch can't leave an undrainable backlog.
+ */
+const MAX_STEPS_PER_FRAME = 5;
 import * as Screens from './ui/screens.js';
 import { startAnimBench } from './dev/animbench.js';
 
@@ -249,6 +255,9 @@ class App {
     const replayDirector = new ReplayDirector();
     const commentary = new Commentary(sim, (line, pr) => {
       if (this.state.settings.commentary) hud.ticker(line, pr);
+      // The announcer speaks the same line it prints. speech() is a no-op on browsers
+      // with no usable voice, and the ticker carries the line either way.
+      if (this.state.settings.commentary) this.audio.speak(line, pr);
     });
     this.match = { sim, renderer, hud, commentary, bench, replay, montage, replayRecorder, replayDirector, wrap, mode, userTeam, home, away, careerFixture, paused: false, tipTimer: 2.2, finished: false, resultsTimer: 0, touchControls: null };
     // Halftime: the break is dead air unless something is said about it. The montage runs over the
@@ -532,6 +541,7 @@ class App {
     this.match.wrap.remove();
     this.match = null;
     this.audio.stopCrowd();
+    this.audio.stopVoice();
     this.audio.resume();
   }
 
@@ -664,7 +674,7 @@ class App {
       this.accum += dt;
       const step = PHYS.fixedDt;
       let n = 0;
-      while (this.accum >= step && n < 5) {
+      while (this.accum >= step && n < MAX_STEPS_PER_FRAME) {
         m.sim.step(step);
         m.replayRecorder.record(m.sim, step);
         this.accum -= step;
@@ -681,6 +691,13 @@ class App {
         input.cage = false;
         input.playcall = 0;
       }
+      // Spiral-of-death guard: the loop above can only drain MAX_STEPS_PER_FRAME steps, but a slow
+      // frame can hand it more than that (dt is clamped to 0.1s, which is six steps at 1/60). Any
+      // leftover is a backlog we have already fallen behind by — keeping it makes the sim run
+      // permanently behind the wall clock, so the match crawls in slow motion and never recovers,
+      // and each slow frame adds more. Drop the excess instead and let the sim fall back onto real
+      // time; the match clock is simulated anyway, so losing backlog only skips catch-up frames.
+      if (this.accum > step) this.accum = step;
       // Only release latched edges once a step has actually consumed them, otherwise a tap that
       // lands on a frame with no fixed step (120 Hz displays) is silently dropped.
       if (n > 0) this.input.flushOneShots();

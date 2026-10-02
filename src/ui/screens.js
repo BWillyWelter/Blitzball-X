@@ -14,6 +14,7 @@ import {
   rivalryOf,
 } from '../game/career.js';
 import { RecapPanel } from './recap.js';
+import { TRACKS } from './audio.js';
 // Single source of truth for the build number: the release workflow already refuses to publish a
 // tag that disagrees with this file, and the title screen used to advertise a hardcoded "v1.0"
 // that silently drifted every release.
@@ -555,6 +556,9 @@ export function SettingsScreen(app, params = {}) {
         ${row('masterVolume', 'MASTER VOLUME', 'range')}
         ${row('musicVolume', 'MUSIC', 'range')}
         ${row('sfxVolume', 'SFX & CROWD', 'range')}
+        ${row('musicTrack', 'MUSIC TRACK', 'select', [['auto', 'AUTO (new each match)'], ...Object.entries(TRACKS).map(([k, v]) => [k, v.label.toUpperCase()])])}
+        ${row('announcer', 'ANNOUNCER VOICE', 'toggle')}
+        ${row('announcerVolume', 'ANNOUNCER VOLUME', 'range')}
         ${row('quality', 'GRAPHICS', 'select', [['low', 'LOW (no shadows / bloom)'], ['medium', 'MEDIUM'], ['high', 'HIGH']])}
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
         ${row('commentary', 'COMMENTARY', 'toggle')}
@@ -598,7 +602,11 @@ export function SettingsScreen(app, params = {}) {
         s[key] = input.checked;
         if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
         if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
-      } else s[key] = input.value;
+        if (key === 'announcer' && !input.checked) app.audio.stopVoice();
+      } else if (input.type === 'select-one' || input.tagName === 'SELECT') s[key] = input.value;
+      else s[key] = input.value;
+      // Switching track restarts the loop immediately so the choice is audible.
+      if (key === 'musicTrack') { app.audio._lastTrackId = null; app.audio.startBeat(app.match ? 'match' : 'menu'); }
       // Layout changes are felt immediately, even from the in-match settings overlay.
       if (key.startsWith('touch')) app.match?.touchControls?.applySettings(s);
       app.save();

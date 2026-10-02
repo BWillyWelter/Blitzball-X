@@ -7,6 +7,9 @@ export const DEFAULT_SETTINGS = {
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.9,
+  announcer: true, // spoken commentary lines
+  announcerVolume: 0.8,
+  musicTrack: 'auto', // auto | <track id> — which backing track plays
   quality: 'high', // low | medium | high
   difficulty: 'pro', // rookie | pro | legend
   commentary: true,

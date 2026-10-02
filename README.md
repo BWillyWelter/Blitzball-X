@@ -97,6 +97,25 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
   `localStorage`.
 - **Watch** — CPU vs CPU exhibition.
 
+### Sound
+
+Everything is synthesized at runtime — there are no audio files. That covers the one-shot SFX
+(bounces, swishes, slams, whistles, stingers), the crowd bed, the **announcer**, and the
+**backing music**.
+
+- **The announcer speaks.** Commentary lines are read aloud with the Web Speech API, tuned up in
+  rate and pitched to land as a hyped poolside caster rather than a default assistant, with the
+  music ducked underneath each line so the call reads. A high-priority call (a goal) cuts off
+  whatever was mid-sentence. Voice, volume and an on/off switch live in Settings. Browsers differ
+  wildly here — macOS and Windows have a dozen voices to pick a casting one from, while headless
+  Linux exposes none and falls back to the engine default — and if speech is genuinely unavailable
+  the text ticker still carries every line.
+- **Four backing tracks**, all boom-bap/hip-hop: **BADDIES** (90 BPM, dusty D minor, the original),
+  **DEEP END** (104, G-funk-leaning rolling bass), **DEAD WEIGHT** (82, slow half-time) and
+  **HYPERFLOW** (112, busy and bright, and it lifts a whole tone in-match). They differ in tempo
+  pocket, drum grid, key, bassline and swing, and **AUTO** picks a different one each match so
+  consecutive games don't sit on the same four bars. Pick a specific track in Settings to pin it.
+
 ## Architecture
 
 ```
@@ -109,7 +128,8 @@ src/
                career (squad, injuries, form, rivalry, fixtures)
   render/      three.js: sphere pool + goals + stadium, cel-shaded characters, FX, camera
   ui/          input (keyboard + gamepad), HUD, bench, commentary, replay + montage overlays,
-               match recap, procedural audio, screens (incl. squad selection), save
+               match recap, procedural audio (backing tracks + announcer voice),
+               screens (incl. squad selection), save
   main.js      app shell: screens, match lifecycle, fixed-step loop
 tests/         node:test suite (rules, determinism, bounds, mechanics coverage)
 scripts/       headless simulation runner (balance / stall detection)
