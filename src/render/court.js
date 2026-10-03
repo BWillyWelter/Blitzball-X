@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ARENA } from '../data/constants.js';
-import { toon, toonGradient, makeCanvas, canvasTexture, withOutline, noise2 } from './materials.js';
+import { toon, toonGradient, makeCanvas, canvasTexture, withOutline, noise2, mergeStatic } from './materials.js';
 
 /**
  * Builds the Blitzball arena: a giant sphere of water suspended over a street stadium.
@@ -29,14 +29,18 @@ function buildArcaneAccents(theme) {
   const accentMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending });
 
   // Energy lanes point toward both goals and make the playable space legible at a glance.
+  // Static and single-material, so all eight merge into one draw call.
+  const lanes = [];
   for (const sign of [-1, 1]) {
     for (let i = 0; i < 4; i++) {
       const lane = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.018, 5.5 - i * 0.5), lineMat);
       lane.position.set(sign * (2.2 + i * 1.0), 0.01, 0);
       lane.rotation.y = sign * (0.05 + i * 0.025);
-      g.add(lane);
+      lanes.push(lane);
     }
   }
+  const laneMesh = mergeStatic(lanes, lineMat, g);
+  if (laneMesh) g.add(laneMesh);
 
   // Crystal pylons mark the boundary and pulse with the same rhythm as the water shader.
   const pylons = [];
@@ -266,14 +270,17 @@ function buildPlayingDisc(theme) {
   catcher.position.y = -0.03;
   catcher.receiveShadow = true;
   g.add(catcher);
-  // Floating marker pylons around the boundary
+  // Floating marker pylons around the boundary — 16 static posts sharing one material.
   const pylonMat = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.7 });
+  const pylons = [];
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
     const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 6), pylonMat);
     p.position.set(Math.cos(a) * (ARENA.fieldRadius + 0.3), 0.6, Math.sin(a) * (ARENA.fieldRadius + 0.3));
-    g.add(p);
+    pylons.push(p);
   }
+  const pylonMesh = mergeStatic(pylons, pylonMat, g);
+  if (pylonMesh) g.add(pylonMesh);
   return g;
 }
 
@@ -408,31 +415,34 @@ function buildMachinery(theme) {
   const cyan = new THREE.MeshBasicMaterial({ color: theme.line, transparent: true, opacity: 0.55 });
   for (const [cxp, czp, y, sc] of MACHINERY) {
     const unit = new THREE.Group();
+    // A unit drifts as one rigid body, so its parts merge per material: 11 calls -> 3.
     // main beam grid (crossed box beams)
+    const steelParts = [];
     const beam = new THREE.Mesh(new THREE.BoxGeometry(7.5 * sc, 0.5 * sc, 1.1 * sc), steel);
-    unit.add(beam);
+    steelParts.push(beam);
     const beam2 = new THREE.Mesh(new THREE.BoxGeometry(1.1 * sc, 0.5 * sc, 5.5 * sc), steel);
     beam2.position.set(2.6 * sc, 0.8 * sc, 1.6 * sc);
-    unit.add(beam2);
+    steelParts.push(beam2);
     for (let i = -2; i <= 2; i++) {
       const rib = new THREE.Mesh(new THREE.BoxGeometry(0.35 * sc, 1.7 * sc, 0.35 * sc), steel);
       rib.position.set(i * 1.7 * sc, -0.9 * sc, 0);
-      unit.add(rib);
+      steelParts.push(rib);
     }
     // hanging hook + cable
     const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6 * sc, 5), steel);
     cable.position.set(-1.5 * sc, -1.9 * sc, 0);
-    unit.add(cable);
+    steelParts.push(cable);
     const hook = new THREE.Mesh(new THREE.BoxGeometry(0.85 * sc, 0.7 * sc, 0.85 * sc), steel);
     hook.position.set(-1.5 * sc, -3.2 * sc, 0);
-    unit.add(hook);
+    steelParts.push(hook);
     // warning lights: tiny warm + cyan strips that sell the scale
     const l1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.18), warm);
     l1.position.set(1.2 * sc, 0.35 * sc, 0.6 * sc);
-    unit.add(l1);
     const l2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.15), cyan);
     l2.position.set(-3.0 * sc, 0.3 * sc, -0.5 * sc);
-    unit.add(l2);
+    unit.add(l1, l2);
+    const steelMesh = mergeStatic(steelParts, steel, unit);
+    if (steelMesh) unit.add(steelMesh);
     unit.position.set(cxp, y, czp);
     unit.rotation.y = noise2(cxp, czp) * Math.PI;
     g.add(unit);
@@ -501,16 +511,19 @@ function buildSurroundings(theme) {
   plaza.position.y = groundY;
   g.add(plaza);
 
-  // Support cradle (tripod arms holding the sphere)
+  // Support cradle (tripod arms holding the sphere) — static, so the three arms merge into one.
   const armMat = toon('#2f333d');
+  const arms = [];
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + 0.4;
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1.2, R + 6, 10), armMat);
     arm.position.set(Math.cos(a) * (R * 0.55), groundY + (R + 6) / 2 - 1, Math.sin(a) * (R * 0.55));
     arm.lookAt(0, -R * 0.55, 0);
     arm.rotateX(Math.PI / 2);
-    g.add(arm);
+    arms.push(arm);
   }
+  const armMesh = mergeStatic(arms, armMat, g);
+  if (armMesh) g.add(armMesh);
 
   // Stands: ring of tiered seats around the equator, outside the sphere. The whole crowd is
   // two InstancedMeshes (bodies + heads): the old per-person meshes meant ~1400 draw calls;
@@ -519,13 +532,18 @@ function buildSurroundings(theme) {
   const skin = ['#f1c27d', '#c68642', '#8d5524', '#5c3a21'];
   const tiers = 5;
   const seats = [];
+  // Stand rings alternate between two cached toon materials and never move, so each colour's
+  // rings merge into one mesh (5 draw calls -> 2).
+  const ringGroups = new Map();
   for (let t = 0; t < tiers; t++) {
     const rr = R + 4 + t * 1.6;
     const y = -3.5 + t * 1.1;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.75, 6, 96), toon(t % 2 ? '#3d4553' : '#4b5563'));
+    const ringMat = toon(t % 2 ? '#3d4553' : '#4b5563');
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.75, 6, 96), ringMat);
     ring.rotation.x = Math.PI / 2;
     ring.position.y = y;
-    g.add(ring);
+    if (!ringGroups.has(ringMat)) ringGroups.set(ringMat, []);
+    ringGroups.get(ringMat).push(ring);
     const n = Math.floor(rr * 2.2);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
@@ -539,6 +557,10 @@ function buildSurroundings(theme) {
         phase: noise2(i, t * 3) * Math.PI * 2,
       });
     }
+  }
+  for (const [mat, rings] of ringGroups) {
+    const merged = mergeStatic(rings, mat, g);
+    if (merged) g.add(merged);
   }
   const crowd = new THREE.Group();
   crowd.name = 'crowd';
@@ -607,9 +629,11 @@ function buildSurroundings(theme) {
     g.add(banner);
   }
 
-  // Floodlight masts
+  // Floodlight masts — poles and heads share a material and never move, so both sets merge.
   const lightMat = toon('#3a3a42');
   const bulbMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9 });
+  const steelParts = [];
+  const bulbs = [];
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     const rr = R + 16;
@@ -618,22 +642,30 @@ function buildSurroundings(theme) {
     const h = R + 22;
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, h, 8), lightMat);
     pole.position.set(x, groundY + h / 2, z);
-    g.add(pole);
+    steelParts.push(pole);
     const head = new THREE.Mesh(new THREE.BoxGeometry(3, 1.4, 0.8), lightMat);
     head.position.set(x, groundY + h + 0.6, z);
     head.lookAt(0, 6, 0);
-    g.add(head);
+    steelParts.push(head);
     const bulb = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.0), bulbMat);
     bulb.position.copy(head.position);
     bulb.lookAt(0, 6, 0);
     bulb.translateZ(0.42);
-    g.add(bulb);
+    bulbs.push(bulb);
   }
+  const steelMesh = mergeStatic(steelParts, lightMat, g);
+  if (steelMesh) g.add(steelMesh);
+  const bulbMesh = mergeStatic(bulbs, bulbMat, g);
+  if (bulbMesh) g.add(bulbMesh);
 
-  // Skyline ring
+  // Skyline ring. Nothing here ever moves, so the towers and their windows are each merged into a
+  // single mesh: the ring was ~40 towers plus ~230 lit windows, i.e. ~270 draw calls per frame for
+  // a silhouette that never animates. Two calls now draw the identical skyline.
   const skyline = new THREE.Group();
   const bMat = toon('#0f1118');
   const winMat = new THREE.MeshBasicMaterial({ color: 0xffd98a });
+  const towers = [];
+  const windows = [];
   for (let i = 0; i < 40; i++) {
     const a = (i / 40) * Math.PI * 2;
     const dist = 95 + noise2(i, 43) * 30;
@@ -642,7 +674,7 @@ function buildSurroundings(theme) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), bMat);
     b.position.set(Math.cos(a) * dist, groundY + h / 2, Math.sin(a) * dist);
     b.rotation.y = -a;
-    skyline.add(b);
+    towers.push(b);
     for (let k = 0; k < 8; k++) {
       if (noise2(i, k * 5) < 0.4) continue;
       const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.2), winMat);
@@ -650,9 +682,14 @@ function buildSurroundings(theme) {
       win.position.x += Math.sin(a) * (noise2(i, k) - 0.5) * (w - 1.5);
       win.position.z -= Math.cos(a) * (noise2(i, k) - 0.5) * (w - 1.5);
       win.lookAt(0, win.position.y, 0);
-      skyline.add(win);
+      windows.push(win);
     }
   }
+  // Merge under a scratch parent so the matrices bake against the skyline's own origin.
+  const towerMesh = mergeStatic(towers, bMat, skyline);
+  const winMesh = mergeStatic(windows, winMat, skyline);
+  if (towerMesh) skyline.add(towerMesh);
+  if (winMesh) skyline.add(winMesh);
   g.add(skyline);
   return g;
 }

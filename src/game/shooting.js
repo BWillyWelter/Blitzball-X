@@ -1,7 +1,7 @@
 import { Vec3, clamp, lerp } from '../core/vec3.js';
 import { emptyInput } from './entities.js';
 import { updateAI } from './ai.js';
-import { ARENA, ACTION, MOVE, RULES, STYLE } from '../data/constants.js';
+import { ARENA, ACTION, MOVE, RULES, STYLE, PHYS } from '../data/constants.js';
 
 /**
  * Shooting, volleys and Gamebreaker drives, extracted from MatchSim.
@@ -169,6 +169,7 @@ export function fireShot(
       volley = false,
       power = 0.85,
       aimDir = null,
+      spin: spinOverride = null,
     } = {}
   
   ) {
@@ -210,6 +211,23 @@ export function fireShot(
       -0.85,
       0.85
     );
+
+    // Struck spin: every shot is hit with english. The lateral part of the user's aim at release
+    // is the CURVE — bend it round the keeper's dive and the ring has never looked bigger — and
+    // the timing strike decides how clean it is: an un-aimed or badly-timed strike just wobbles.
+    // CPU shooters carry a little natural curve off their shot rating, so nothing in the pool is
+    // ever perfectly flat and a keeper reads nothing off the flight line alone.
+    let spin;
+    if (spinOverride !== null) spin = spinOverride;
+    else if (gb) spin = 0;
+    else if (sim.isUser(player) && aimDir) {
+      const gdir = Vec3.dirXZ(player.pos, goal);
+      const lateral = gdir.x * aimDir.z - gdir.z * aimDir.x;
+      spin = clamp(lateral * 1.3, -1, 1) * (0.55 + quality * 0.45);
+    } else {
+      spin = (sim.rng.next() - 0.5) * ((1 - quality) * 1.6 + 0.25);
+    }
+    spin = clamp(spin, -1, 1);
 
     // Which ring is this shot going for? The user steers laterally with the stick (aim) and
     // vertically with swim depth at release (aiming high at the 3-ring, low at the 1-rings);
@@ -341,8 +359,23 @@ export function fireShot(
       aimZ
     );
 
-    const direction = Vec3.sub(
+    const direction0 = Vec3.sub(
       to,
+      from
+    ).normalize();
+
+    // A curled shot is struck ACROSS the ball so it bends back onto the aimed ring: the release
+    // line starts a little wide of the target and the spin brings it home (like a free kick). The
+    // compensation cancels only the modelled curve — a badly-timed strike's wobble is on top of
+    // it, so poor timing still bends off line for a genuine miss.
+    const dl = Math.hypot(direction0.x, direction0.z) || 1;
+    const lx = -direction0.z / dl;
+    const lz = direction0.x / dl;
+    const tF = Math.max(0.3, distance / Math.max(8, speed));
+    const bendHere = spin * PHYS.ballCurve * clamp(speed / 14, 0.35, 1);
+    const lead = 0.5 * bendHere * tF * tF;
+    const direction = Vec3.sub(
+      new Vec3(to.x - lx * lead, to.y, to.z - lz * lead),
       from
     ).normalize();
 
@@ -355,6 +388,7 @@ export function fireShot(
       direction.y * speed,
       direction.z * speed
     );
+    sim.ball.spin = spin;
 
     sim.ball.flight = {
       kind: 'shot',
@@ -364,6 +398,7 @@ export function fireShot(
       quality,
       dist: distance,
       aimZ,
+      spin,
       t: 0,
       checked: new Set(),
       name: player.shot
@@ -392,6 +427,7 @@ export function fireShot(
       quality,
       dist: distance,
       speed,
+      spin,
     });
 
     if (distance > 9 && !gb) {
@@ -460,8 +496,10 @@ export function tryVolley(sim, player) {
     player.hasBall = true;
     ball.holder = player;
 
+    // The alley-oop volley is the best look in the sport, not a tap-in: it still has to be
+    // finished under pressure like everything else.
     const quality =
-      wasLob ? 0.95 : 0.7;
+      wasLob ? 0.82 : 0.7;
 
     sim.fireShot(
       player,

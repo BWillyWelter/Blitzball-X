@@ -8,6 +8,7 @@ import { swimCycle, treadWater } from './swimcycle.js';
 import {
   toon,
   withOutline,
+  mergeInPlace,
   makeCanvas,
   canvasTexture,
   shade,
@@ -171,6 +172,7 @@ export class CharacterView {
     backNumber.rotation.y = Math.PI;
     this.torso.add(backNumber);
 
+    const shoulderPads = [];
     for (const side of [-1, 1]) {
       const shoulderPad = new THREE.Mesh(
         new THREE.SphereGeometry(
@@ -187,8 +189,16 @@ export class CharacterView {
         0
       );
 
+      shoulderPads.push(shoulderPad);
       this.torso.add(shoulderPad);
     }
+
+    // The rig animates by rotating joints, so parts can only be merged WITHIN one joint — never
+    // across two, or the baked transform would freeze the motion. Inside the torso the two number
+    // decals and the two shoulder pads are rigid siblings sharing a material, so each pair becomes
+    // one draw call instead of two. Same trick for the knee's sock + sole below.
+    mergeInPlace(this.torso, [frontNumber, backNumber], decalMaterial);
+    mergeInPlace(this.torso, shoulderPads, trimMat);
 
     this.neck = new THREE.Group();
     this.neck.position.y = 0.82;
@@ -673,6 +683,10 @@ export class CharacterView {
       );
 
       knee.add(sole);
+
+      // toon() caches by colour, so the sock and the sole share one material instance and are
+      // rigid siblings inside the knee — one draw call for both.
+      mergeInPlace(knee, [sock, sole], sock.material);
 
       this.legs.push({
         hip,

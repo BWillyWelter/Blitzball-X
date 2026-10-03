@@ -227,6 +227,21 @@ export function updateBall(sim, dt, deadBall) {
     }
 
     if (flight.kind === 'shot') {
+      // Magnus-style curve: the spin the shot was struck with bends the flight across the
+      // direction of travel, easing off as the ball loses pace. This is what makes a curled
+      // finish possible — and what a keeper is reading when the ball swings late.
+      const shotSpeed = ball.vel.length();
+      if (flight.spin && shotSpeed > 1) {
+        const nx = -ball.vel.z / shotSpeed;
+        const nz = ball.vel.x / shotSpeed;
+        const bend =
+          flight.spin *
+          PHYS.ballCurve *
+          clamp(shotSpeed / 14, 0.35, 1);
+        ball.vel.x += nx * bend * dt;
+        ball.vel.z += nz * bend * dt;
+      }
+
       ball.vel.y +=
         PHYS.gravityLoose *
         0.4 *
@@ -245,6 +260,8 @@ export function updateBall(sim, dt, deadBall) {
         (PHYS.ballFloat - ball.pos.y) *
         PHYS.ballBuoyancy *
         dt;
+
+      applyCurrent(sim, ball, dt);
 
       ball.vel.scale(
         Math.max(
@@ -363,11 +380,24 @@ export function integrateLoose(sim, ball, dt) {
       (PHYS.ballFloat - ball.pos.y) *
       PHYS.ballBuoyancy *
       dt;
+    applyCurrent(sim, ball, dt);
     ball.vel.scale(
       Math.max(0, 1 - PHYS.looseDrag * dt)
     );
     ball.pos.addScaled(ball.vel, dt);
     sim.bounceBall(ball, null);
+  }
+
+/**
+ * The pool is never dead water. A slow gyre (see MatchSim.currentAt) nudges anything drifting,
+ * so a loose ball wanders on its own instead of hanging exactly where it stopped. Deliberately
+ * gentle and only on unheld balls — a swimmer's stroke always beats the water.
+ */
+function applyCurrent(sim, ball, dt) {
+    if (!sim.currentAt) return;
+    const c = sim.currentAt(ball.pos.x, ball.pos.z);
+    ball.vel.x += c.x * dt;
+    ball.vel.z += c.z * dt;
   }
 
 export function bounceBall(sim, ball, flight) {

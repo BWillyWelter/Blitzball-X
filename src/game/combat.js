@@ -38,6 +38,14 @@ function sim_fwd(p) {
   return new Vec3(Math.sin(p.facing), 0, Math.cos(p.facing));
 }
 
+/**
+ * Body mass from the `pow` stat — the same scale movement.js turns with, so a swimmer who is hard
+ * to turn is also hard to knock flying. Exported for the tests.
+ */
+export function massOf(p) {
+  return MOVE.massBase + ((p?.data?.pow ?? 60) / 99) * MOVE.massPerPow;
+}
+
 /** Freeze the whole sim for `seconds` of real time. Longest request wins. */
 function hitstop(sim, seconds) {
   sim.freeze = Math.max(sim.freeze || 0, seconds);
@@ -75,7 +83,7 @@ export function tryTrick(sim, p, dir, turbo) {
   spendStamina(p, 'trick');
   const power = movePower(def, p);
   const d = (dir || sim.forwardOf(p)).clone();
-  p.trick = { def, dir: d, turbo: useTurbo, washed: new Set(), power };
+  p.trick = { def, dir: d, turbo: useTurbo, washed: new Set(), power, contested: false };
   if (useTurbo) p.turbo = Math.max(0, p.turbo - MOVE.moveTurboCost);
   p.cd.trick = ACTION.trickCooldown + def.dur;
   p.facing = Math.atan2(d.x, d.z);
@@ -84,13 +92,29 @@ export function tryTrick(sim, p, dir, turbo) {
   sim.setState(p, 'trick', def.dur);
   sim.stats.tricks++;
   sim.events.emit('trick', { player: p, name: def.name, move: def, turbo: useTurbo, power });
-  applyMoveEffect(sim, p, def, d, power);
+  applyMoveContact(sim, p, def, d, power);
+  if (def.kind === 'cut') {
+    // GLANCE snaps out sideways: the instant lateral release is the move, not the contact.
+    p.vel.x += sideX(d) * 3.2 * power;
+    p.vel.z += sideZ(d) * 3.2 * power;
+  }
   sim.addStyle(p, STYLE.trick + (useTurbo ? STYLE.trickTurbo : 0), def.name);
   return true;
 }
 
+/**
+ * A signature move is played against the defenders it actually TRAVELS into, not just whoever
+ * stood in the cone at the moment of the input. `stepMove` re-runs the contact sweep every frame
+ * of the move (movement.js), and every defender can only be beaten once (tr.washed).
+ */
+export function stepMove(sim, p) {
+  const tr = p.trick;
+  if (!tr) return;
+  applyMoveContact(sim, p, tr.def, tr.dir, tr.power);
+}
+
 /** Each `kind` does something genuinely different to the defender it is used on. */
-function applyMoveEffect(sim, p, def, d, power) {
+function applyMoveContact(sim, p, def, d, power) {
   switch (def.kind) {
     case 'wash':
       // Only beats a defender who is looking at you — that is the trade: you stand up and spin.
@@ -113,8 +137,6 @@ function applyMoveEffect(sim, p, def, d, power) {
     case 'cut':
       // No damage: an instant lateral release that kills the challenge and opens the lane.
       brushAside(sim, p, d, power * COMBAT.brushSpeed * 0.6);
-      p.vel.x += sideX(d) * 3.2 * power;
-      p.vel.z += sideZ(d) * 3.2 * power;
       break;
     case 'vault':
     case 'low':
@@ -123,6 +145,19 @@ function applyMoveEffect(sim, p, def, d, power) {
     default:
       // Motion-only moves: the travel and the height are the whole mechanic (see movement.js).
       break;
+  }
+}
+
+/**
+ * The payoff and the wow: beating a man hands turbo back and drops the pool into a beat of
+ * slow-mo so the player sees it happen. This is what makes a signature move worth its commit.
+ */
+function wowBeat(sim, p) {
+  p.turbo = Math.min(100, p.turbo + MOVE.moveTurboRefund);
+  hitstop(sim, COMBAT.hitstop.wash);
+  if ((sim.slowmo || 0) < COMBAT.wowSlowmo) {
+    sim.slowmo = COMBAT.wowSlowmo;
+    sim.timeScale = COMBAT.wowSlowmoScale;
   }
 }
 
@@ -164,15 +199,20 @@ function coneWash(sim, p, def, d, power, opts = {}) {
     p.trick.washed.add(q.id);
     knockDown(sim, q, p, 'washed', opts.state || 'reel', impact);
     p.stats.washed++;
+    wowBeat(sim, p);
     sim.addStyle(p, STYLE.washed, 'WASHED!', { big: true });
     sim.events.emit('washed', { player: p, victim: q, name: def.name, impact });
   }
 }
 
-/** Shove a defender out of the lane without felling them — roll, cut and vault all use this. */
+/**
+ * Shove a defender out of the lane without felling them — roll, cut and vault all use this.
+ * Each defender is brushed at most once per move (tr.washed), so the sweep cannot stack pushes.
+ */
 function brushAside(sim, p, d, push) {
   for (const q of sim.opponentsOf(p)) {
     if (q.isKeeper || q.state === 'fallen') continue;
+    if (p.trick && p.trick.washed.has(q.id)) continue;
     const dist = q.pos.distanceToXZ(p.pos);
     if (dist > COMBAT.brushRange) continue;
     if (d.dot(Vec3.dirXZ(p.pos, q.pos)) < 0.1) continue;
@@ -180,6 +220,10 @@ function brushAside(sim, p, d, push) {
     q.vel.x += away.x * push;
     q.vel.z += away.z * push;
     q.stun = Math.max(q.stun, 0.18);
+    if (p.trick) {
+      p.trick.washed.add(q.id);
+      p.turbo = Math.min(100, p.turbo + MOVE.moveTurboRefund * 0.5);
+    }
     break;
   }
 }
@@ -199,6 +243,11 @@ function spearContest(sim, p, def, d, power) {
     }
   }
   if (!target) return;
+  // One contest per move: win it or eat it, but the move is spent either way.
+  if (p.trick) {
+    if (p.trick.contested) return;
+    p.trick.contested = true;
+  }
   const edge = (p.data.pow - target.data.pow) / 99;
   let prob = clamp(0.5 + edge * 0.9 + (target.state === 'tackle' ? 0.18 : 0), 0.08, 0.92);
   if (sim.isUser(p)) prob *= sim.difficulty.userBonus;
@@ -208,6 +257,8 @@ function spearContest(sim, p, def, d, power) {
     p.vel.x += d.x * 2.4 * power;
     p.vel.z += d.z * 2.4 * power;
     p.stats.washed++;
+    if (p.trick) p.trick.washed.add(target.id);
+    wowBeat(sim, p);
     sim.addStyle(p, STYLE.washed, 'PIERCED!', { big: true });
     sim.events.emit('washed', { player: p, victim: target, name: def.name, impact });
   } else {
@@ -226,8 +277,11 @@ export function finishTrick(sim, p) {
   p.moveArmor = 0;
   if (tr) {
     const power = tr.power ?? 1;
-    // Every move leaves you recovering; the big commitments (dash, surge, spear) hurt the most.
-    p.stun = Math.max(p.stun, (tr.def.commit ?? MOVE.moveCommitBase) * (1.2 - power * 0.3) * (tr.turbo ? 1.1 : 1));
+    const beat = (tr.washed?.size || 0) > 0;
+    // Every move leaves you recovering — but the bill is for the move you WASTED. A move that
+    // beat its man leaves you clean and ready to play on, which is the whole payoff.
+    const commitScale = beat ? 0.25 : (1.2 - power * 0.3) * (tr.turbo ? 1.1 : 1);
+    p.stun = Math.max(p.stun, (tr.def.commit ?? MOVE.moveCommitBase) * commitScale);
     if (tr.def.kind === 'surge') {
       // WAVE CREST ends facing backwards: you have to turn around before you are a player again.
       p.facing += Math.PI;
@@ -338,7 +392,21 @@ export function tryHit(sim, p) {
     return false;
   }
   const impact = impactOf(p, p.pos, best.pos);
-  let prob = 0.45 + ((p.data.pow - best.data.pow) / 99) * 0.5;
+  // Real contact: what puts a swimmer on the floor is the body BEHIND the blow. A standing swing
+  // still connects but staggers; the hit taken at pace flattens — and is the one that can get you
+  // sent off. Closing speed (both bodies moving toward the contact) is the momentum factor.
+  const closing =
+    (p.vel.x - best.vel.x) * f.x +
+    (p.vel.z - best.vel.z) * f.z;
+  const momentum = clamp(
+    COMBAT.hitMomentumLo +
+      (Math.max(0, closing) / COMBAT.hitMomentumRef) *
+        (COMBAT.hitMomentumHi - COMBAT.hitMomentumLo),
+    COMBAT.hitMomentumLo,
+    COMBAT.hitMomentumHi
+  );
+  const severity = impact * momentum;
+  let prob = (0.45 + ((p.data.pow - best.data.pow) / 99) * 0.5) * (0.8 + momentum * 0.25);
   if (best.state === 'trick') prob -= 0.15;
   if (best.state === 'shoot' || best.state === 'pass') prob += 0.15;
   if (!sim.isUser(p)) prob *= sim.difficulty.hitRate * 1.25;
@@ -346,17 +414,21 @@ export function tryHit(sim, p) {
   prob = clamp(prob, 0.15, 0.9);
   if (sim.rng.chance(prob)) {
     const hadBall = sim.ball.holder === best;
-    const severity = impact;
     // Swiping someone who is already staggering (reel / stumble / stunned) is the one thing that is
     // always a foul. `fallen` players are out of the play entirely and can't be targeted at all,
     // so the rule reads on the ones who are going down but not yet out.
     const wasDown = best.state === 'reel' || best.state === 'stumble' || best.stun > 0;
-    knockDown(sim, best, p, 'hit', 'fallen', severity);
+    // Severity decides the outcome: a body behind the blow puts them flat, a standing swing just
+    // staggers them (and reads as a shove, not a highlight).
+    const hard = severity >= COMBAT.hitFallenSeverity;
+    knockDown(sim, best, p, 'hit', hard ? 'fallen' : 'reel', severity);
     p.stats.hits++;
     sim.stats.hits++;
     // Discipline: a squared-up big hit over the line is a whistle, not just a knockdown. Judged
     // AFTER the hit lands so the contact still reads, then the ball is handed back by the rules.
-    if (sim.callFoul(p, best, severity, 'bigHit', wasDown)) return true;
+    // The foul is judged on the blow itself (the angle) — momentum decides what it DID to the
+    // body, not whether it was legal.
+    if (sim.callFoul(p, best, impact, 'bigHit', wasDown)) return true;
     if (hadBall) {
       // ball pops loose
       best.stats.to++;
@@ -402,13 +474,15 @@ export function knockDown(sim, victim, by, reason, state = 'fallen', impact = 1)
   victim.moveArmor = 0;
   const hard = state === 'fallen';
   const base = hard ? MOVE.fallenDuration : MOVE.reelDuration;
-  const dur = base * (0.75 + 0.45 * clamp(impact, 0.5, 1.35));
+  // Mass matters: a heavy body moves less when it is hit and gets its footing back sooner.
+  const ratio = clamp(massOf(by) / massOf(victim), 0.7, 1.45);
+  const dur = base * (0.75 + 0.45 * clamp(impact, 0.5, 1.35)) * (1.25 - 0.25 * ratio);
   sim.setState(victim, hard ? 'fallen' : 'reel', dur);
   const dir = Vec3.dirXZ(by.pos, victim.pos);
   victim.knockDir.copy(dir);
-  const push = (hard ? COMBAT.pushFallen : COMBAT.pushReel) * (0.7 + (by.data?.pow ?? 60) / 140) * impact;
+  const push = (hard ? COMBAT.pushFallen : COMBAT.pushReel) * (0.7 + (by.data?.pow ?? 60) / 140) * impact * ratio;
   victim.vel.set(dir.x * push, 0, dir.z * push);
-  victim.stun = Math.max(victim.stun, dur * 0.6);
+  victim.stun = Math.max(victim.stun, (dur * 0.6) / (0.75 + 0.25 * ratio));
   // Where the two bodies met — the renderer puts the impact FX here rather than on the victim.
   const contact = {
     x: (by.pos.x + victim.pos.x) / 2,

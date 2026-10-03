@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 let gradientMap = null;
 
@@ -35,6 +36,71 @@ export function withOutline(mesh, thickness = 0.035) {
   mesh.add(o);
   mesh.userData.outline = o;
   return mesh;
+}
+
+/**
+ * Bake a group of static meshes that share one material into a single mesh.
+ *
+ * The arena is built from hundreds of small props (a 40-building skyline, stand rings, floodlight
+ * masts) that never move and never animate individually. Each one used to be its own draw call,
+ * which on mobile is the expensive part of the frame — not the triangles. Merging collapses them
+ * to one call with an identical result.
+ *
+ * Each mesh's local matrix (position/rotation/scale, including any parent chain up to `root`) is
+ * baked into its vertices, so call this on props that are already parented under `root`. Source
+ * geometries are disposed; the source meshes are detached by the caller via the returned list.
+ *
+ * Returns null for an empty input so callers can skip adding a mesh.
+ */
+export function mergeStatic(meshes, material, root = null) {
+  const geos = [];
+  for (const m of meshes) {
+    if (!m.geometry) continue;
+    m.updateWorldMatrix(true, false);
+    const g = m.geometry.clone();
+    // Bake relative to `root` so the merged mesh can be added back under the same parent.
+    const local = root
+      ? new THREE.Matrix4().copy(root.matrixWorld).invert().multiply(m.matrixWorld)
+      : m.matrixWorld;
+    g.applyMatrix4(local);
+    // Merging requires a uniform attribute set; drop anything the others won't have.
+    for (const name of Object.keys(g.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+    }
+    if (!g.attributes.uv) {
+      const n = g.attributes.position.count;
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    }
+    geos.push(g);
+    m.geometry.dispose();
+  }
+  if (!geos.length) return null;
+  const merged = mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  if (!merged) {
+    console.warn('mergeStatic: geometries were not mergeable; keeping them separate');
+    return null;
+  }
+  const mesh = new THREE.Mesh(merged, material);
+  // Tagged so tools/mergecheck.mjs can assert the merged output is finite and correctly placed.
+  mesh.userData.merged = meshes.length;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
+/**
+ * Merge same-material meshes already parented under `parent` into one, removing the originals.
+ * Only safe for parts that never move relative to each other (a rigid joint), since baking the
+ * transforms destroys the individual transforms.
+ */
+export function mergeInPlace(parent, meshes, material) {
+  if (meshes.length < 2) return null;
+  const merged = mergeStatic(meshes, material, parent);
+  if (!merged) return null;
+  for (const m of meshes) m.removeFromParent();
+  parent.add(merged);
+  return merged;
 }
 
 export function makeCanvas(w, h) {

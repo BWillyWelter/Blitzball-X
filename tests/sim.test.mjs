@@ -1162,3 +1162,162 @@ test('the halftime report only shows the first half', () => {
   // A goal can't be logged into a half that has not been played.
   for (const g of first.goals) assert.equal(g.half, 1, 'goals are attributed to the half they were scored in');
 });
+
+// ---------------------------------------------------------------------------
+// Lifelike physics: momentum, struck spin, pool current
+// ---------------------------------------------------------------------------
+
+test('swimmers carry momentum: a hard reversal at speed is a commitment, not a teleport', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 2468, userTeam: 0 });
+  sim.state = 'live';
+  const p = sim.outfield(0)[0];
+  p.input = emptyInput();
+  p.state = 'idle';
+  p.stun = 0;
+  p.pos.set(0, 0, 0);
+  p.vel.set(0, 0, 0);
+  p.airborne = false;
+  // Sprint +x up to speed.
+  p.input.moveX = 1;
+  p.input.moveZ = 0;
+  for (let i = 0; i < 120; i++) updatePlayerPhysics(sim, p, DT, false);
+  const topSpeed = p.vel.lengthXZ();
+  assert.ok(topSpeed > 4, `built up speed (${topSpeed.toFixed(2)} m/s)`);
+  // Hard 180: the body must swing through the water, so the velocity cannot flip instantly.
+  p.input.moveX = -1;
+  let reversal = -1;
+  let minSpeed = Infinity;
+  for (let i = 0; i < 90; i++) {
+    updatePlayerPhysics(sim, p, DT, false);
+    minSpeed = Math.min(minSpeed, p.vel.lengthXZ());
+    if (reversal < 0 && p.vel.x < 0) reversal = i;
+  }
+  assert.ok(reversal > 8, `the turn took ${(reversal / 60).toFixed(2)}s before the body crossed zero`);
+  assert.ok(minSpeed < topSpeed * 0.9, `the carve scrubbed pace (${minSpeed.toFixed(2)} vs ${topSpeed.toFixed(2)} m/s)`);
+  assert.ok(p.vel.x < -1, 'the swimmer does come round to the new line');
+});
+
+test('shots bend: struck spin curves the flight across the strike line', () => {
+  const drift = (spin) => {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 9911, userTeam: null });
+    sim.state = 'live';
+    const shooter = sim.outfield(0)[0];
+    const keeper = sim.keeperOf(1);
+    shooter.pos.set(0, 0, 0);
+    keeper.pos.set(13, 0, 0);
+    sim.giveBall(shooter);
+    const rngNext = sim.rng.next;
+    sim.rng.next = () => 0.5; // zero the aim jitter so only the spin differs
+    sim.fireShot(shooter, 1, { power: 0.7, spin });
+    sim.rng.next = rngNext;
+    const originZ = sim.ball.pos.z;
+    for (let i = 0; i < 30; i++) sim.updateBall(DT, true); // 0.5 s of flight, dead-ball checks off
+    return sim.ball.pos.z - originZ;
+  };
+  const right = drift(1);
+  const left = drift(-1);
+  assert.ok(Math.abs(right - left) > 0.3, `opposite spin bends the flights apart (${right.toFixed(2)} vs ${left.toFixed(2)} m)`);
+});
+
+test('the pool has a current: a drifting ball wanders, and wanders identically every time', () => {
+  const drift = () => {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 777, userTeam: null });
+    sim.state = 'live';
+    const ball = sim.ball;
+    ball.holder = null;
+    ball.flight = null;
+    ball.pos.set(2, 0.9, 1);
+    ball.vel.set(0, 0, 0);
+    for (let i = 0; i < 120; i++) sim.updateBall(DT, true);
+    return { x: ball.pos.x, z: ball.pos.z };
+  };
+  const a = drift();
+  const b = drift();
+  const moved = Math.hypot(a.x - 2, a.z - 1);
+  assert.ok(moved > 0.08, `the dead ball drifted with the current (${moved.toFixed(2)}m in 2s)`);
+  assert.ok(Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.z - b.z) < 1e-9, 'the current is deterministic');
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8: signature-move payoff, professional shape, realistic contact
+// ---------------------------------------------------------------------------
+
+test('signature moves beat the defenders they TRAVEL into — and pay: turbo back, clean exit', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 4242, userTeam: null });
+  sim.state = 'live';
+  const p = sim.outfield(0)[0];
+  const q = sim.outfield(1)[0];
+  p.data = { ...p.data, move: 'spin', hnd: 90 };
+  p.pos.set(0, 0, 0);
+  p.vel.set(0, 0, 0);
+  p.state = 'idle';
+  p.stun = 0;
+  p.airborne = false;
+  p.facing = Math.PI / 2;
+  p.turbo = 20;
+  // The defender stands OUTSIDE the cone the move is called in — only the travel can reach him.
+  q.pos.set(2.4, 0, 0);
+  q.vel.set(0, 0, 0);
+  q.state = 'idle';
+  q.stun = 0;
+  q.airborne = false;
+  q.isKeeper = false;
+  q.facing = -Math.PI / 2; // staring at the carrier — the only thing SPIN beats
+  const chance = sim.rng.chance;
+  sim.rng.chance = () => true; // the wash connects
+  sim.tryTrick(p, new Vec3(1, 0, 0), false);
+  assert.equal(q.state, 'idle', 'nothing beaten at the moment of input');
+  for (let i = 0; i < 40; i++) updatePlayerPhysics(sim, p, DT, false);
+  sim.rng.chance = chance;
+  assert.ok(p.trick === null, 'the move played out');
+  assert.ok(q.state === 'reel' || q.state === 'fallen', `the defender was beaten on the travel (${q.state})`);
+  assert.ok(p.stats.washed >= 1, 'the wash is on the record');
+  assert.ok(p.turbo > 20, `beating a man refunds turbo (${p.turbo.toFixed(1)})`);
+  assert.ok(p.stun < 0.1, `a move that beat its man leaves you clean (stun=${p.stun.toFixed(2)})`);
+});
+
+test('a standing hit staggers; a charging hit puts a swimmer down', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], difficulty: 'pro', seed: 24681, userTeam: null });
+  sim.state = 'live';
+  const hitter = sim.outfield(1)[0];
+  const victim = sim.outfield(0)[1];
+  const knocked = [];
+  sim.events.on('knockdown', (e) => knocked.push(e.state));
+  const swing = (speed) => {
+    victim.state = 'idle';
+    victim.stun = 0;
+    victim.vel.set(0, 0, 0);
+    victim.pos.set(hitter.pos.x + 1, 0, hitter.pos.z);
+    hitter.facing = Math.atan2(1, 0);
+    hitter.cd.hit = 0;
+    hitter.state = 'swim';
+    hitter.vel.set(speed, 0, 0);
+    const chance = sim.rng.chance;
+    sim.rng.chance = () => true;
+    sim.tryHit(hitter);
+    sim.rng.chance = chance;
+  };
+  swing(0); // standing swing: connects, but it is a shove
+  swing(7); // the same blow with a body behind it
+  assert.deepEqual(knocked, ['reel', 'fallen'], `standing = stagger, charging = knockdown (${knocked})`);
+});
+
+test('alley-oops are a rarity, not the metagame: the build-up stays on the ground', () => {
+  let passes = 0;
+  let lobs = 0;
+  for (let seed = 600; seed < 603; seed++) {
+    const sim = new MatchSim({ home: TEAMS[seed % 8], away: TEAMS[(seed + 3) % 8], difficulty: 'pro', seed, userTeam: null });
+    sim.events.on('pass', (e) => {
+      passes++;
+      if (e.alley) lobs++;
+    });
+    let steps = 0;
+    while (sim.state !== 'over' && steps < 60 * 60 * 30) {
+      sim.step(DT);
+      steps++;
+    }
+    assert.equal(sim.state, 'over', 'match finished');
+  }
+  assert.ok(lobs > 0, 'the alley-oop still exists as a set piece');
+  assert.ok(lobs < passes * 0.08, `alley-oops stay rare (${lobs} lobs in ${passes} passes)`);
+});

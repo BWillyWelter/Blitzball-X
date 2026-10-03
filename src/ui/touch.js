@@ -1,15 +1,23 @@
 /**
- * On-screen touch controls: a free-floating virtual stick on one side and an adaptive action pad
- * on the other.
+ * On-screen touch controls: a free-floating virtual stick on one side and an action pad on the
+ * other.
  *
- * The pad is a single giant anchor: SHOOT (hold to charge, release in the PERFECT window — and
- * lit up to fire the GAMEBREAKER while the special meter is ready) sits in the thumb corner with
- * a one-thumb arc around it: PASS, BURST (short underwater sprint, hold) and the contextual
- * anchor (JUKE signature move / TACKLE / JUMP; SWIPE the stick while holding it to aim a dodge).
- * Expert actions stay on keyboard + gamepad only.
+ * Every button is PERMANENT: same label, same action, for the whole match. Nothing on this pad
+ * relabels or reroutes itself when possession flips — the pad used to swap its skill button
+ * between JUKE / TACKLE / JUMP / DIVE mid-play, which read as the controls changing under your
+ * thumb. Now:
  *
- * Juke aiming: JUKE held + a stick flick plays the swimmer's signature move in that direction
- * (see input.js jukeDir). A plain JUKE tap plays the forward move.
+ *   SHOOT (anchor)  hold to charge, release in the PERFECT window; glows while the GAMEBREAKER
+ *                   meter is ready (it still fires off this button — the glow is the only cue)
+ *   PASS            lead pass on the ball / call-for-pass off it
+ *   SKILL           your signature move on the ball, the poke-slide tackle defending, the dive
+ *                   in the cage — the sim routes one edge by possession, the button never moves
+ *   BURST           underwater sprint (hold)
+ *   RISE / DIVE     free-swim depth
+ *
+ * Juke aiming: SKILL held + a stick flick plays the signature move (or dive tackle) in that
+ * direction (see input.js jukeDir). A plain tap plays it forward. Expert actions (big hit,
+ * manual jump, player switch, play calls) stay on keyboard + gamepad only.
  *
  * Writes into the same InputManager struct the keyboard and gamepad use, so touch play goes
  * through identical rules. Built with pointer events (touch, pen and mouse all work) and pointer
@@ -30,7 +38,7 @@ const PAD = { size: 182, shoot: 104, ring: 60, radius: 94 };
 // which would restyle the buttons themselves.
 const RING = [
   { action: 'turbo', label: 'BURST', cls: 't-turbo', angle: 180 },
-  { action: 'context', label: 'JUKE', cls: 't-context', angle: -135 },
+  { action: 'context', label: 'SKILL', cls: 't-context', angle: -135 },
   { action: 'pass', label: 'PASS', cls: 't-pass', angle: -90 },
 ].map((slot) => {
   const rad = (slot.angle * Math.PI) / 180;
@@ -42,16 +50,10 @@ const RING = [
   };
 });
 
-// Live play states. `action` is a real InputManager edge, so the contextual anchor routes through
-// exactly the same rules as the dedicated keys.
-const CONTEXTS = {
-  ball: { label: 'JUKE', action: 'trick' },
-  support: { label: 'JUMP', action: 'breach' },
-  defense: { label: 'TACKLE', action: 'hit' },
-  loose: { label: 'JUMP', action: 'breach' },
-  // In the cage the contextual anchor is the only verb a keeper has, so it becomes the dive.
-  cage: { label: 'DIVE', action: 'breach' },
-};
+// The SKILL button always fires the same InputManager edge (`trick`): the SIM routes that edge by
+// possession — signature move with the ball, poke-slide tackle defending, dive in the cage — so
+// the pad itself never changes under the player's thumb.
+const SKILL_EDGE = 'trick';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
 
@@ -63,7 +65,6 @@ export class TouchControls {
     this.stickId = null;
     this.stickOrigin = { x: 0, y: 0 };
     this.buttons = new Map();
-    this.contextKey = 'ball';
 
     this.el = this.build();
     this.applySettings(this.settings);
@@ -95,7 +96,7 @@ export class TouchControls {
       </div>
       <div class="touch-actions">
         <div class="touch-primary">
-          ${RING.map((b) => `<button class="touch-btn pri ${b.cls}" data-action="${b.action}"${b.action === 'context' ? ' data-context="ball"' : ''} type="button" style="left:${b.x}px;top:${b.y}px"><span>${b.label}</span></button>`).join('')}
+          ${RING.map((b) => `<button class="touch-btn pri ${b.cls}" data-action="${b.action}" type="button" style="left:${b.x}px;top:${b.y}px"><span>${b.label}</span></button>`).join('')}
           <button class="touch-btn pri t-shoot" data-action="shoot" type="button"><span>SHOOT</span></button>
         </div>
       </div>
@@ -199,7 +200,7 @@ export class TouchControls {
         t.edges.add('shoot');
       } else if (action === 'context') {
         t.jukeHeld = true;
-        t.edges.add(CONTEXTS[this.contextKey].action);
+        t.edges.add(SKILL_EDGE);
       } else t.edges.add(action);
       btn.setPointerCapture?.(e.pointerId);
     };
@@ -226,22 +227,6 @@ export class TouchControls {
   }
 
   /**
-   * Remap the contextual anchor for the controlled swimmer's state: JUKE (trick) on the ball,
-   * TACKLE on defense, JUMP on a loose ball or when supporting off it. Fed from the frame loop;
-   * cheap enough to call every frame (it no-ops unless the state flips).
-   */
-  setContext({ onBall = false, defending = false, looseBall = false, support = false, inCage = false } = {}) {
-    const key = inCage ? 'cage' : onBall ? 'ball' : defending ? 'defense' : looseBall ? 'loose' : support ? 'support' : 'ball';
-    if (key === this.contextKey) return;
-    this.contextKey = key;
-    const btn = this.buttons.get('context');
-    if (btn) {
-      btn.dataset.context = key;
-      btn.querySelector('span').textContent = CONTEXTS[key].label;
-    }
-  }
-
-  /**
    * Mirror the ring for a left-handed pad so the SHOOT anchor always sits under the resting thumb
    * and the other three fan away from it.
    */
@@ -263,13 +248,13 @@ export class TouchControls {
     this.placeRing();
   }
 
-  /** Light the SHOOT anchor up as the GAMEBREAKER trigger while a meter is full. */
+  /**
+   * Light the SHOOT anchor up while the GAMEBREAKER meter is full. The label stays SHOOT — the
+   * glow is the cue. Buttons on this pad never change their name mid-match.
+   */
   setGamebreakerReady(ready) {
     const shoot = this.buttons.get('shoot');
-    if (shoot) {
-      shoot.classList.toggle('gb-ready', !!ready);
-      shoot.querySelector('span').textContent = ready ? 'GAME BREAKER' : 'SHOOT';
-    }
+    if (shoot) shoot.classList.toggle('gb-ready', !!ready);
   }
 
   /** Light the GK button when the cage is open (play is at your end) and latch it while you hold it. */

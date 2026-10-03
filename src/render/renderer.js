@@ -853,6 +853,9 @@ export class MatchRenderer {
 
     this.ballMesh.rotation.x += spin;
     this.ballMesh.rotation.z += spin * 0.3;
+    // Struck spin: a curled shot rolls around its flight axis too, so the bend is visible on
+    // the ball itself and not only in the path it travels.
+    this.ballMesh.rotation.y += (ballState.spin || 0) * dt * 2.4;
 
     this.ballShadow.position.set(
       this.ball.position.x,

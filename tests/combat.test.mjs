@@ -137,6 +137,13 @@ test('a spin only beats a defender who is looking at you', () => {
   // Forced-success RNG, so the only thing that can stop the wash is the geometry/facing rule.
   const chance = sim.rng.chance;
   sim.rng.chance = () => true;
+  // Freeze the world: moves now sweep for contact every frame they play, so an ambient CPU
+  // swimmer mid-move could land a forced-success wash and pollute the counter. Out of the play.
+  for (const o of sim.players) {
+    if (o === spinner) continue;
+    if (o.trick) sim.finishTrick(o);
+    o.stun = 999;
+  }
 
   // Facing away: a spin played at their back must not wash them.
   q.facing = Math.atan2(q.pos.x - spinner.pos.x, q.pos.z - spinner.pos.z);
@@ -154,7 +161,7 @@ test('a spin only beats a defender who is looking at you', () => {
   q.pos.set(spinner.pos.x + 1, 0, spinner.pos.z);
   q.facing = Math.atan2(spinner.pos.x - q.pos.x, spinner.pos.z - q.pos.z);
   q.state = 'swim';
-  q.stun = 0;
+  q.stun = 999; // still frozen — only the facing changed
   sim.tryTrick(spinner, Vec3.dirXZ(spinner.pos, q.pos), false);
   sim.step(DT);
   assert.ok(washed > 0, 'a spin must beat a defender staring straight at it');

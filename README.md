@@ -51,6 +51,11 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 | Skip a goal replay | any key or tap | any button |
 | Pause | Esc | Start |
 
+On touch the pad is **permanent**: SHOOT (it glows while the Gamebreaker is ready), PASS, SKILL and
+BURST never change their name or their job mid-match. SKILL is the trick on the ball and the
+poke-slide tackle off it — exactly the L key above — and the big hit / leap / switch stay on
+keyboard and gamepad.
+
 ### Rules
 
 - **7-a-side** (six outfield swimmers + a keeper) in a sphere of water, with **4 substitutes** on the
@@ -73,6 +78,19 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
   the line finds a runner in space instead of trailing him. Land it and the passer is paid — a
   **LEAD PASS** is real style, and only counts if the receiver was genuinely running and the spot
   was genuinely open.
+- **The water is real.** Swimmers carry momentum: the body swings toward your stick at a limited
+  rate and a hard carve scrubs pace, so a late change of direction is a move you earn rather than a
+  teleport — and exactly how a committed defender gets beaten. Shots are struck with **spin**: the
+  lateral stick at release curls the flight around a keeper's dive (a **CURLED FINISH** pays style),
+  a badly-timed strike wobbles off line instead, and the pool's own slow current nudges anything
+  drifting, so a loose ball wanders rather than hanging where it stopped.
+- **Signature moves pay for themselves.** Each swimmer owns one, and it beats the defenders it
+  actually *travels* through — not just whoever stood in front at the moment you pressed it.
+  Beating a man hands turbo back, leaves you clean (the off-balance bill is only for the move you
+  wasted), pays style, and drops the pool into a beat of slow-mo so you see it happen.
+- **Contact has body behind it.** A standing swing staggers; the same blow taken at pace puts a
+  swimmer down and gets the ref's attention. Heavy bodies (power) move less when hit and get their
+  footing back sooner.
 - Style comes from tricks, washes, tackles, big hits, blocks, saves, volleys and long-range goals.
   Chaining moves builds a combo multiplier; turnovers drain the meter. A full meter unlocks the
   Gamebreaker. Two straight goals and your crew is **ON FIRE**.
@@ -122,8 +140,10 @@ Everything is synthesized at runtime — there are no audio files. That covers t
 src/
   core/        vec3, seeded RNG, event bus
   data/        constants (arena / rules / physics / tuning / difficulty), 8 crews × 11 swimmers
-  game/        MatchSim (deterministic, headless, fixed 60 Hz), AI brains, career ladder
+  game/        MatchSim (deterministic, headless, fixed 60 Hz), career ladder
                subsystems: shooting, ball, rules, combat, passing, movement
+               CPU brains, one module per role: ai-carrier / ai-offense / ai-defense /
+               ai-loose / ai-keeper / ai-plays, with shared helpers in ai-core
                replay (goal recorder + playback), report (the match story),
                career (squad, injuries, form, rivalry, fixtures)
   render/      three.js: sphere pool + goals + stadium, cel-shaded characters, FX, camera
@@ -154,7 +174,16 @@ npm run qa:probe -- http://localhost:4173/                         # repeat matc
 npm run qa:anim -- http://localhost:5173/                         # screenshot every animation state / trick / swim speed
 npm run qa:bench -- http://localhost:5173/                        # bench, subs, cards, goal replay, halftime, recap, career squad
 npm run qa:touch -- http://localhost:5173/                        # touch pad, settings, portrait/landscape
+npm run qa:merge -- http://localhost:5173/                        # static-merge geometry + draw-call budget
 npm run qa:lighthouse                                             # Lighthouse audit of the built site (npm run build first)
+```
+
+Browser QA harnesses pin the match seed, so a run reproduces the same match every time instead of
+rolling the dice. `startMatch({ …, seed })` takes one directly, and `?seed=123` in the URL does the
+same for a manual session; `tools/touchtest.mjs` also honours `QA_SEED` to sweep known-good seeds:
+
+```bash
+QA_SEED=777 npm run qa:touch -- http://localhost:5173/
 ```
 
 `qa:anim` drives the single-swimmer animation bench that the app serves at `?bench=anim`
@@ -162,7 +191,7 @@ npm run qa:lighthouse                                             # Lighthouse a
 
 CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build, and
 uploads the built `dist/` as the `blitzball-x-dist` artifact on every push. A `browser-qa` job
-serves that build and runs `qa:touch` plus `qa:probe`; `qa:probe` fails if a match leaks its WebGL
+serves that build and runs `qa:touch`, `qa:probe` and `qa:merge`; `qa:probe` fails if a match leaks its WebGL
 context at teardown or the page throws. A `lighthouse` job audits the built site with mobile
 emulation and uploads the full HTML report as the `lighthouse-report` artifact. `qa:lighthouse` needs
 an environment with system fonts to score first paint — fontless containers report `INCONCLUSIVE` (exit 2) instead of a fake zero.

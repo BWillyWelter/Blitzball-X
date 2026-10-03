@@ -1,7 +1,7 @@
 import { Vec3 } from '../core/vec3.js';
 import { RNG } from '../core/rng.js';
 import { EventBus } from '../core/events.js';
-import { ARENA, RULES, MOVE, DIFFICULTY } from '../data/constants.js';
+import { ARENA, RULES, MOVE, DIFFICULTY, PHYS } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { createPlayer, createBall, emptyInput, copyInput } from './entities.js';
 import { starters, benchOf, playerOverall } from '../data/teams.js';
@@ -1081,10 +1081,30 @@ cageAvailable() {
 
   separatePlayers() { return movement.separatePlayers(this); }
 
+  /**
+   * The pool is never dead water: a slow gyre around the bowl plus a lazy cross-pool surge
+   * nudges anything drifting (mostly a loose ball). A pure function of sim time and position, so
+   * the current is identical on every run of a seed — the match stays deterministic.
+   */
+  currentAt(x, z) {
+    const t = this.time * PHYS.driftRate;
+    return {
+      x:
+        PHYS.drift *
+        ((-z / ARENA.ballRadius) * Math.sin(t * 0.31) +
+          Math.sin(t * 0.17 + z * 0.2)),
+      z:
+        PHYS.drift *
+        ((x / ARENA.ballRadius) * Math.sin(t * 0.31) +
+          Math.cos(t * 0.13 + x * 0.2)),
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Tricks / tackles / hits / breaches (see ./combat.js)
   // ---------------------------------------------------------------------------
   tryTrick(player, dir, turbo) { return combat.tryTrick(this, player, dir, turbo); }
+  stepMove(player) { return combat.stepMove(this, player); }
   finishTrick(player) { return combat.finishTrick(this, player); }
   tryTackle(player) { return combat.tryTackle(this, player); }
   tryHit(player) { return combat.tryHit(this, player); }
@@ -1128,8 +1148,8 @@ cageAvailable() {
   startFlow(team, player) { return rulesMod.startFlow(this, team, player); }
   updateRules(dt) { return rulesMod.updateRules(this, dt); }
   turnover(team, reason) { return rulesMod.turnover(this, team, reason); }
-  callFoul(offender, victim, impact, kind) { return rulesMod.callFoul(this, offender, victim, impact, kind); }
-  isFoul(offender, victim, impact) { return rulesMod.isFoul(this, offender, victim, impact); }
+  callFoul(offender, victim, impact, kind, victimWasDown = false) { return rulesMod.callFoul(this, offender, victim, impact, kind, victimWasDown); }
+  isFoul(offender, victim, impact, victimWasDown = false) { return rulesMod.isFoul(this, offender, victim, impact, victimWasDown); }
   sendOffPlayer(player) { return rulesMod.sendOffPlayer(this, player); }
   addStyle(player, base, label, options = {}) { return rulesMod.addStyle(this, player, base, label, options); }
   loseStyle(team, amount) { return rulesMod.loseStyle(this, team, amount); }

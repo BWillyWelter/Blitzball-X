@@ -43,6 +43,7 @@ jobs:
           sleep 10
           npm run qa:touch -- http://127.0.0.1:4173/
           npm run qa:probe -- http://127.0.0.1:4173/
+          npm run qa:merge -- http://127.0.0.1:4173/
 
   lighthouse:
     runs-on: ubuntu-latest

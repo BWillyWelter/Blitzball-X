@@ -18,6 +18,7 @@
     "qa:context": "node tools/contexttest.mjs",
     "qa:bench": "node tools/benchtest.mjs",
     "qa:perf": "node tools/perfshot.mjs",
+    "qa:merge": "node tools/mergecheck.mjs",
     "qa:lighthouse": "node tools/lighthouse.mjs",
     "qa:anim": "node tools/anim.mjs"
   },

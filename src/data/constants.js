@@ -78,8 +78,8 @@ export const RULES = {
   // Impact tops out at 1.0 for a dead-on hit, so only the cleanest big hits reach the threshold,
   // and even those are only called some of the time. Hitting a swimmer who is already down is
   // always one. Tackles never foul — violence lives on the big-hit button.
-  foulThreshold: 0.88,
-  foulCallChance: 0.5, // chance a clean enough hit is actually whistled
+  foulThreshold: 0.82,
+  foulCallChance: 0.6, // chance a clean enough hit is actually whistled
   foulFreeSwim: true, // the fouled side keeps possession, placed at the spot
   cardThreshold: 2, // offences before a swimmer is sent off
   redMinSeverity: 1.15, // a genuinely ugly one is an instant red regardless of the count
@@ -104,6 +104,14 @@ export const PHYS = {
   ballBuoyancy: 3.4, // …so a dropped ball never settles on the pool floor out of reach
   wallRestitution: 0.72,
   currentStrength: 6, // pulls a ball that got behind the goal line back into play
+  // Struck spin. A shot is hit with english and the ball bends across its flight line
+  // (Magnus-style lateral acceleration per unit spin), so a curled finish can come round the
+  // keeper's dive and a skied strike wobbles off line.
+  ballCurve: 4.2,
+  // The pool is never dead water: a slow gyre nudges anything drifting (mostly a loose ball),
+  // so a dropped ball wanders instead of hanging exactly where it stopped.
+  drift: 0.32, // ambient current acceleration on a drifting ball (m/s^2)
+  driftRate: 1, // how fast the gyre pattern rotates through the bowl
 };
 
 export const MOVE = {
@@ -148,8 +156,17 @@ export const MOVE = {
   staminaGassedSpeed: 0.82, // max-speed multiplier at an empty tank (floored, never a statue)
   staminaGassedTurbo: 0.12, // turbo regen bleed while gassed
   moveTurboCost: 22, // turbo burned by a turbo signature move
+  moveTurboRefund: 12, // turbo handed back when a move actually beats someone — the payoff
   moveCommitBase: 0.3, // baseline off-balance window after any signature move
   separation: 0.72,
+  // Momentum. A swimmer is a body in water, not a cursor: the velocity vector swings toward the
+  // stick at a capped angular rate (faster travel and heavier bodies turn more lazily) and a hard
+  // carve scrubs speed. Straight-line pace is untouched — it is the late cut that now costs real
+  // distance, so beating a defender is a change of direction you have to earn.
+  turnRate: 6.6, // rad/s a swimmer can swing their heading (scaled by spd, mass, speed)
+  turnBleed: 1.1, // speed scrubbed per radian of hard turn
+  massBase: 0.88, // body mass from `pow`: heavier = lazier turn, slower acceleration
+  massPerPow: 0.24,
 };
 
 export const ACTION = {
@@ -217,6 +234,7 @@ export const STYLE = {
   dribble: 45, // beaten a slide tackle while carrying (glue-dribble duel reward)
   breachCatch: 20,
   lossOnTurnover: 60,
+  curve: 70, // curled finish: a goal struck with real spin
   comboWindow: 2.2,
   comboStep: 0.25,
   comboMax: 2.5,
@@ -247,6 +265,16 @@ export const COMBAT = {
   // Signature moves shove a defender aside rather than felling them.
   brushRange: 1.5,
   brushSpeed: 2.2,
+  // Real contact: a body behind the blow is what puts a swimmer on the floor. A standing swing
+  // still connects but staggers; it is the hit taken at pace that flattens. Momentum scales the
+  // severity between `hitMomentumLo` (standing) and `hitMomentumHi` (charging in).
+  hitMomentumLo: 0.7,
+  hitMomentumHi: 1.2,
+  hitMomentumRef: 9, // closing speed (m/s) that reaches full momentum
+  hitFallenSeverity: 0.95, // severity at which contact knocks down instead of staggering
+  // The wow dial: beating a man with your signature move drops the pool into a beat of slow-mo.
+  wowSlowmo: 0.2,
+  wowSlowmoScale: 0.55,
 };
 
 export const DIFFICULTY = {

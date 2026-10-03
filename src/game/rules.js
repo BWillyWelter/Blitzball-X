@@ -413,6 +413,22 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
               : 'GOAL'
         );
       }
+
+      // A finish struck with real spin — bent round the keeper and in — is worth the extra
+      // style, because the curve was aimed on purpose and it is the hardest way to score.
+      if (
+        !gamebreaker &&
+        flight &&
+        flight.spin &&
+        Math.abs(flight.spin) > 0.5
+      ) {
+        sim.addStyle(
+          player,
+          STYLE.curve,
+          'CURLED FINISH',
+          { big: true }
+        );
+      }
     }
 
     sim.lastScorer = player;

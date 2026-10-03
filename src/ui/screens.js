@@ -514,7 +514,7 @@ export function HowToScreen(app) {
           </ul>
           <h2>TIPS</h2>
           <ul>
-            <li>On touch: <b>swipe the stick while holding JUKE</b> to aim a dodge in any direction — flick up to go over the tackle, down to duck under it.</li>
+            <li>On touch: <b>swipe the stick while holding SKILL</b> to aim a dodge in any direction — flick up to go over the tackle, down to duck under it.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>
@@ -569,7 +569,7 @@ export function SettingsScreen(app, params = {}) {
         ${row('touchLayout', 'PAD PRESET', 'pick', [['right', 'RIGHT-HAND'], ['left', 'LEFT-HAND']])}
         ${row('touchScale', 'PAD SIZE', 'range', { min: 0.8, max: 1.3, step: 0.05 })}
         ${row('touchOpacity', 'PAD OPACITY', 'range', { min: 0.4, max: 1, step: 0.05 })}
-        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. The contextual button re-maps itself as the play changes (JUKE / TACKLE / JUMP).</div>
+        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. Every button is permanent — same name, same action, all match; SKILL is your move on the ball and the tackle off it.</div>
       </div>
       <div class="set-actions"><button class="btn danger reset-btn">RESET ALL DATA</button><button class="btn back-btn">BACK</button></div>
     </section>`);

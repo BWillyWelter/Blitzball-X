@@ -43,6 +43,37 @@ import { startAnimBench } from './dev/animbench.js';
  * same report on screen so a phone can screenshot it (headless swiftshader can never reproduce a
  * real device's GPU failure).
  */
+/**
+ * Seed for the next match.
+ *
+ * Normal play is clock-seeded so every match feels fresh. But the browser QA harnesses drive the
+ * real app through startMatch(), and a clock seed made them a lottery: a run could begin inside a
+ * kickoff reset where the controlled swimmer is legally frozen, and a check that passes locally
+ * would fail CI on an unlucky roll. An explicit seed — passed to startMatch, set on
+ * window.__BBX_SEED__, or given as ?seed= in the URL — pins the sim stream so a harness can replay
+ * a known-good match exactly. Real players never set any of these.
+ */
+function matchSeed(explicit) {
+  if (explicit !== undefined && explicit !== null && explicit !== '') {
+    const n = Number(explicit);
+    if (Number.isFinite(n)) return n >>> 0;
+  }
+  try {
+    const q = new URLSearchParams(window.location.search).get('seed');
+    if (q !== null) {
+      const n = Number(q);
+      if (Number.isFinite(n)) return n >>> 0;
+    }
+    if (window.__BBX_SEED__ !== undefined && window.__BBX_SEED__ !== null) {
+      const n = Number(window.__BBX_SEED__);
+      if (Number.isFinite(n)) return n >>> 0;
+    }
+  } catch {
+    // No window (or no location) — fall through to the clock seed.
+  }
+  return (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
+}
+
 export function probeWebGL() {
   const out = { webgl2: false, webgl: false, renderer: '-', vendor: '-', maxTexture: 0, error: '' };
   for (const type of ['webgl2', 'webgl']) {
@@ -66,27 +97,6 @@ export function probeWebGL() {
     }
   }
   return out;
-}
-
-/**
- * Live play state for the adaptive touch pad, which remaps its contextual anchor and re-ranks the
- * expert row from it: TRICK while carrying, TACKLE on defense, JUMP whenever the ball is loose
- * (a shot to leap at, a pass to jump for) or when we are the support off a team-mate's carry.
- */
-function touchContext(sim) {
-  const p = sim.controlled;
-  if (!p) return { onBall: false, defending: false, looseBall: false, support: false, inCage: false };
-  // In the cage the pad is a different game: the contextual anchor becomes the dive.
-  if (sim.inCage) return { onBall: false, defending: true, looseBall: false, support: false, inCage: true };
-  const holder = sim.ball.holder;
-  const onBall = !!holder && holder === p;
-  return {
-    onBall,
-    defending: !onBall && !!holder && holder.team !== p.team,
-    looseBall: !holder,
-    // Off-ball on offense: leaping the passing lane beats trying a trick we don't have the ball for.
-    support: !onBall && !!holder && holder.team === p.team,
-  };
 }
 
 class App {
@@ -196,7 +206,7 @@ class App {
   // Match lifecycle
   // ---------------------------------------------------------------------------
 
-  startMatch({ home = TEAMS[0], away = TEAMS[1], userTeam = 0, mode = 'quick' }) {
+  startMatch({ home = TEAMS[0], away = TEAMS[1], userTeam = 0, mode = 'quick', seed = undefined }) {
     // A finished match's delayed results transition must never fire into a NEW match (it would
     // dispose it and route to results mid-game).
     clearTimeout(this.finishTimer);
@@ -224,8 +234,9 @@ class App {
     this.root.appendChild(wrap);
     const canvas = wrap.querySelector('.game-canvas');
     const difficulty = mode === 'career' && this.state.career ? this.state.career.difficulty : this.state.settings.difficulty;
-    const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
-    const sim = new MatchSim({ home, away, difficulty, seed, userTeam });
+    const simSeed = matchSeed(seed);
+    const sim = new MatchSim({ home, away, difficulty, seed: simSeed, userTeam });
+
     let renderer;
     try {
       renderer = new MatchRenderer(canvas, sim, {
@@ -701,11 +712,10 @@ class App {
       // Only release latched edges once a step has actually consumed them, otherwise a tap that
       // lands on a frame with no fixed step (120 Hz displays) is silently dropped.
       if (n > 0) this.input.flushOneShots();
-      // Light up the SHOOT anchor as soon as the controlled side's meter is full, and keep the
-      // contextual primary button pointed at whatever the controlled swimmer should do now.
+      // Light up the SHOOT anchor as soon as the controlled side's meter is full. The pad itself
+      // is permanent — no button relabels or reroutes itself during play.
       if (m.touchControls && m.userTeam !== null) {
         m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
-        m.touchControls.setContext(touchContext(m.sim));
         m.touchControls.setCage(!m.sim.inCage && m.sim.keeperSwitchCd <= 0 && m.sim.cageAvailable(), m.sim.inCage);
       }
       // Swim stroke sound for the controlled / carrying swimmer

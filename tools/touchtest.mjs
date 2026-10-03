@@ -13,6 +13,10 @@ import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 
 const url = process.argv[2] || 'http://localhost:4173/';
+
+// Deterministic match seed. Normal play is clock-seeded, but this harness must reproduce the same
+// match every run or CI becomes a lottery. Override to sweep: QA_SEED=123 npm run qa:touch -- <url>
+const QA_SEED = Number(process.env.QA_SEED || 20260902);
 process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
 
 const executablePath = await chromium.executablePath();
@@ -48,10 +52,14 @@ ok('touch controls auto-enabled on touch device', detected.enabled === true, `mo
 ok('no overlay over menu screens', await page.evaluate(() => !document.querySelector('.touch-ui')));
 
 // ---------------------------------------------------------------- start match
-await page.evaluate(() => {
+await page.evaluate((seed) => {
   const app = window.app;
   app.audio.unlock = () => {};
-  app.startMatch({ home: app.teams[0], away: app.teams[3], userTeam: 0, mode: 'quick' });
+  // Pinned seed: matches are clock-seeded in normal play, which made this harness a lottery — a
+  // run could begin in a kickoff reset where the controlled swimmer is legally frozen. The seed is
+  // passed in from Node (QA_SEED) so a sweep can re-run known-good seeds; the default is fixed so
+  // CI is reproducible.
+  app.startMatch({ home: app.teams[0], away: app.teams[3], userTeam: 0, mode: 'quick', seed });
   // Take the rAF loop out of the picture so this harness owns the simulation, then skip the
   // pre-match presentation (warm-up laps + captains' tip-off, ~11s) so the play checks below
   // exercise live play rather than a pinned formation.
@@ -60,7 +68,7 @@ await page.evaluate(() => {
   let guard = 0;
   while (m.sim.state !== 'live' && guard++ < 60 * 20) m.sim.step(1 / 60);
   for (let i = 0; i < 180; i++) m.sim.step(1 / 60);
-});
+}, QA_SEED);
 const ui = await page.evaluate(() => ({
   overlay: !!document.querySelector('.match-wrap.touch .touch-ui'),
   buttons: document.querySelectorAll('.touch-ui .touch-btn').length,
@@ -74,7 +82,7 @@ const ui = await page.evaluate(() => ({
 }));
 ok('overlay present during match', ui.overlay);
 ok('4 primary + 2 depth buttons + stick + pause rendered (expert row removed)', ui.buttons === 6 && ui.primary === 4 && ui.secondaryRow === false && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
-ok('contextual button defaults to JUKE', ui.contextLabel === 'JUKE', `label=${ui.contextLabel}`);
+ok('the SKILL button is labelled SKILL — and stays that way', ui.contextLabel === 'SKILL', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
 // ------------------------------------------------------------------- stick
@@ -248,10 +256,9 @@ const buttons = await page.evaluate(() => {
     return first;
   };
 
-  // CONTEXT while carrying — the adaptive primary button should fire a trick
+  // SKILL while carrying — the permanent skill button fires a trick (the signature move)
   ensureLive();
   const a = fresh(sim.outfield(0)[0]);
-  app.match.touchControls.setContext({ onBall: true });
   out.ballLabel = document.querySelector('.touch-ui .touch-btn[data-action="context"] span').textContent;
   tap('context');
   const ti = step(1);
@@ -268,8 +275,8 @@ const buttons = await page.evaluate(() => {
   out.pass = pi.pass === true && sim.ball.holder !== pa;
   out.passDebug = `sim=${sim.state} holder=${sim.ball.holder ? sim.ball.holder.id : 'none'}`;
 
-  // JUMP — off the ball with a team-mate carrying, the contextual anchor remaps to JUMP
-  // (breach); the tap must still drive the swimmer's leap.
+  // SKILL off the ball — the same permanent button is the poke/slide tackle. No relabeling,
+  // no rerouting: the sim decides what the one edge means by possession.
   ensureLive();
   const b = sim.outfield(0)[1];
   fresh(b);
@@ -279,13 +286,12 @@ const buttons = await page.evaluate(() => {
   sim.controlled = b;
   b.controlled = true;
   b.state = 'idle';
-  app.match.touchControls.setContext({ support: true });
   tap('context');
-  out.breachImmediate = JSON.stringify([...app.input.touch.edges]);
+  out.skillImmediate = JSON.stringify([...app.input.touch.edges]);
   const bi = step(1);
-  out.breachInp = `breach=${bi.breach} trick=${bi.trick} pass=${bi.pass} shoot=${bi.shootPressed} hit=${bi.hit} gb=${bi.gamebreaker} sw=${bi.switchPlayer} rel=${bi.shootReleased}`;
-  out.breach = b.airborne || b.state === 'breach';
-  out.breachDebug = `sim=${sim.state} p=${b.state} air=${b.airborne} ctrl=${sim.controlled === b}`;
+  out.skillInp = `trick=${bi.trick} breach=${bi.breach} pass=${bi.pass} shoot=${bi.shootPressed} hit=${bi.hit} gb=${bi.gamebreaker} sw=${bi.switchPlayer} rel=${bi.shootReleased}`;
+  out.tackle = b.state === 'tackle';
+  out.skillDebug = `sim=${sim.state} p=${b.state} air=${b.airborne} ctrl=${sim.controlled === b}`;
 
   // SHOOT: hold, charge into the PERFECT window, release.
   // Freeze every other swimmer for this window: the AI averages ~2.4 tackle attempts per game
@@ -351,7 +357,7 @@ const buttons = await page.evaluate(() => {
 });
 ok('CONTEXT button fires a trick while carrying', buttons.trick === true, `${buttons.trickDebug} | label=${buttons.ballLabel}`);
 ok('PASS button fires a pass', buttons.pass === true, `${buttons.passDebug} | ${buttons.passInp}`);
-ok('context JUMP (support) breaches', buttons.breach === true, `${buttons.breachDebug} | immediate=${buttons.breachImmediate} | ${buttons.breachInp}`);
+ok('SKILL off the ball is the tackle — same button, same edge', buttons.tackle === true, `${buttons.skillDebug} | immediate=${buttons.skillImmediate} | ${buttons.skillInp}`);
 ok('SHOOT button starts a wind-up', buttons.windup === true, `${buttons.shootDebug} | immediate=${buttons.shootImmediate} | ${buttons.shootInp}`);
 ok('SHOOT button holds (charge)', buttons.held === true);
 ok('SHOOT release fires a shot', buttons.flightKind === 'shot', `kind=${buttons.flightKind}`);
@@ -362,7 +368,6 @@ ok('TURBO releases when let go', buttons.turboOff === true);
 // --------------------------------------------------- one-shot latch (120 Hz)
 const latch = await page.evaluate(() => {
   const app = window.app;
-  window.app.match.touchControls.setContext({ onBall: true });
   const b = document.querySelector('.touch-ui .touch-btn[data-action="context"]');
   b.setPointerCapture = () => {};
   b.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 4, pointerType: 'touch', bubbles: true, cancelable: true }));
@@ -395,8 +400,8 @@ const gb = await page.evaluate(() => {
     unlitLabel: shoot.querySelector('span').textContent,
   };
 });
-ok('SHOOT anchor lights up as GAME BREAKER when the meter is full', gb.lit === true && gb.litLabel === 'GAME BREAKER', gb.litLabel);
-ok('SHOOT anchor returns to SHOOT when spent', gb.unlit === true && gb.unlitLabel === 'SHOOT', gb.unlitLabel);
+ok('SHOOT anchor glows for the GAME BREAKER but keeps its label', gb.lit === true && gb.litLabel === 'SHOOT', gb.litLabel);
+ok('SHOOT anchor dim back down when spent (label still SHOOT)', gb.unlit === true && gb.unlitLabel === 'SHOOT', gb.unlitLabel);
 
 // ------------------------------------------------- contextual remap + layout
 const adaptive = await page.evaluate(() => {
@@ -411,26 +416,19 @@ const adaptive = await page.evaluate(() => {
     window.app.input.touch.edges.clear();
     return edges;
   };
-  tc.setContext({ defending: true });
-  const defense = { label: label(), edges: fire() };
-  tc.setContext({ looseBall: true });
-  const loose = { label: label(), edges: fire() };
-  tc.setContext({ support: true });
-  const support = { label: label(), edges: fire() };
-  tc.setContext({ onBall: true });
-  const ball = { label: label(), edges: fire() };
+  // Permanence is the contract: no play state may relabel or reroute the SKILL button. It wears
+  // the same name and fires the same edge from kickoff to the final whistle.
+  const seen = [];
+  for (let i = 0; i < 4; i++) seen.push({ label: label(), edges: fire().join() });
   const el = document.querySelector('.touch-ui');
   tc.applySettings({ touchLayout: 'left' });
   const leftLayout = el.dataset.layout;
   tc.applySettings({ touchLayout: 'right', touchScale: 9, touchOpacity: 0 });
   const clamped = { scale: el.style.getPropertyValue('--touch-scale'), opacity: el.style.getPropertyValue('--touch-opacity') };
   tc.applySettings({ touchLayout: 'right', touchScale: 1, touchOpacity: 1 });
-  return { defense, loose, support, ball, leftLayout, clamped, restored: el.dataset.layout };
+  return { seen, leftLayout, clamped, restored: el.dataset.layout };
 });
-ok('context remaps to TACKLE on defense', adaptive.defense.label === 'TACKLE' && adaptive.defense.edges.join() === 'hit', `label=${adaptive.defense.label} edges=${adaptive.defense.edges}`);
-ok('context remaps to JUMP on a loose ball', adaptive.loose.label === 'JUMP' && adaptive.loose.edges.join() === 'breach', `label=${adaptive.loose.label} edges=${adaptive.loose.edges}`);
-ok('context remaps to JUMP when supporting off the ball', adaptive.support.label === 'JUMP' && adaptive.support.edges.join() === 'breach', `label=${adaptive.support.label} edges=${adaptive.support.edges}`);
-ok('context remaps back to JUKE on the ball', adaptive.ball.label === 'JUKE' && adaptive.ball.edges.join() === 'trick', `label=${adaptive.ball.label} edges=${adaptive.ball.edges}`);
+ok('SKILL keeps its label and its edge through every play state', adaptive.seen.every((s) => s.label === 'SKILL' && s.edges === 'trick'), JSON.stringify(adaptive.seen));
 ok('left-handed layout applies', adaptive.leftLayout === 'left' && adaptive.restored === 'right');
 ok('touch size / opacity settings clamp', adaptive.clamped.scale === '1.3' && adaptive.clamped.opacity === '0.4', JSON.stringify(adaptive.clamped));
 
@@ -516,7 +514,7 @@ ok('all touch buttons stay on screen', geom.outside.length === 0, geom.outside.j
 ok('SHOOT is the largest button, anchored bottom-right', geom.shootIsLargest && geom.shootInCorner);
 const ringSpread = Math.max(...geom.ringDist) - Math.min(...geom.ringDist);
 const ringGap = Math.min(...geom.ringDist) / (geom.shootR + geom.ringR);
-ok('PASS / JUKE / BURST ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join(',')}`);
+ok('PASS / SKILL / BURST ride one arc around the SHOOT anchor', geom.ringDist.length === 3 && ringSpread < 2, `spread=${ringSpread.toFixed(1)}px dists=${geom.ringDist.map((d) => d.toFixed(0)).join(',')}`);
 ok('the ring sits a clear thumb-width off the anchor', ringGap > 1 && ringGap < 1.2, `${ringGap.toFixed(2)}x the two radii`);
 ok('right-handed: cluster on the right half, stick zone on the left', geom.rightHanded.actionsLeftEdge > geom.vw / 2 && geom.rightHanded.stickLeft === 0, JSON.stringify(geom.rightHanded));
 ok('left-handed: cluster and stick swap sides', geom.mirrored.actionsFromLeft < 20 && geom.mirrored.stickFromRight === 0, JSON.stringify(geom.mirrored));

@@ -59,6 +59,9 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
     p.vel.set(m.vx, 0, m.vz);
     p.vy = 0;
     if (m.y !== null) p.y = m.y;
+    // The move beats the defenders it travels into, not just whoever stood in the cone at the
+    // moment of the input — the contact sweep runs every frame of the move (see combat.js).
+    if (sim.stepMove) sim.stepMove(p);
   } else if (p.state === 'gbdrive' && p.gbTarget) {
     const dir = Vec3.dirXZ(p.pos, p.gbTarget);
     p.vel.set(dir.x * ACTION.gbDriveSpeed, 0, dir.z * ACTION.gbDriveSpeed);
@@ -70,12 +73,42 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
     p.facing = turnToward(p.facing, Math.atan2(0, p.diveDir), dt * 9);
     if (p.state === 'idle') sim.setState(p, 'swim');
   } else if (canMove && (inp.moveX !== 0 || inp.moveZ !== 0)) {
-    const accel = MOVE.accel * (0.8 + (p.data.spd / 99) * 0.4);
+    // Locomotion with mass. A swimmer is a body in water, not a cursor: the velocity vector can
+    // only swing toward the stick at a capped angular rate, and a hard carve scrubs speed. From a
+    // standstill the body simply goes where it is pointed; at speed a 180 is a real commitment
+    // that travels an arc and costs pace — which is what makes a late change of direction a
+    // skillful way to beat a committed defender instead of a free teleport.
+    const mass = MOVE.massBase + (p.data.pow / 99) * MOVE.massPerPow;
     const flowBoost = sim.flow[p.team] ? 1.12 : 1;
     const tx = inp.moveX * maxSpeed * flowBoost;
     const tz = inp.moveZ * maxSpeed * flowBoost;
-    p.vel.x += (tx - p.vel.x) * Math.min(1, accel * dt / maxSpeed * 1.4);
-    p.vel.z += (tz - p.vel.z) * Math.min(1, accel * dt / maxSpeed * 1.4);
+    const targetSpeed = Math.hypot(tx, tz);
+    const speed = p.vel.lengthXZ();
+    const accel = (MOVE.accel * (0.8 + (p.data.spd / 99) * 0.4)) / mass;
+    if (speed < 0.35) {
+      const k = Math.min(1, (accel * dt / maxSpeed) * 1.4);
+      p.vel.x += (tx - p.vel.x) * k;
+      p.vel.z += (tz - p.vel.z) * k;
+    } else {
+      const from = Math.atan2(p.vel.x, p.vel.z);
+      const to = Math.atan2(tx, tz);
+      let delta = to - from;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      const angle = Math.abs(delta);
+      // Turning gets lazier the faster you travel and the heavier the body.
+      const maxTurn = ((MOVE.turnRate * (0.82 + (p.data.spd / 99) * 0.36)) / mass / (1 + speed * 0.055)) * dt;
+      const heading = angle <= maxTurn ? to : from + Math.sign(delta) * maxTurn;
+      // Thrust toward the stick's magnitude, minus the carve scrub. A hard turn eats the stroke
+      // too — you cannot plant and power through a carve, so thrust fades as the turn sharpens
+      // and the speed lost in the cut has to be re-earned on the exit.
+      const carve = Math.min(1, angle);
+      const step = clamp(targetSpeed - speed, -MOVE.decel * dt, accel * dt * (1 - carve));
+      const scrub = speed * carve * MOVE.turnBleed * dt;
+      const ns = Math.max(0, speed + step - scrub);
+      p.vel.x = Math.sin(heading) * ns;
+      p.vel.z = Math.cos(heading) * ns;
+    }
     const target = Math.atan2(inp.moveX, inp.moveZ);
     p.facing = turnToward(p.facing, target, dt * 11);
     if (p.state === 'idle') sim.setState(p, 'swim');

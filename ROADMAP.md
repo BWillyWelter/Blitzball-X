@@ -141,7 +141,19 @@ landed on `main` with the commit that closed them.
 - [x] Bubble wakes on turbo and richer goal-shock FX: turbo swimmers now emit a shared particle
       wake, and goals layer a secondary pressure wave with a bubble curtain. Player-specific
       turbo ribbons remain a follow-up once their mobile cost is measured.
-- [ ] Draw-call audit: merge/instance repeated arena props if the budget is hot on mobile.
+- [x] **Draw-call audit: 814 -> 697 per frame.** The arena was built from hundreds of small props
+      that never move — a 40-building skyline plus ~230 lit windows, 16 boundary pylons, 8 energy
+      lanes, 5 stand rings, 4 floodlight masts, the cradle arms — each one its own draw call, every
+      frame, for a silhouette that never animates. `mergeStatic()`/`mergeInPlace()`
+      (`src/render/materials.js`) bake a set of same-material meshes into one, and the arena now
+      draws the identical skyline in 2 calls instead of ~270 (stadium 249 -> 15, machinery 66 -> 18,
+      disc 18 -> 3). In the character rig the rule is stricter: parts merge only WITHIN one joint,
+      never across two, or the baked transform would freeze the animation — so the torso's number
+      decals and shoulder pads and each knee's sock+sole collapse, and the arms/legs stay articulated.
+      The crowd was already 2 InstancedMeshes. `tools/mergecheck.mjs` (16 checks, in CI) asserts the
+      bakes landed correctly — the failure mode here is a wrong origin moving props, not a crash, so
+      it checks the merged skyline's world bounding box still spans the 95–125 m ring — plus that the
+      rigs kept their joints and the budget holds.
 
 ## 3. Robustness & accessibility
 
@@ -156,6 +168,13 @@ landed on `main` with the commit that closed them.
       and starting again inside that window let the stale timer dispose the new match and route to
       results mid-game (found by the touch harness's portrait check). `startMatch` and `endMatch`
       now cancel the pending timer.
+- [x] **Deterministic seeds for the browser QA harnesses.** Normal play is clock-seeded so every
+      match feels fresh, but that made the browser harnesses a lottery — a run could begin inside a
+      kickoff reset where the controlled swimmer is legally frozen, and a check that passed locally
+      would fail CI on an unlucky roll. That is exactly what broke the touch QA once already. A
+      match seed can now be pinned (`startMatch({ …, seed })`, `?seed=123`, or `window.__BBX_SEED__`),
+      and `tools/touchtest.mjs` takes `QA_SEED` so a sweep can re-run known-good seeds. Real players
+      never set any of it.
 - [x] Touch UI: reduced-motion option, safe-area insets on notched phones.
 - [x] Touch UI presets: right/left-handed pad (which mirrors the whole scheme, ring included) plus
       size and opacity sliders, all applied live — including mid-match from the pause menu.
@@ -180,7 +199,17 @@ Monolith → modules, each extraction verified behavior-identical (tests + `npm 
 - [x] `rules.js` — flow, style meter, scoring, game state (`66de79f`)
 - [x] `combat.js` + `passing.js` (`1e03e2c`)
 - [x] `movement.js` — locomotion/turbo, glue dribble, separation, constraints (`5b7eb70`)
-- [ ] AI brains out of `ai.js` into per-role modules if it keeps growing
+- [x] **AI brains out of `ai.js` into per-role modules.** 607 lines had become six distinct brains
+      sharing one file: playcalling, carrier, off-ball offense, defense, loose ball, keeper. `ai.js`
+      is now just the input reset, the 0.25 s decision cadence and the routing; the decisions live in
+      `ai-carrier.js`, `ai-offense.js`, `ai-defense.js`, `ai-loose.js`, `ai-keeper.js`, `ai-plays.js`,
+      with the three shared primitives (`moveToward`, `nearestOpponentDist`, `shotLaneOpen`) in
+      `ai-core.js`. Only `updateAI` is imported outside, so the seam was clean. Verified
+      behavior-identical, not just test-green: `npm run sim -- 4 pro` (fixed seeds 1000..1003)
+      produces a byte-identical scoreline, match length and event census against the pre-split code.
+      That check earned its keep — the first extraction silently mistyped `diff.tackleRate` as
+      `diff.tactleRate`, which read as `undefined`, zeroed every CPU dive tackle, and had the sim
+      quietly playing a different sport (avg 378.6s -> 362.8s). Only the seeded diff caught it.
 
 ## 5. Release hygiene
 
@@ -203,3 +232,76 @@ Monolith → modules, each extraction verified behavior-identical (tests + `npm 
       fixes: text-bearing pink surfaces moved to a darker `--pink-deep` (6.45:1 vs 3.39:1, WCAG AA
       pass) and the a11y-hostile `user-scalable=no` left the viewport meta — pinch-zoom during
       play is still blocked by `touch-action: none` on the pad.
+
+## 6. Phase 7 — lifelike physics & movement
+
+The sport played correctly but moved like a diagram: swimmers vectoring on the spot, flat shots,
+and a dead pool. This phase gives the sim mass, spin and water:
+
+- [x] **Swimmer momentum and carving.** Locomotion is no longer a velocity-chase to the stick. The
+      velocity vector swings toward the input at a capped angular rate (`MOVE.turnRate`, scaled by
+      `spd`, body mass from `pow`, and travel speed), and a hard carve scrubs pace while eating the
+      stroke — thrust fades as the cut sharpens, so speed lost in the turn has to be re-earned on
+      the exit. Straight-line pace is untouched; what changed is that a 180 at speed is now a real
+      commitment that travels an arc. Heavier bodies (`pow`) turn lazier and accelerate slower.
+      The first pass had the scrub instantly cancelled by thrust (turns cost nothing — caught by
+      the regression test), fixed by gating thrust through the carve.
+- [x] **Struck spin: shots curl.** Every shot is hit with english. The lateral stick at release is
+      the curve for the user (bend it round the keeper's dive), timing decides how clean it is, and
+      CPU shooters carry natural curve off their shot rating so no flight is perfectly flat. The
+      strike line is **pre-compensated** — the ball is released a little wide and the spin brings it
+      back onto the aimed ring, like a free kick — so curl changes the *path* (beats a diving keeper
+      from an angle) without silently moving the aim, and only a badly-timed strike's wobble bends
+      off line for a genuine miss. Bends via Magnus-style lateral acceleration in `ball.js`
+      (`PHYS.ballCurve`), a **CURLED FINISH** pays style in `rules.js`, and the ball mesh now rolls
+      around its flight axis so the bend is visible on the ball itself.
+- [x] **The pool has a current.** `MatchSim.currentAt()` is a deterministic gyre (pure function of
+      sim time and position) that nudges anything drifting — mostly a loose ball — so a dead ball
+      wanders instead of hanging exactly where it stopped, identically on every run of a seed.
+- [x] Coverage: three new regressions in `tests/sim.test.mjs` (momentum reversal, spin bend,
+      current drift + determinism). Verified: 67/67 tests, `npm run sim -- 4 pro` (seeds 1000..1003)
+      plays clean at a new baseline avg of **347.5 s** (the old 378.6 s baseline is retired — the
+      sport intentionally plays differently now), `npm run build` clean, and the browser harnesses
+      (`qa:touch`, `qa:bench`, `qa:merge`) all green against the preview.
+
+## 7. Phase 8 — moves that pay, professional shape, real contact, permanent pad
+
+The play worked but the pieces didn't reward you: signature moves almost never beat anyone
+(8 washes over 4 seeded matches), the CPU spammed alley-oop lobs as its metagame, contact flopped
+bodies from a standing start, and the touch pad relabeled its skill button (JUKE → TACKLE →
+JUMP → DIVE) under the player's thumb mid-play.
+
+- [x] **Signature moves beat the defenders they TRAVEL into — and pay.** The contact sweep used
+      to run once, at the moment of the input: a move that dove through a gap beat nobody. It now
+      re-sweeps every frame of the move (`stepMove` in `combat.js`, driven from `movement.js`),
+      with each defender beatable once per move. The payoff is real too: beating a man refunds
+      turbo (`MOVE.moveTurboRefund`), drops the pool into a beat of slow-mo (`COMBAT.wowSlowmo`)
+      so the moment lands, and leaves you clean — the commit stun is only 25% for a move that
+      connected, full price for one you wasted. WASHED volume over 4 seeded matches: 8 → 44-65.
+- [x] **Professional play, not lob-ball.** The alley-oop was a 60% roll any time a mate was near
+      the ring — it was the metagame. It is now a set piece: the target must be cutting into open
+      water near the ring, the lane must be clear, the passer must have time, and even then it is
+      a 35% roll; the volley finish was pulled back from 0.95 to 0.82 quality. Result over 4
+      seeded matches: 2 alley-oop volleys (a highlight again) against 1238 ground passes, with
+      lead passes and build-up up. The midfield randomness went too: off-ball support swimmers no
+      longer throw random big hits (hit attempts 91 → 30), and the CPU presser dives on odds, not
+      on range.
+- [x] **Contact with body behind it.** Momentum decides what a hit DOES: a standing swing
+      staggers (`reel`), the same blow at charging pace knocks down (`fallen`) and earns the slow-mo
+      (`COMBAT.hitMomentum*` + `hitFallenSeverity`). Body mass from `pow` scales the knockback and
+      the recovery (`massOf`), so heavy swimmers don't fly and get up faster. The foul is judged on
+      the blow itself (the angle), not the momentum. This pass also caught a real bug: the MatchSim
+      `callFoul`/`isFoul` delegators silently dropped `victimWasDown`, so the documented "hitting a
+      swimmer who is already down is always a whistle" never fired — fixed. Discipline over 4
+      seeded matches: 7 fouls + a card, against 30 wilder hit attempts before.
+- [x] **Permanent HUD buttons.** The touch pad no longer swaps its skill button between
+      JUKE / TACKLE / JUMP / DIVE as possession flips. **SKILL** keeps one label and one edge all
+      match — the sim routes the single `trick` edge by possession (signature move on the ball,
+      poke-slide tackle off it, dive in the cage) — and the SHOOT anchor keeps its label, with the
+      Gamebreaker reading as a glow instead of a rename. `tools/touchtest.mjs` now asserts
+      permanence (same label + same edge across every state) instead of the old remapping.
+- [x] Verified: 70/70 tests (3 new — travel-beat + payoff, momentum contact, alley-oop rarity),
+      `npm run sim -- 4 pro` (seeds 1000..1003) balanced at avg **352.5 s** with lobs rare but
+      present, fouls/cards live and hit-spam gone, `npm run build` clean, `qa:touch` fully green
+      against the preview, `qa:bench` green (8/9 runs; the one failure never reproduced and the
+      harness is not a CI gate).
