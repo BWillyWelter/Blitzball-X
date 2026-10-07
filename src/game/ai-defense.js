@@ -19,7 +19,7 @@ export function defenseAI(sim, p, dt, roll) {
   const holder = sim.ball.holder;
   const ownGoal = sim.ownGoalPos(p.team);
   const dir = sim.attackDir(p.team);
-  const { presser, marks } = defensiveAssignments(sim, p, holder);
+  const { presser, marks } = defensiveAssignments(sim, p.team, holder);
   const reaction = diff.aiReaction;
 
   if (p === presser) {
@@ -62,6 +62,14 @@ export function defenseAI(sim, p, dt, roll) {
   // Marking: man coverage is the default, while lower difficulties sag toward the crease. The
   // explicit DROP ZONE play overrides that bias so the tactical choice remains readable.
   const mark = marks.get(p);
+  if (sim.defensePlayOf(p.team).id === 'zone') {
+    // Six distinct zone anchors: two high, two wide, two covering the low rings.
+    const lanes = [2.2, -2.2, 5.0, -5.0, 1.1, -1.1];
+    const depth = p.slot <= 2 ? 6.4 : p.slot <= 4 ? 4.5 : 2.5;
+    const lane = lanes[(p.slot - 1) % lanes.length];
+    moveToward(p, new Vec3(ownGoal.x + dir * depth, 0, lane + holder.pos.z * 0.12), 0.9, false);
+    return;
+  }
   if (mark) {
     const toGoal = Vec3.dirXZ(mark.pos, ownGoal);
     // Stoppers sit tighter on shooters than on anyone else — deny the ring look entirely.
@@ -88,24 +96,41 @@ export function defenseAI(sim, p, dt, roll) {
  * (they are the designated scorers), then nearest-man. Recomputing every step from live distances
  * is what makes a cut-back rotate the defense instead of leaving a man stranded on a dead runner.
  */
-function defensiveAssignments(sim, p, holder) {
-  const mates = [...sim.outfield(p.team)].sort((a, b) => a.pos.distanceToXZ(holder.pos) - b.pos.distanceToXZ(holder.pos));
-  const enemies = sim.outfield(1 - p.team).filter((q) => q !== holder && q.state !== 'fallen');
-  // Enemy shooters first — they are the designated scorers.
-  enemies.sort((a, b) => (b.isShooter ? 1 : 0) - (a.isShooter ? 1 : 0));
+export function defensiveAssignments(sim, team, holder) {
+  const mates = sim.outfield(team).filter((q) => !q.sentOff && !q.subbedOff);
+  const enemies = sim.outfield(1 - team).filter((q) => q !== holder && !q.sentOff && !q.subbedOff);
+  sim.defensiveShape ||= [];
+  const previous = sim.defensiveShape[team];
+  if (previous && previous.holder === holder && previous.play === sim.defPlay[team] &&
+      sim.time < previous.until && mates.includes(previous.presser) &&
+      [...previous.marks].every(([a, b]) => mates.includes(a) && enemies.includes(b))) return previous;
+  const eligible = mates.filter((q) => q.stun <= 0 && q.state !== 'fallen');
+  eligible.sort((a, b) => a.pos.distanceToXZ(holder.pos) - b.pos.distanceToXZ(holder.pos));
+  let presser = eligible[0] || mates[0];
+  // A small proximity change must not make the entire team exchange jobs.
+  if (previous?.holder === holder && eligible.includes(previous.presser) &&
+      previous.presser.pos.distanceToXZ(holder.pos) <= presser.pos.distanceToXZ(holder.pos) + 1.5) {
+    presser = previous.presser;
+  }
   const marks = new Map();
-  for (let i = 1; i < mates.length; i++) {
-    const defender = mates[i];
-    // A fielder takes a shooter if one is unmarked; otherwise nearest-man marking.
-    const priority = p.isFielder && i <= 2 ? enemies.find((q) => q.isShooter && ![...marks.values()].includes(q)) : null;
-    const pool = priority ? [priority, ...enemies.filter((q) => q !== priority)] : enemies;
-    pool.sort((a, b) => defender.pos.distanceToXZ(a.pos) - defender.pos.distanceToXZ(b.pos));
-    const mark = pool.shift();
-    if (mark) {
+  const remaining = new Set(enemies);
+  // Keep valid pairings across the refresh; only new/uncovered runners are reassigned.
+  if (previous?.holder === holder) for (const [defender, mark] of previous.marks) {
+    if (mates.includes(defender) && defender !== presser && remaining.has(mark)) {
       marks.set(defender, mark);
-      const idx = enemies.indexOf(mark);
-      if (idx >= 0) enemies.splice(idx, 1);
+      remaining.delete(mark);
     }
   }
-  return { presser: mates[0], marks };
+  const defenders = mates.filter((q) => q !== presser && !marks.has(q));
+  defenders.sort((a, b) => Number(b.isFielder) - Number(a.isFielder) || a.slot - b.slot);
+  for (const defender of defenders) {
+    let pool = [...remaining];
+    const shooters = pool.filter((q) => q.isShooter);
+    if (defender.isFielder && shooters.length) pool = shooters;
+    pool.sort((a, b) => defender.pos.distanceToXZ(a.pos) - defender.pos.distanceToXZ(b.pos));
+    if (pool[0]) { marks.set(defender, pool[0]); remaining.delete(pool[0]); }
+  }
+  const shape = { presser, marks, holder, play: sim.defPlay[team], until: sim.time + 0.5 };
+  sim.defensiveShape[team] = shape;
+  return shape;
 }

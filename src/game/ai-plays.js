@@ -12,6 +12,8 @@ import { RULES } from '../data/constants.js';
  */
 export function cpuCallPlay(sim, p, rng) {
   const team = p.team;
+  // Human tactical calls belong to the human; CPU teammates must not silently overwrite them.
+  if (team === sim.userTeam) return;
   const attacking = sim.possession === team;
   const deficit = sim.score[1 - team] - sim.score[team]; // positive = we trail
   const cur = attacking ? sim.offPlay[team] : sim.defPlay[team];

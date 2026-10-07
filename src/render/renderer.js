@@ -21,6 +21,10 @@ export class MatchRenderer {
   constructor(canvas, sim, settings) {
     this.canvas = canvas;
     this.sim = sim;
+    // Phones default to the lean pipeline: no shadow-map redraw or multi-pass bloom.
+    // Keep the saved desktop preference untouched.
+    this.mobile = !!window.matchMedia?.('(pointer: coarse)').matches;
+    settings = this.mobile ? { ...settings, quality: 'low' } : settings;
     this.settings = settings;
     this.disposed = false;
 
@@ -994,7 +998,7 @@ export class MatchRenderer {
       (0.2 - this.crowdEnergy) *
       Math.min(1, dt * 0.6);
 
-    if (this.crowd) {
+    if (this.crowd && !this.mobile) {
       const time = this.elapsed;
       const energy = this.crowdEnergy;
       const children = this.crowd.children;

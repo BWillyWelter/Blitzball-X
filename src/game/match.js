@@ -618,6 +618,9 @@ cageAvailable() {
     const idx = this.players.indexOf(out);
     if (idx < 0) return false;
     // The incoming swimmer takes the water at the outgoing swimmer's spot.
+    incoming.slot = out.slot;
+    incoming.subbedOff = false;
+    incoming.vel.set(0, 0, 0);
     incoming.pos.copy(out.pos);
     incoming.y = out.y;
     incoming.facing = out.facing;

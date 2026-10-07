@@ -2054,6 +2054,59 @@ select {
   border-color: rgba(92, 242, 255, 0.7);
 }
 
+.touch-defense {
+  position: absolute;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, 58px);
+  gap: 8px;
+  opacity: var(--touch-opacity, 1);
+}
+.touch-defense .touch-btn {
+  width: 58px;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 11px;
+  border-color: #fb8868;
+}
+.touch-ui[data-phase="defense"] .touch-defense .touch-btn {
+  background: rgba(129, 43, 25, 0.8);
+}
+.touch-tactics {
+  position: absolute;
+  top: max(70px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 5px;
+  max-width: 44vw;
+}
+.touch-tactics button {
+  min-height: 36px;
+  padding: 5px 12px;
+  border: 1px solid #5cf2ff;
+  border-radius: 8px;
+  background: rgba(5, 22, 31, 0.9);
+  color: #e6f7ff;
+  font: 700 12px var(--font-cond);
+  touch-action: none;
+}
+.touch-tactics span {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  text-align: center;
+  color: #c7dae1;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  .touch-defense { grid-template-columns: repeat(2, 48px); gap: 5px; }
+  .touch-defense .touch-btn { width: 48px; height: 42px; font-size: 10px; }
+  .touch-tactics button { padding: 4px 7px; font-size: 10px; }
+}
+
 /* Keep the HUD clear of thumbs and safe areas on touch devices. */
 .match-wrap.touch .pcard {
   left: max(14px, env(safe-area-inset-left));

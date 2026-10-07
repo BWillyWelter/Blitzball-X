@@ -717,6 +717,7 @@ class App {
       // Light up the SHOOT anchor as soon as the controlled side's meter is full. The pad itself
       // is permanent — no button relabels or reroutes itself during play.
       if (m.touchControls && m.userTeam !== null) {
+        m.touchControls.setMatchState(m.sim);
         m.touchControls.setGamebreakerReady(!!m.sim.gbReady[m.userTeam]);
         m.touchControls.setCage(!m.sim.inCage && m.sim.keeperSwitchCd <= 0 && m.sim.cageAvailable(), m.sim.inCage);
       }

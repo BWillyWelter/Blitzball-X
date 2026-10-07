@@ -81,7 +81,7 @@ const ui = await page.evaluate(() => ({
   hint: document.querySelector('.hint')?.textContent || '',
 }));
 ok('overlay present during match', ui.overlay);
-ok('4 primary + 2 depth buttons + stick + pause rendered (expert row removed)', ui.buttons === 6 && ui.primary === 4 && ui.secondaryRow === false && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
+ok('offense pad, 4 explicit defense buttons, depth, stick and pause rendered', ui.buttons === 10 && ui.primary === 4 && ui.secondaryRow === false && ui.vertical === 2 && ui.stick && ui.pauseBtn, `buttons=${ui.buttons}`);
 ok('the SKILL button is labelled SKILL — and stays that way', ui.contextLabel === 'SKILL', `label=${ui.contextLabel}`);
 ok('hint switched to touch wording', /STICK/.test(ui.hint), ui.hint.slice(0, 48));
 
@@ -618,13 +618,45 @@ const ownership = await page.evaluate(() => {
   window.dispatchEvent(new Event('blur'));
   const blur = !input.touch.turbo && !document.querySelector('.touch-ui .down');
   tc.reset();
+  const defenseEdges = [];
+  for (const action of ['tackle', 'hit', 'breach', 'switch']) {
+    tc.reset();
+    input.flushOneShots();
+    fire(action, 'pointerdown', 120);
+    const polled = { ...input.poll() };
+    defenseEdges.push(polled[action === 'tackle' ? 'trick' : action === 'switch' ? 'switchPlayer' : action]);
+    fire(action, 'pointerup', 120);
+  }
+  tc.setMatchState(window.app.match.sim);
+  tc.reset();
+  input.flushOneShots();
+  fire('offensePlay', 'pointerdown', 121);
+  const offenseCall = input.poll().playcall;
+  fire('offensePlay', 'pointerup', 121);
+  const tacticSim = window.app.match.sim;
+  tacticSim.state = 'live';
+  tacticSim.userPlayTimer = 0;
+  const tacticPlayer = tacticSim.controlled;
+  tacticPlayer.input.playcall = offenseCall;
+  tacticSim.processInput(tacticPlayer, 1 / 60);
+  const offenseTactic = offenseCall >= 1 && offenseCall <= 3 && tacticSim.offPlay[tacticSim.userTeam] === offenseCall - 1;
+  input.flushOneShots();
+  fire('defensePlay', 'pointerdown', 122);
+  const defenseCall = input.poll().playcall;
+  fire('defensePlay', 'pointerup', 122);
+  tacticSim.userPlayTimer = 0;
+  tacticPlayer.input.playcall = defenseCall;
+  tacticSim.processInput(tacticPlayer, 1 / 60);
+  const defenseTactic = defenseCall >= 7 && defenseCall <= 9 && tacticSim.defPlay[tacticSim.userTeam] === defenseCall - 7;
+  input.flushOneShots();
+  tc.reset();
   fire('turbo', 'pointerdown', 108);
   window.app.match.paused = false;
   window.app.pause();
   const pause = !input.touch.turbo && input.pending.size === 0;
   window.app.resume();
   window.app.match.paused = true;
-  return { unrelatedReleaseIgnored, independentRelease, opposingDepth, remainingDepth, cage, cancellation, blur, pause };
+  return { unrelatedReleaseIgnored, independentRelease, opposingDepth, remainingDepth, cage, cancellation, blur, pause, explicitDefense: defenseEdges.every(Boolean), offenseTactic, defenseTactic };
 });
 for (const [name, passed] of Object.entries(ownership)) ok(`rebuilt touch lifecycle: ${name}`, passed);
 

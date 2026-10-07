@@ -54,9 +54,15 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 On touch the pad is **permanent**: SHOOT (it glows while the Gamebreaker is ready), PASS, SKILL and
 BURST never change their name or their job mid-match. SKILL is the trick on the ball and the
 poke-slide tackle off it — exactly the L key above — and the big hit / leap / switch stay on
-keyboard and gamepad. Aim the stick, then tap SKILL once to commit the move; it never locks
+keyboard and gamepad, with dedicated **TACKLE / HIT / BLOCK / SWITCH** touch buttons now available
+in the center pad. **ATTACK** cycles Drive / Spread / Isolation; **DEFEND** cycles Man / Zone / Press.
+Your selections persist until you change them — CPU teammates never override your playbook.
+Aim the stick, then tap SKILL once to commit the move; it never locks
 subsequent steering. RISE / DIVE control depth and GK takes the cage. Each finger owns its
 control independently; pause, focus loss, rotation, and cancelled touches clear held input.
+
+On phones the renderer uses the lean pipeline (lower pixel density, no real-time shadows or
+bloom) to prioritize responsive play. Desktop graphics preferences are unchanged.
 
 ### Rules
 

@@ -37,6 +37,7 @@ const TOUCH_EDGE = {
   shoot: 'shootPressed',
   pass: 'pass',
   trick: 'trick',
+  tackle: 'trick',
   hit: 'hit',
   breach: 'breach',
   switch: 'switchPlayer',
@@ -165,7 +166,7 @@ export class InputManager {
       this.pendingJukeDir = null;
       Object.assign(this.touch, {
         moveX: 0, moveZ: 0, moveY: 0, active: false,
-        turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null,
+        turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null, playcall: 0,
       });
       Object.assign(this.input, emptyInput());
       this.touch.edges.clear();
@@ -331,7 +332,7 @@ export class InputManager {
     let gamebreaker = this.justPressed('KeyE');
     // Take the cage: hand control to your own keeper (and take it back again).
     let cage = this.justPressed('KeyV');
-    let playcall = 0;
+    let playcall = this.touch.playcall || 0;
 
     if (this.down('KeyA', 'ArrowLeft')) {
       moveX -= 1;
@@ -618,6 +619,7 @@ export class InputManager {
     this.released.clear();
     touch.edges.clear();
     touch.jukeDir = null;
+    touch.playcall = 0;
 
     return output;
   }

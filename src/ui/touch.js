@@ -51,6 +51,17 @@ export class TouchControls {
         ${RING.map((b) => `<button class="touch-btn pri ${b.cls}" data-action="${b.action}" type="button" style="left:${b.x}px;top:${b.y}px"><span>${b.label}</span></button>`).join('')}
         <button class="touch-btn pri t-shoot" data-action="shoot" type="button" aria-label="Hold to charge, release to shoot"><span>SHOOT</span></button>
       </div></div>
+      <div class="touch-defense" aria-label="Defense controls">
+        <button class="touch-btn" data-action="tackle" type="button"><span>TACKLE</span></button>
+        <button class="touch-btn" data-action="hit" type="button"><span>HIT</span></button>
+        <button class="touch-btn" data-action="breach" type="button"><span>BLOCK</span></button>
+        <button class="touch-btn" data-action="switch" type="button"><span>SWITCH</span></button>
+      </div>
+      <div class="touch-tactics" aria-label="Team tactics">
+        <button data-action="offensePlay" type="button">ATTACK: DRIVE</button>
+        <button data-action="defensePlay" type="button">DEFEND: MAN</button>
+        <span>Spread for passing lanes · Zone protects the goal · Press costs stamina</span>
+      </div>
       <button class="touch-cage" data-action="cage" type="button" aria-label="Take the cage"><span>GK</span></button>
       <button class="touch-pause" type="button" aria-label="Pause">II</button>
       <div class="touch-rotate">ROTATE YOUR DEVICE<br /><span>Blitzball X plays in landscape</span></div>`;
@@ -141,6 +152,10 @@ export class TouchControls {
         const length = Math.hypot(t.moveX, t.moveZ);
         t.jukeDir = length > 0.2 ? { x: t.moveX / length, y: t.moveZ / length } : null;
         t.edges.add('trick');
+      } else if (action === 'offensePlay' || action === 'defensePlay') {
+        const side = action === 'offensePlay' ? 'offense' : 'defense';
+        const index = ((this.playIndices?.[side] || 0) + 1) % 3;
+        t.playcall = (side === 'offense' ? 1 : 7) + index;
       } else if (action === 'shoot') t.edges.add('shoot');
       else if (!['turbo', 'rise', 'dive'].includes(action)) t.edges.add(action);
       btn.setPointerCapture(e.pointerId);
@@ -170,6 +185,7 @@ export class TouchControls {
     t.active = t.turbo = t.shootHeld = t.jukeHeld = false;
     t.jukeDir = null;
     t.edges.clear();
+    t.playcall = 0;
     this.stick.classList.remove('engaged');
     this.stick.style.left = this.stick.style.top = this.stick.style.bottom = '';
     this.nub.style.transform = 'translate(-50%, -50%)';
@@ -197,6 +213,20 @@ export class TouchControls {
     this.el.style.setProperty('--touch-scale', String(setting(settings.touchScale, 1, 0.8, 1.3)));
     this.el.style.setProperty('--touch-opacity', String(setting(settings.touchOpacity, 1, 0.4, 1)));
     this.placeRing();
+  }
+
+  setMatchState(sim) {
+    const team = sim.userTeam;
+    if (team === null) return;
+    this.playIndices = { offense: sim.offPlay[team], defense: sim.defPlay[team] };
+    const names = { offense: ['DRIVE', 'SPREAD', 'ISOLATE'], defense: ['MAN', 'ZONE', 'PRESS'] };
+    for (const side of ['offense', 'defense']) {
+      const btn = this.buttons.get(`${side}Play`);
+      const label = `${side === 'offense' ? 'ATTACK' : 'DEFEND'}: ${names[side][this.playIndices[side]]}`;
+      if (btn.textContent !== label) btn.textContent = label;
+    }
+    const phase = sim.possession === team ? 'offense' : 'defense';
+    if (this.el.dataset.phase !== phase) this.el.dataset.phase = phase;
   }
 
   setGamebreakerReady(ready) { this.buttons.get('shoot').classList.toggle('gb-ready', !!ready); }
