@@ -54,7 +54,9 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 On touch the pad is **permanent**: SHOOT (it glows while the Gamebreaker is ready), PASS, SKILL and
 BURST never change their name or their job mid-match. SKILL is the trick on the ball and the
 poke-slide tackle off it — exactly the L key above — and the big hit / leap / switch stay on
-keyboard and gamepad.
+keyboard and gamepad. Aim the stick, then tap SKILL once to commit the move; it never locks
+subsequent steering. RISE / DIVE control depth and GK takes the cage. Each finger owns its
+control independently; pause, focus loss, rotation, and cancelled touches clear held input.
 
 ### Rules
 
@@ -78,9 +80,10 @@ keyboard and gamepad.
   the line finds a runner in space instead of trailing him. Land it and the passer is paid — a
   **LEAD PASS** is real style, and only counts if the receiver was genuinely running and the spot
   was genuinely open.
-- **The water is real.** Swimmers carry momentum: the body swings toward your stick at a limited
-  rate and a hard carve scrubs pace, so a late change of direction is a move you earn rather than a
-  teleport — and exactly how a committed defender gets beaten. Shots are struck with **spin**: the
+- **The water is real.** Swimmers accelerate toward the stick with bounded thrust: light analog
+  input cruises, full deflection drives, and reversals brake through zero without a sideways orbit.
+  Mass affects acceleration and release eases the body to rest. The carried ball stays at hand
+  height at every swim depth; fast passes, shots, and pickups use swept contact checks. Shots are struck with **spin**: the
   lateral stick at release curls the flight around a keeper's dive (a **CURLED FINISH** pays style),
   a badly-timed strike wobbles off line instead, and the pool's own slow current nudges anything
   drifting, so a loose ball wanders rather than hanging where it stopped.

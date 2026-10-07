@@ -41,6 +41,7 @@ const TOUCH_EDGE = {
   breach: 'breach',
   switch: 'switchPlayer',
   gamebreaker: 'gamebreaker',
+  cage: 'cage',
 };
 
 const GAMEPLAY_CODES = new Set([
@@ -92,6 +93,7 @@ export class InputManager {
 
     this.pending = new Set();
     this.pendingPlaycall = 0;
+    this.pendingJukeDir = null;
 
     this.onPause = null;
     this.enabled = true;
@@ -160,8 +162,14 @@ export class InputManager {
       // Do not allow held actions to fire after tab switching.
       this.pending.clear();
       this.pendingPlaycall = 0;
-      this.touch.moveY = 0;
+      this.pendingJukeDir = null;
+      Object.assign(this.touch, {
+        moveX: 0, moveZ: 0, moveY: 0, active: false,
+        turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null,
+      });
+      Object.assign(this.input, emptyInput());
       this.touch.edges.clear();
+      this.onTouchReset?.();
     };
 
     window.addEventListener(
@@ -578,16 +586,9 @@ export class InputManager {
     output.shootPressed = !!shootPressed;
     output.shootReleased = !!shootReleased;
     output.pass = !!pass;
-    // JUKE held + stick flick: the flick direction aims the signature move. A plain tap keeps
-    // the old behaviour (forward move, AI/target chosen by the sim).
-    if (touch.jukeHeld && touch.jukeDir) {
-      const d = touch.jukeDir;
-      output.moveX = Math.max(-1, Math.min(1, d.x));
-      output.moveZ = Math.max(-1, Math.min(1, d.y));
-      output.jukeDir = { x: d.x, y: d.y };
-    } else {
-      output.jukeDir = null;
-    }
+    // Skill aim is a snapshot for this action, never a replacement for locomotion.
+    if (trick && touch.jukeDir) this.pendingJukeDir = { ...touch.jukeDir };
+    output.jukeDir = (trick || this.pending.has('trick')) ? this.pendingJukeDir : null;
     output.jukeHeld = !!touch.jukeHeld;
     output.trick = !!trick;
     output.hit = !!hit;
@@ -616,6 +617,7 @@ export class InputManager {
     this.pressed.clear();
     this.released.clear();
     touch.edges.clear();
+    touch.jukeDir = null;
 
     return output;
   }
@@ -623,6 +625,7 @@ export class InputManager {
   flushOneShots() {
     this.pending.clear();
     this.pendingPlaycall = 0;
+    this.pendingJukeDir = null;
   }
 
   menuPoll() {

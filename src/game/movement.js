@@ -73,48 +73,26 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
     p.facing = turnToward(p.facing, Math.atan2(0, p.diveDir), dt * 9);
     if (p.state === 'idle') sim.setState(p, 'swim');
   } else if (canMove && (inp.moveX !== 0 || inp.moveZ !== 0)) {
-    // Locomotion with mass. A swimmer is a body in water, not a cursor: the velocity vector can
-    // only swing toward the stick at a capped angular rate, and a hard carve scrubs speed. From a
-    // standstill the body simply goes where it is pointed; at speed a 180 is a real commitment
-    // that travels an arc and costs pace — which is what makes a late change of direction a
-    // skillful way to beat a committed defender instead of a free teleport.
+    // Bounded vector thrust: analog input sets pace, mass sets acceleration. Reversals
+    // brake through zero instead of choosing an arbitrary left/right orbit around the thumb.
     const mass = MOVE.massBase + (p.data.pow / 99) * MOVE.massPerPow;
     const flowBoost = sim.flow[p.team] ? 1.12 : 1;
-    const tx = inp.moveX * maxSpeed * flowBoost;
-    const tz = inp.moveZ * maxSpeed * flowBoost;
-    const targetSpeed = Math.hypot(tx, tz);
-    const speed = p.vel.lengthXZ();
-    const accel = (MOVE.accel * (0.8 + (p.data.spd / 99) * 0.4)) / mass;
-    if (speed < 0.35) {
-      const k = Math.min(1, (accel * dt / maxSpeed) * 1.4);
-      p.vel.x += (tx - p.vel.x) * k;
-      p.vel.z += (tz - p.vel.z) * k;
-    } else {
-      const from = Math.atan2(p.vel.x, p.vel.z);
-      const to = Math.atan2(tx, tz);
-      let delta = to - from;
-      while (delta > Math.PI) delta -= Math.PI * 2;
-      while (delta < -Math.PI) delta += Math.PI * 2;
-      const angle = Math.abs(delta);
-      // Turning gets lazier the faster you travel and the heavier the body.
-      const maxTurn = ((MOVE.turnRate * (0.82 + (p.data.spd / 99) * 0.36)) / mass / (1 + speed * 0.055)) * dt;
-      const heading = angle <= maxTurn ? to : from + Math.sign(delta) * maxTurn;
-      // Thrust toward the stick's magnitude, minus the carve scrub. A hard turn eats the stroke
-      // too — you cannot plant and power through a carve, so thrust fades as the turn sharpens
-      // and the speed lost in the cut has to be re-earned on the exit.
-      const carve = Math.min(1, angle);
-      const step = clamp(targetSpeed - speed, -MOVE.decel * dt, accel * dt * (1 - carve));
-      const scrub = speed * carve * MOVE.turnBleed * dt;
-      const ns = Math.max(0, speed + step - scrub);
-      p.vel.x = Math.sin(heading) * ns;
-      p.vel.z = Math.cos(heading) * ns;
-    }
+    const magnitude = Math.max(1, Math.hypot(inp.moveX, inp.moveZ));
+    const tx = inp.moveX / magnitude * maxSpeed * flowBoost;
+    const tz = inp.moveZ / magnitude * maxSpeed * flowBoost;
+    const dx = tx - p.vel.x;
+    const dz = tz - p.vel.z;
+    const difference = Math.hypot(dx, dz);
+    const accel = MOVE.accel * (0.8 + p.data.spd / 99 * 0.4) / mass;
+    const step = difference > 0 ? Math.min(1, accel * dt / difference) : 0;
+    p.vel.x += dx * step;
+    p.vel.z += dz * step;
     const target = Math.atan2(inp.moveX, inp.moveZ);
     p.facing = turnToward(p.facing, target, dt * 11);
     if (p.state === 'idle') sim.setState(p, 'swim');
   } else {
     const dec = p.state === 'fallen' ? 2.5 : MOVE.decel;
-    const k = Math.max(0, 1 - dec * dt);
+    const k = Math.exp(-dec * dt);
     p.vel.x *= k;
     p.vel.z *= k;
     if (p.state === 'swim' && p.vel.lengthXZ() < 0.3) sim.setState(p, 'idle');
@@ -139,10 +117,10 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
     const wantY = canSwim ? clamp(rawY, -1, 1) : 0;
     if (wantY !== 0) {
       const targetVy = wantY * MOVE.swimVertical;
-      p.vy += (targetVy - p.vy) * Math.min(1, MOVE.verticalAccel * dt);
+      p.vy += (targetVy - p.vy) * (1 - Math.exp(-MOVE.verticalAccel * dt));
     } else {
-      p.vy *= Math.max(0, 1 - MOVE.verticalDrag * dt);
-      p.y *= Math.max(0, 1 - MOVE.verticalHome * dt);
+      p.vy *= Math.exp(-MOVE.verticalDrag * dt);
+      p.y *= Math.exp(-MOVE.verticalHome * dt);
     }
     p.y += p.vy * dt;
     if (p.y < ARENA.playerMinY) {
@@ -308,19 +286,17 @@ export function constrainPlayer(sim, p) {
 }
 
 /**
- * Rematch-style glue dribbling: the ball rides just ahead of the carrier's feet and is only
- * released by shooting, passing, or being poke/slide-tackled. A touch counter drives style;
- * a FLOW carrier can't be poked at all.
+ * One authoritative carry socket, shared by live play and dead-ball animation.
+ * The ball stays at hand height and inherits the carrier's motion, never at their feet.
  */
 export function updateGlueDribble(sim, dt) {
   const holder = sim.ball.holder;
   if (!holder) return;
   const f = sim.forwardOf(holder);
-  const ahead = 0.55 + Math.min(0.5, holder.vel.lengthXZ() * 0.09);
-  sim.ball.pos.x = holder.pos.x + f.x * ahead;
-  sim.ball.pos.z = holder.pos.z + f.z * ahead;
-  sim.ball.pos.y = 0.5 + holder.y + Math.sin(sim.time * 9) * 0.06;
-  sim.ball.vel.set(holder.vel.x, 0, holder.vel.z);
+  const ahead = 0.48 + Math.min(0.18, holder.vel.lengthXZ() * 0.025);
+  sim.ball.pos.set(holder.pos.x + f.x * ahead, 0.9 + holder.y, holder.pos.z + f.z * ahead);
+  sim.ball.vel.set(holder.vel.x, holder.vy, holder.vel.z);
+  sim.ballPreviousPosition.copy(sim.ball.pos);
   holder.dribbleTouch += dt;
 }
 
@@ -330,15 +306,16 @@ export function separatePlayers(sim) {
     for (let j = i + 1; j < n; j++) {
       const a = sim.players[i];
       const b = sim.players[j];
-      if (a.airborne !== b.airborne && Math.abs(a.y - b.y) > 0.9) continue;
+      if (Math.abs(a.y - b.y) > 0.9) continue;
       const dx = b.pos.x - a.pos.x;
       const dz = b.pos.z - a.pos.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       const min = MOVE.separation;
-      if (d < min && d > 1e-4) {
+      if (d < min) {
         const push = (min - d) / 2;
-        const nx = dx / d;
-        const nz = dz / d;
+        // Exact overlaps still need a deterministic separation normal.
+        const nx = d > 1e-4 ? dx / d : 1;
+        const nz = d > 1e-4 ? dz / d : 0;
         const wa = a.state === 'fallen' || a.isKeeper ? 0 : 1;
         const wb = b.state === 'fallen' || b.isKeeper ? 0 : 1;
         const tot = wa + wb || 1;

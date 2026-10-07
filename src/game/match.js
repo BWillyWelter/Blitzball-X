@@ -773,7 +773,9 @@ cageAvailable() {
     this.ball.holder = p;
     this.ball.flight = null;
     this.ball.vel.set(0, 0, 0);
+    this.ball.releaseCooldown = null;
     p.hasBall = true;
+    this.updateGlueDribble(0);
     this.ball.lastTeam = p.team;
     this.ball.lastTouch = p;
     p.dribbleTouch = 0; // glue dribbling: reset the touch streak on a new possession
@@ -934,7 +936,6 @@ cageAvailable() {
     for (const p of this.players) this.updatePlayerPhysics(p, dt, false);
     this.separatePlayers();
     this.updateBall(dt, false);
-    this.updateGlueDribble(dt); // Rematch-style: the ball rides at the carrier's feet
     // 4. Rules
     this.updateRules(dt);
     // Consume one-shot flags
@@ -1030,7 +1031,9 @@ cageAvailable() {
         this.tryPass(p, called, inp.turbo);
       }
       if (inp.trick && this.canAct(p) && p.cd.trick <= 0 && !p.isKeeper) {
-        const dir = new Vec3(inp.moveX, 0, inp.moveZ);
+        const dir = inp.jukeDir
+          ? new Vec3(inp.jukeDir.x, 0, inp.jukeDir.y)
+          : new Vec3(inp.moveX, 0, inp.moveZ);
         this.tryTrick(p, dir.length() > 0.2 ? dir.normalize() : null, inp.turbo);
       }
       if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);

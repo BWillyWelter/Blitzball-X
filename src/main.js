@@ -460,6 +460,7 @@ class App {
   pause() {
     if (!this.match || this.match.paused) return;
     this.match.paused = true;
+    this.input.onBlur();
     this.audio.suspend();
     const ov = Screens.PauseOverlay(this, {
       onResume: () => this.resume(),
@@ -476,6 +477,7 @@ class App {
   resume() {
     if (!this.match || !this.match.paused) return;
     this.match.paused = false;
+    this.input.setEnabled(true);
     this.audio.resume();
     if (this.overlay) this.overlay.el.remove();
     this.overlay = null;

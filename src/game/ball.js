@@ -1,5 +1,19 @@
 import { Vec3, clamp, lerp } from '../core/vec3.js';
 import { ARENA, ACTION, PHYS, RULES, STYLE } from '../data/constants.js';
+import { updateGlueDribble } from './movement.js';
+
+/** Closest point along this step's flight, preventing fast balls tunnelling through bodies. */
+export function contactPoint(sim, player) {
+  const end = sim.ball.pos;
+  const start = sim.ballPreviousPosition;
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSq = dx * dx + dz * dz;
+  const u = lengthSq > 1e-8
+    ? clamp(((player.pos.x - start.x) * dx + (player.pos.z - start.z) * dz) / lengthSq, 0, 1)
+    : 1;
+  return new Vec3(lerp(start.x, end.x, u), lerp(start.y, end.y, u), lerp(start.z, end.z, u));
+}
 
 /**
  * Ball flight physics, zone-ring crossing, keeper saves, blocks, interceptions and pickups,
@@ -43,6 +57,7 @@ export function releaseLoose(sim, from, velocity) {
     );
 
     ball.vel.copy(velocity);
+    sim.ballPreviousPosition.copy(ball.pos);
 
     ball.flight = {
       kind: 'loose',
@@ -61,18 +76,7 @@ export function updateBall(sim, dt, deadBall) {
 
     if (ball.holder) {
       const holder = ball.holder;
-      const forward =
-        sim.forwardOf(holder);
-
-      ball.pos.set(
-        holder.pos.x +
-          forward.x * 0.42,
-        0.85 + holder.y,
-        holder.pos.z +
-          forward.z * 0.42
-      );
-
-      ball.vel.set(0, 0, 0);
+      updateGlueDribble(sim, dt);
 
       if (
         holder.isKeeper &&
@@ -176,8 +180,10 @@ export function updateBall(sim, dt, deadBall) {
             : 1.5;
 
         if (
-          target.state !== 'fallen' &&
+          !target.sentOff && !target.subbedOff && target.stun <= 0 &&
+          target.state !== 'fallen' && target.state !== 'stumble' &&
           distance < reach &&
+          (flight.kind === 'lob' || Math.abs(ball.pos.y - (0.9 + target.y)) < 1.1) &&
           !deadBall
         ) {
           if (flight.kind === 'lob') {
@@ -286,6 +292,13 @@ export function updateBall(sim, dt, deadBall) {
       flight.kind === 'shot' ||
       flight.kind === 'loose'
     ) {
+      // Resolve contact before scoring: a keeper crossed in the same step gets a chance.
+      if (!deadBall && flight.kind === 'shot') {
+        sim.checkBlocks();
+        if (ball.flight !== flight) return;
+        sim.checkKeeperSave();
+        if (ball.flight !== flight) return;
+      }
       const goal =
         sim.checkGoalCrossing(
           previous,
@@ -321,22 +334,7 @@ export function updateBall(sim, dt, deadBall) {
         );
       }
 
-      if (
-        !deadBall &&
-        flight.kind === 'shot'
-      ) {
-        sim.checkKeeperSave();
 
-        if (ball.flight !== flight) {
-          return;
-        }
-
-        sim.checkBlocks();
-
-        if (ball.flight !== flight) {
-          return;
-        }
-      }
     }
 
     sim.bounceBall(
@@ -384,6 +382,7 @@ export function integrateLoose(sim, ball, dt) {
     ball.vel.scale(
       Math.max(0, 1 - PHYS.looseDrag * dt)
     );
+    sim.ballPreviousPosition.copy(ball.pos);
     ball.pos.addScaled(ball.vel, dt);
     sim.bounceBall(ball, null);
   }
@@ -490,8 +489,7 @@ export function bounceBall(sim, ball, flight) {
     const radius = ball.pos.lengthXZ();
 
     if (
-      radius > ARENA.ballRadius &&
-      ball.wallCooldown <= 0
+      radius > ARENA.ballRadius
     ) {
       const nx = ball.pos.x / radius;
       const nz = ball.pos.z / radius;
@@ -706,20 +704,19 @@ export function checkKeeperSave(sim, ) {
       return;
     }
 
-    const dx = Math.abs(
-      ball.pos.x - keeper.pos.x
-    );
+    if (keeper.sentOff || keeper.subbedOff || keeper.stun > 0) return;
+    const contact = contactPoint(sim, keeper);
+    const dx = Math.abs(contact.x - keeper.pos.x);
 
     if (dx > 0.9) {
       return;
     }
 
-    const dz = Math.abs(
-      ball.pos.z - keeper.pos.z
-    );
+    const signedZ = contact.z - keeper.pos.z;
+    const dz = Math.abs(signedZ);
 
     const dy = Math.abs(
-      ball.pos.y -
+      contact.y -
       (
         ARENA.goalY +
         keeper.y
@@ -745,7 +742,7 @@ export function checkKeeperSave(sim, ) {
     let diveBonus = 0;
     let diveWrong = false;
     if (keeper.diveT > 0) {
-      const side = Math.sign(dz) || 1;
+      const side = Math.sign(signedZ) || 1;
       const aimed = Math.sign(keeper.diveDir) || 0;
       diveWrong = aimed !== 0 && aimed !== side;
       reach += ACTION.keeperDiveReach * (diveWrong ? 0.3 : 1);
@@ -958,15 +955,13 @@ export function checkBlocks(sim, ) {
       if (
         player.team === flight.shooter.team ||
         player.isKeeper ||
-        flight.checked.has(player.id)
+        flight.checked.has(player.id) || player.sentOff || player.subbedOff || player.stun > 0
       ) {
         continue;
       }
 
-      const horizontal =
-        player.pos.distanceToXZ(
-          ball.pos
-        );
+      const contact = contactPoint(sim, player);
+      const horizontal = player.pos.distanceToXZ(contact);
 
       const top =
         0.9 +
@@ -980,8 +975,8 @@ export function checkBlocks(sim, ) {
       if (
         horizontal <
           ACTION.blockRadius &&
-        ball.pos.y < top &&
-        ball.pos.y > -0.2
+        contact.y < top &&
+        contact.y > player.y - 0.2
       ) {
         flight.checked.add(
           player.id
@@ -1096,15 +1091,13 @@ export function checkInterceptions(sim, ) {
       if (
         player.team === passerTeam ||
         flight.checked.has(player.id) ||
-        player.state === 'fallen'
+        player.state === 'fallen' || player.sentOff || player.subbedOff || player.stun > 0
       ) {
         continue;
       }
 
-      const horizontal =
-        player.pos.distanceToXZ(
-          ball.pos
-        );
+      const contact = contactPoint(sim, player);
+      const horizontal = player.pos.distanceToXZ(contact);
 
       const reach =
         player.isKeeper
@@ -1113,7 +1106,7 @@ export function checkInterceptions(sim, ) {
 
       const vertical =
         Math.abs(
-          ball.pos.y -
+          contact.y -
           (
             0.9 +
             player.y
@@ -1243,7 +1236,7 @@ export function checkPickup(sim, ) {
     for (const player of sim.players) {
       if (
         player.state === 'fallen' ||
-        player.state === 'stumble'
+        player.state === 'stumble' || player.sentOff || player.subbedOff || player.stun > 0
       ) {
         continue;
       }
@@ -1259,16 +1252,14 @@ export function checkPickup(sim, ) {
         continue;
       }
 
-      const horizontal =
-        player.pos.distanceToXZ(
-          ball.pos
-        );
+      const contact = contactPoint(sim, player);
+      const horizontal = player.pos.distanceToXZ(contact);
 
       // Signed gap to the ball's natural catch height (body centre). A ball that sits below a
       // swimmer can be reached down for much further than one above can be plucked out of the
       // air, so a loose ball that dips toward the pool floor stays recoverable without diving.
       const dy =
-        ball.pos.y -
+        contact.y -
         (0.9 + player.y);
 
       let radius =

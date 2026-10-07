@@ -579,6 +579,55 @@ await page.evaluate(() => {
   app.match.touchControls.applySettings(app.state.settings);
 });
 
+// ----------------------------------------------- pointer ownership / interruption regressions
+const ownership = await page.evaluate(() => {
+  const input = window.app.input;
+  const tc = window.app.match.touchControls;
+  const button = (action) => document.querySelector(`.touch-ui [data-action="${action}"]`);
+  const fire = (action, type, id) => {
+    const btn = button(action);
+    btn.setPointerCapture = () => {};
+    btn.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', bubbles: true, cancelable: true }));
+  };
+  tc.reset();
+  input.flushOneShots();
+  fire('turbo', 'pointerdown', 101);
+  fire('shoot', 'pointerdown', 102);
+  fire('shoot', 'pointerup', 999);
+  const unrelatedReleaseIgnored = input.touch.shootHeld && input.touch.turbo;
+  fire('shoot', 'pointerup', 102);
+  const independentRelease = !input.touch.shootHeld && input.touch.turbo;
+  tc.reset();
+  fire('rise', 'pointerdown', 103);
+  fire('dive', 'pointerdown', 104);
+  const opposingDepth = input.touch.moveY === 0;
+  fire('dive', 'pointerup', 104);
+  const remainingDepth = input.touch.moveY === 1;
+  tc.reset();
+  input.flushOneShots();
+  fire('cage', 'pointerdown', 105);
+  const cage = input.poll().cage;
+  fire('cage', 'pointerup', 105);
+  input.flushOneShots();
+  tc.reset();
+  fire('shoot', 'pointerdown', 106);
+  input.poll();
+  fire('shoot', 'pointercancel', 106);
+  const cancellation = !input.touch.shootHeld && !input.poll().shootReleased && input.pending.size === 0;
+  fire('turbo', 'pointerdown', 107);
+  window.dispatchEvent(new Event('blur'));
+  const blur = !input.touch.turbo && !document.querySelector('.touch-ui .down');
+  tc.reset();
+  fire('turbo', 'pointerdown', 108);
+  window.app.match.paused = false;
+  window.app.pause();
+  const pause = !input.touch.turbo && input.pending.size === 0;
+  window.app.resume();
+  window.app.match.paused = true;
+  return { unrelatedReleaseIgnored, independentRelease, opposingDepth, remainingDepth, cage, cancellation, blur, pause };
+});
+for (const [name, passed] of Object.entries(ownership)) ok(`rebuilt touch lifecycle: ${name}`, passed);
+
 // ----------------------------------------------------- full match on touch
 // Hand the clock back to the app loop for the real thing: un-pause, then re-base its timers so
 // the first resumed frame can't treat the whole deterministic block as one giant dt.

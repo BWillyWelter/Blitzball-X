@@ -479,7 +479,7 @@ export function HowToScreen(app) {
           </ul>
           <h2>REMATCH-STYLE CONTROL</h2>
           <ul>
-            <li>You always pilot <b>one swimmer</b>. The ball glues to their feet — shield it, spin off pressure, drive the lane.</li>
+            <li>You always pilot <b>one swimmer</b>. The ball stays in their hand — shield it, spin off pressure, drive the lane.</li>
             <li><b>Aim shots</b> by holding a direction as you release: steer toward the far post or the keeper's weak side.</li>
             <li><b>K</b> passes to whoever you steer toward; off the ball, <b>K calls for the pass</b> — a teammate flags open and the carrier finds you.</li>
             <li><b>L</b> is now a committed <b>slide tackle</b>: bigger lunge, real chance to win the ball, real punishment if you whiff.</li>
@@ -514,7 +514,7 @@ export function HowToScreen(app) {
           </ul>
           <h2>TIPS</h2>
           <ul>
-            <li>On touch: <b>swipe the stick while holding SKILL</b> to aim a dodge in any direction — flick up to go over the tackle, down to duck under it.</li>
+            <li>On touch: <b>aim the stick, then tap SKILL</b> to commit your signature move in that direction. Use RISE / DIVE to change swim depth; steering stays independent of the skill button.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>

@@ -1791,14 +1791,15 @@ select {
   width: 128px;
   height: 128px;
   margin: -64px 0 0 -64px;
-  opacity: 0;
+  pointer-events: none;
+  opacity: calc(var(--touch-opacity, 1) * 0.45);
   transition: opacity 0.12s;
   left: 120px;
-  bottom: 110px;
+  bottom: 38px;
   top: auto;
 }
 .touch-stick.engaged {
-  opacity: 1;
+  opacity: var(--touch-opacity, 1);
 }
 .touch-stick-ring {
   position: absolute;
@@ -1826,10 +1827,8 @@ select {
 .touch-vertical {
   position: absolute;
   left: max(14px, env(safe-area-inset-left));
-  top: 50%;
-  transform: translateY(-50%);
+  top: 4px;
   display: flex;
-  flex-direction: column;
   gap: 10px;
   opacity: var(--touch-opacity, 1);
 }
@@ -1863,8 +1862,10 @@ select {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.35);
-  background: rgba(10, 12, 22, 0.55);
+  touch-action: none;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  background: rgba(7, 19, 29, 0.8);
+  box-shadow: inset 0 1px 12px rgba(92, 242, 255, 0.12);
   color: #fff;
   font-family: var(--font-cond);
   font-weight: 900;
@@ -1913,13 +1914,13 @@ select {
   font-size: 19px;
   letter-spacing: 1px;
   border-width: 4px;
-  background: rgba(255, 46, 166, 0.5);
-  border-color: var(--pink, #ff2ea6);
-  box-shadow: 0 0 22px rgba(255, 46, 166, 0.25);
+  background: rgba(255, 210, 63, 0.18);
+  border-color: var(--yellow, #ffd23f);
+  box-shadow: inset 0 0 24px rgba(255, 210, 63, 0.15), 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 .touch-btn.t-shoot.down {
-  background: var(--pink, #ff2ea6);
-  color: #fff;
+  background: var(--yellow, #ffd23f);
+  color: #07131d;
 }
 /* Meter full: the SHOOT anchor IS the Gamebreaker trigger — light it up. */
 .touch-btn.t-shoot.gb-ready {
