@@ -90,6 +90,8 @@ export function emptyInput() {
     moveX: 0,
     moveZ: 0,
     moveY: 0, // vertical (free-swim) intent: +1 rise, -1 dive
+    aimX: 0, // explicit world-space shot aim (touch swipe), overrides the movement stick
+    aimZ: 0,
     jukeHeld: false, // JUKE button held (touch): a stick flick while held aims the move
     jukeDir: null, // { x, y } stick direction at flick time, or null
     turbo: false,
@@ -118,6 +120,8 @@ export function copyInput(dst, src) {
   dst.moveX = src.moveX;
   dst.moveZ = src.moveZ;
   dst.moveY = src.moveY;
+  dst.aimX = src.aimX;
+  dst.aimZ = src.aimZ;
   dst.jukeHeld = src.jukeHeld;
   dst.jukeDir = src.jukeDir;
   dst.turbo = src.turbo;

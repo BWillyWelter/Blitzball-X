@@ -1777,13 +1777,38 @@ select {
   pointer-events: auto;
 }
 
-/* Left thumb: free-floating virtual stick */
-.touch-stick-zone {
+/* Left half moves, right half looks. The two never overlap, so one thumb can hold each.
+   Neither carries a z-index on purpose: the pad, tactics and pause are later siblings, so DOM
+   order already puts every real button above the zones for hit-testing. */
+.touch-move {
   position: absolute;
   left: 0;
+  top: 0;
   bottom: 0;
-  width: 46%;
-  height: 72%;
+  width: 50%;
+}
+.touch-look {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+}
+.touch-look.engaged {
+  background: rgba(92, 242, 255, 0.05);
+}
+.touch-look-hint {
+  position: absolute;
+  right: max(20px, env(safe-area-inset-right));
+  top: 44%;
+  font: 700 11px var(--font-cond);
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.touch-ui.looked .touch-look-hint {
+  opacity: 0;
 }
 
 .touch-stick {
@@ -1791,12 +1816,11 @@ select {
   width: 128px;
   height: 128px;
   margin: -64px 0 0 -64px;
+  left: 30%;
+  top: 62%;
   pointer-events: none;
-  opacity: calc(var(--touch-opacity, 1) * 0.45);
+  opacity: calc(var(--touch-opacity, 1) * 0.22);
   transition: opacity 0.12s;
-  left: 120px;
-  bottom: 38px;
-  top: auto;
 }
 .touch-stick.engaged {
   opacity: var(--touch-opacity, 1);
@@ -1823,12 +1847,13 @@ select {
   box-shadow: 0 0 14px rgba(255, 210, 63, 0.5);
 }
 
-/* Left thumb, depth: RISE / DIVE sit where the thumb can reach them without leaving the stick. */
+/* Left thumb, depth: RISE / DIVE in the corner, clear of the stick's arc. */
 .touch-vertical {
   position: absolute;
   left: max(14px, env(safe-area-inset-left));
-  top: 4px;
+  bottom: max(14px, env(safe-area-inset-bottom));
   display: flex;
+  flex-direction: column;
   gap: 10px;
   opacity: var(--touch-opacity, 1);
 }
@@ -1845,17 +1870,51 @@ select {
   color: #04121a;
 }
 
-/* Thumb side: an adaptive action cluster — a 2x2 primary grid with a compact secondary row. */
+/* Thumb side: the action pad (PASS / BURST / BLOCK / HIT / TACKLE) with the strike pad beside it. */
 .touch-actions {
   position: absolute;
   right: max(14px, env(safe-area-inset-right));
   bottom: max(14px, env(safe-area-inset-bottom));
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-end;
+  gap: clamp(8px, 2vw, 16px);
   transform: scale(var(--touch-scale, 1));
   transform-origin: bottom right;
   transition: transform 0.15s ease;
+}
+.touch-pad {
+  display: grid;
+  grid-template-columns: repeat(2, 62px);
+  gap: 8px;
+  opacity: var(--touch-opacity, 1);
+}
+.touch-pad .touch-btn {
+  width: 62px;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+.touch-pad .touch-btn.t-tackle {
+  grid-column: 1 / -1;
+}
+.touch-btn.t-burst {
+  background: rgba(92, 242, 255, 0.18);
+  border-color: rgba(92, 242, 255, 0.6);
+  color: #d8fbff;
+}
+.touch-btn.t-block {
+  border-color: #fb8868;
+}
+.touch-btn.t-hit {
+  background: rgba(122, 20, 62, 0.4);
+  border-color: #ff2ea6;
+}
+/* While the other side has the ball the pad leans red, so which half of the game you are in
+   reads at a glance without looking away from the pool. */
+.touch-ui[data-phase="defense"] .touch-pad .touch-btn {
+  background: rgba(74, 22, 26, 0.8);
 }
 .touch-btn {
   display: flex;
@@ -1890,52 +1949,74 @@ select {
   border-color: #fff;
 }
 
-/* Primary pad: SHOOT is the giant anchor tucked into the thumb corner, with PASS, the contextual
-   action and TURBO ringing it on a one-thumb arc. The arc geometry lives in touch.js (published
-   here as --pad-size / --shoot-size / --ring-size) so the two can never drift apart. */
-.touch-primary {
+/* The strike pad: press to wind the shot up, swipe to aim it, lift to fire. */
+.touch-strike {
   position: relative;
-  width: var(--pad-size, 182px);
-  height: var(--pad-size, 182px);
-  opacity: var(--touch-opacity, 1);
-}
-.touch-primary .touch-btn {
-  position: absolute;
-  width: var(--ring-size, 60px);
-  height: var(--ring-size, 60px);
-  font-size: 10px;
-  letter-spacing: 0.4px;
-}
-.touch-btn.t-shoot {
-  right: 0;
-  bottom: 0;
-  width: var(--shoot-size, 104px);
-  height: var(--shoot-size, 104px);
-  font-size: 19px;
-  letter-spacing: 1px;
-  border-width: 4px;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  border: 4px solid var(--yellow, #ffd23f);
   background: rgba(255, 210, 63, 0.18);
-  border-color: var(--yellow, #ffd23f);
-  box-shadow: inset 0 0 24px rgba(255, 210, 63, 0.15), 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 28px rgba(255, 210, 63, 0.16), 0 8px 22px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  touch-action: none;
+  opacity: var(--touch-opacity, 1);
+  transition: transform 0.06s, background 0.06s, border-color 0.06s;
 }
-.touch-btn.t-shoot.down {
+.touch-strike-label {
+  font: 900 19px var(--font-cond);
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+.touch-strike-hint {
+  font: 700 9px var(--font-cond);
+  letter-spacing: 0.5px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+.touch-strike-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   background: var(--yellow, #ffd23f);
-  color: #07131d;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.08s;
+  pointer-events: none;
 }
-/* Meter full: the SHOOT anchor IS the Gamebreaker trigger — light it up. */
-.touch-btn.t-shoot.gb-ready {
+.touch-strike.down {
+  transform: scale(0.95);
+  background: rgba(255, 210, 63, 0.34);
+}
+.touch-strike.down .touch-strike-dot {
+  opacity: 0.95;
+}
+.touch-strike.down .touch-strike-hint {
+  opacity: 0.3;
+}
+/* Meter full: the strike pad IS the Gamebreaker trigger. */
+.touch-strike.gb-ready {
   background: rgba(92, 242, 255, 0.5);
   border-color: var(--cyan, #5cf2ff);
-  color: #04121a;
-  font-size: 14px;
-  box-shadow: 0 0 26px rgba(92, 242, 255, 0.85);
+  box-shadow: 0 0 30px rgba(92, 242, 255, 0.85);
   animation: gbPulse 0.7s infinite alternate;
 }
-.touch-btn.t-turbo {
-  background: rgba(92, 242, 255, 0.18);
-  border-color: rgba(92, 242, 255, 0.6);
+.touch-strike.gb-ready .touch-strike-label {
+  color: #04121a;
 }
-/* GAMEBREAKER lighting now lives on the SHOOT anchor itself (.t-shoot.gb-ready). */
+@keyframes gbPulse {
+  from { box-shadow: 0 0 16px rgba(92, 242, 255, 0.55); }
+  to { box-shadow: 0 0 34px rgba(92, 242, 255, 0.95); }
+}
 
 .touch-pause {
   position: absolute;
@@ -2014,78 +2095,51 @@ select {
   }
 }
 
-/* Left-handed preset: mirror the whole scheme — actions left, stick right. The ring itself is
-   mirrored in touch.js (placeRing) so the SHOOT anchor stays in the resting-thumb corner. */
+/* Left-handed preset: the stick moves to the right half, the camera to the left, and the action
+   pad mirrors so the strike pad still lands on the outer edge of the resting thumb. */
 .touch-ui[data-layout="left"] .touch-actions {
   right: auto;
   left: max(14px, env(safe-area-inset-left));
-  align-items: flex-start;
+  flex-direction: row-reverse;
   transform-origin: bottom left;
 }
-.touch-ui[data-layout="left"] .touch-btn.t-shoot {
-  right: auto;
-  left: 0;
-}
-.touch-ui[data-layout="left"] .touch-stick-zone {
+.touch-ui[data-layout="left"] .touch-move {
   left: auto;
   right: 0;
+}
+.touch-ui[data-layout="left"] .touch-look {
+  right: auto;
+  left: 0;
 }
 .touch-ui[data-layout="left"] .touch-vertical {
   left: auto;
   right: max(14px, env(safe-area-inset-right));
+}
+.touch-ui[data-layout="left"] .touch-look-hint {
+  right: auto;
+  left: max(20px, env(safe-area-inset-left));
 }
 .touch-ui[data-layout="left"] .touch-pause {
   right: auto;
   left: max(16px, env(safe-area-inset-left));
 }
 
-/* Give the contextual anchor a colour of its own so its remap is legible at a glance. */
-.touch-btn.t-context[data-context="defense"] {
-  background: rgba(255, 92, 92, 0.35);
-  border-color: rgba(255, 120, 120, 0.7);
-}
-.touch-btn.t-context[data-context="cage"] {
-  background: rgba(92, 242, 255, 0.35);
-  border-color: rgba(92, 242, 255, 0.85);
-}
-.touch-btn.t-context[data-context="loose"],
-.touch-btn.t-context[data-context="support"] {
-  background: rgba(92, 242, 255, 0.28);
-  border-color: rgba(92, 242, 255, 0.7);
-}
-
-.touch-defense {
-  position: absolute;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  display: grid;
-  grid-template-columns: repeat(2, 58px);
-  gap: 8px;
-  opacity: var(--touch-opacity, 1);
-}
-.touch-defense .touch-btn {
-  width: 58px;
-  height: 48px;
-  border-radius: 12px;
-  font-size: 11px;
-  border-color: #fb8868;
-}
-.touch-ui[data-phase="defense"] .touch-defense .touch-btn {
-  background: rgba(129, 43, 25, 0.8);
-}
 .touch-tactics {
   position: absolute;
   top: max(70px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  display: grid;
-  grid-template-columns: repeat(2, auto);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 5px;
-  max-width: 44vw;
+  width: min(52vw, 380px);
 }
 .touch-tactics button {
+  flex: 1 1 auto;
+  min-width: 92px;
   min-height: 36px;
+  white-space: nowrap;
   padding: 5px 12px;
   border: 1px solid #5cf2ff;
   border-radius: 8px;
@@ -2095,15 +2149,17 @@ select {
   touch-action: none;
 }
 .touch-tactics span {
-  grid-column: 1 / -1;
+  flex: 1 1 100%;
   font-size: 10px;
   text-align: center;
   color: #c7dae1;
   pointer-events: none;
 }
-@media (max-width: 700px) {
-  .touch-defense { grid-template-columns: repeat(2, 48px); gap: 5px; }
-  .touch-defense .touch-btn { width: 48px; height: 42px; font-size: 10px; }
+@media (max-width: 760px) {
+  .touch-pad { grid-template-columns: repeat(2, 54px); gap: 6px; }
+  .touch-pad .touch-btn { width: 54px; height: 42px; font-size: 10px; }
+  .touch-strike { width: 106px; height: 106px; }
+  .touch-strike-label { font-size: 16px; }
   .touch-tactics button { padding: 4px 7px; font-size: 10px; }
 }
 
@@ -2135,10 +2191,7 @@ select {
 
 @media (max-height: 460px) {
   .touch-actions {
-    transform: scale(calc(var(--touch-scale, 1) * 0.86));
-  }
-  .touch-stick {
-    transform: scale(0.86);
+    transform: scale(calc(var(--touch-scale, 1) * 0.88));
   }
 }
 

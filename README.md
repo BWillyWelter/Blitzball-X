@@ -34,32 +34,42 @@ Netlify, S3, nginx). A GitHub Pages workflow is included (`.github/workflows/dep
 
 ### Controls
 
-| Action | Keyboard | Gamepad |
-| --- | --- | --- |
-| Swim | WASD / Arrows | Left stick / D-pad |
-| Rise / dive (free swim) | R / F | Right stick (Y) |
-| Turbo | Shift | RT / RB |
-| Shoot (hold to charge, release in the PERFECT window) | J / Space | A / Cross |
-| Pass (hold Turbo to lob for a volley) | K | X / Square |
-| Trick (with ball) / Tackle (defense) | L | B / Circle |
-| Big hit | I | Y / Triangle |
-| Breach (leap) / Block / Volley a loose ball | U (or J on defense) | A / Cross on defense |
-| Switch swimmer | Q / Tab | LB |
-| Take the cage (control your keeper) | V | L3 (left-stick click) |
-| Gamebreaker | E | LT + RT |
-| Bench / substitutions | T, then 1-4 | — |
-| Skip a goal replay | any key or tap | any button |
-| Pause | Esc | Start |
+| Action | Keyboard | Gamepad | Touch |
+| --- | --- | --- | --- |
+| Swim | WASD / Arrows | Left stick / D-pad | Left half of the screen |
+| Swing the camera | — | — | Right half of the screen |
+| Rise / dive (free swim) | R / F | Right stick (Y) | ▲ / ▼ |
+| Turbo (Burst) | Shift | RT / RB | BURST (hold) |
+| Shoot (hold to charge, release in the PERFECT window) | J / Space | A / Cross | Strike pad: hold, swipe, lift |
+| Pass (hold Turbo to lob for a volley) | K | X / Square | PASS |
+| Trick (with ball) / Tackle (defense) | L | B / Circle | TACKLE |
+| Big hit | I | Y / Triangle | HIT |
+| Breach (leap) / Block / Volley a loose ball | U (or J on defense) | A / Cross on defense | BLOCK |
+| Switch swimmer | Q / Tab | LB | automatic — you take the ball carrier |
+| Take the cage (control your keeper) | V | L3 (left-stick click) | GK (press again to come back out) |
+| Gamebreaker | E | LT + RT | Strike pad while it glows cyan |
+| Call play (offense / defense) | 1 2 3 / 7 8 9 | — | ATTACK / DEFEND |
+| Bench / substitutions | T, then 1-4 | — | — |
+| Skip a goal replay | any key or tap | any button | any tap |
+| Pause | Esc | Start | II |
 
-On touch the pad is **permanent**: SHOOT (it glows while the Gamebreaker is ready), PASS, SKILL and
-BURST never change their name or their job mid-match. SKILL is the trick on the ball and the
-poke-slide tackle off it — exactly the L key above — and the big hit / leap / switch stay on
-keyboard and gamepad, with dedicated **TACKLE / HIT / BLOCK / SWITCH** touch buttons now available
-in the center pad. **ATTACK** cycles Drive / Spread / Isolation; **DEFEND** cycles Man / Zone / Press.
-Your selections persist until you change them — CPU teammates never override your playbook.
-Aim the stick, then tap SKILL once to commit the move; it never locks
-subsequent steering. RISE / DIVE control depth and GK takes the cage. Each finger owns its
-control independently; pause, focus loss, rotation, and cancelled touches clear held input.
+The touch layout is **two zones and a pad**. The **left half** is the stick: press anywhere and a
+joystick appears under your thumb. It is read *relative to the camera*, so "forward" is always away
+from the lens. The **right half** swings the camera — drag sideways to turn the view, up and down to
+raise or lower the boom. While touch is on, the boom holds your chosen yaw instead of auto-following
+your heading (an auto-follow camera plus a camera-relative stick would spiral).
+
+The **strike pad** in the bottom right corner is the shot: hold to wind up, **swipe** to bend the
+shot to that side and to pick your ring tier, lift to fire. Release inside the **PERFECT** window for
+the cleanest strike. It glows cyan while the Gamebreaker meter is full, and the same gesture then
+launches the Gamebreaker.
+
+Beside it: **PASS**, **BURST** (hold to sprint), **BLOCK** (leap/block off the ball), **HIT** (big
+hit) and **TACKLE** — the poke-slide tackle off the ball and your signature move with it. None of
+them ever change their name or their job mid-match. **ATTACK** cycles Drive / Spread / Isolation;
+**DEFEND** cycles Man / Zone / Press. Your selections persist until you change them — CPU teammates
+never override your playbook. Each finger owns one control from press to release, so a thumb on the
+camera never steals the stick; pause, focus loss, rotation, and cancelled touches clear held input.
 
 On phones the renderer uses the lean pipeline (lower pixel density, no real-time shadows or
 bloom) to prioritize responsive play. Desktop graphics preferences are unchanged.

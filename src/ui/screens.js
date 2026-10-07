@@ -489,21 +489,23 @@ export function HowToScreen(app) {
         <div class="howto-col">
           <h2>CONTROLS</h2>
           <table class="ctrl">
-            <tr><th></th><th>KEYBOARD</th><th>GAMEPAD</th></tr>
-            <tr><td>Swim</td><td>WASD / Arrows</td><td>Left stick</td></tr>
-            <tr><td>Rise / dive (free swim)</td><td>R / F</td><td>Right stick ↑ ↓</td></tr>
-            <tr><td>Burst (short underwater sprint)</td><td>SHIFT</td><td>RT / RB</td></tr>
-            <tr><td>Shoot (hold to charge, release on PERFECT)</td><td>J / SPACE</td><td>A / ✕</td></tr>
-            <tr><td>Pass · Lob for a volley (hold turbo)</td><td>K</td><td>X / ▢</td></tr>
-            <tr><td>Juke / signature move (with the ball)</td><td>L</td><td>B / ○</td></tr>
-            <tr><td>Slide / poke tackle (off-ball)</td><td>L</td><td>B / ○</td></tr>
-            <tr><td>Call for the pass (off-ball)</td><td>K</td><td>X / ▢</td></tr>
-            <tr><td>Big hit</td><td>I</td><td>Y / △</td></tr>
-            <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td></tr>
-            <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td></tr>
-            <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td></tr>
-            <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td></tr>
-            <tr><td>Pause</td><td>ESC</td><td>START</td></tr>
+            <tr><th></th><th>KEYBOARD</th><th>GAMEPAD</th><th>TOUCH</th></tr>
+            <tr><td>Swim</td><td>WASD / Arrows</td><td>Left stick</td><td>Left half: drag a stick</td></tr>
+            <tr><td>Swing the camera</td><td>—</td><td>—</td><td>Right half: drag to look</td></tr>
+            <tr><td>Rise / dive (free swim)</td><td>R / F</td><td>Right stick ↑ ↓</td><td>▲ / ▼</td></tr>
+            <tr><td>Burst (short underwater sprint)</td><td>SHIFT</td><td>RT / RB</td><td>BURST (hold)</td></tr>
+            <tr><td>Shoot (hold to charge, release on PERFECT)</td><td>J / SPACE</td><td>A / ✕</td><td>Strike pad: hold, swipe, lift</td></tr>
+            <tr><td>Pass · Lob for a volley (hold turbo)</td><td>K</td><td>X / ▢</td><td>PASS</td></tr>
+            <tr><td>Juke / signature move (with the ball)</td><td>L</td><td>B / ○</td><td>TACKLE</td></tr>
+            <tr><td>Slide / poke tackle (off-ball)</td><td>L</td><td>B / ○</td><td>TACKLE</td></tr>
+            <tr><td>Call for the pass (off-ball)</td><td>K</td><td>X / ▢</td><td>PASS</td></tr>
+            <tr><td>Big hit</td><td>I</td><td>Y / △</td><td>HIT</td></tr>
+            <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td><td>BLOCK</td></tr>
+            <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td><td>automatic (you take the carrier)</td></tr>
+            <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td><td>Strike pad while it glows cyan</td></tr>
+            <tr><td>Take / leave the cage</td><td>V</td><td>L3</td><td>GK (press again to come back out)</td></tr>
+            <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td><td>ATTACK / DEFEND</td></tr>
+            <tr><td>Pause</td><td>ESC</td><td>START</td><td>II</td></tr>
           </table>
           <h2>PLAYCALLING</h2>
           <ul>
@@ -514,7 +516,9 @@ export function HowToScreen(app) {
           </ul>
           <h2>TIPS</h2>
           <ul>
-            <li>On touch: <b>aim the stick, then tap SKILL</b> to commit your signature move in that direction. Use RISE / DIVE to change swim depth. Defend with TACKLE, HIT, BLOCK and SWITCH; use ATTACK / DEFEND to cycle team tactics without pausing.</li>
+            <li>On touch the <b>left half</b> is your stick — push it forward, back, left or right and your swimmer goes that way <b>relative to the camera</b>. <b>Drag the right half</b> to swing the camera, and use <b>RISE / DIVE</b> for depth.</li>
+            <li>The <b>STRIKE pad</b> (bottom right) is the shot: hold to wind up, <b>swipe</b> to bend the shot to that side and to pick your ring tier, lift to fire. Release in the <b>PERFECT</b> window for the cleanest strike. When the meter is full the pad turns cyan and the same swipe launches a <b>Gamebreaker</b>.</li>
+            <li>Around the pad: <b>PASS</b>, <b>BURST</b> (hold to sprint), <b>BLOCK</b> (leap/block off the ball), <b>HIT</b> (big hit) and <b>TACKLE</b> — a slide tackle without the ball, your signature move with it. Use <b>ATTACK / DEFEND</b> to cycle team tactics without pausing, and <b>GK</b> to take the cage.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>
@@ -569,7 +573,7 @@ export function SettingsScreen(app, params = {}) {
         ${row('touchLayout', 'PAD PRESET', 'pick', [['right', 'RIGHT-HAND'], ['left', 'LEFT-HAND']])}
         ${row('touchScale', 'PAD SIZE', 'range', { min: 0.8, max: 1.3, step: 0.05 })}
         ${row('touchOpacity', 'PAD OPACITY', 'range', { min: 0.4, max: 1, step: 0.05 })}
-        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, pad, pause) for either hand; SIZE and OPACITY scale the pad. Every button is permanent — same name, same action, all match; SKILL is your move on the ball and the tackle off it.</div>
+        <div class="set-note">PAD PRESET mirrors the whole scheme (stick, camera half, action pad, pause) for either hand; SIZE and OPACITY scale the action pad. The left half is always movement, the right half always the camera, and the strike pad is always the shot: hold, swipe, lift.</div>
       </div>
       <div class="set-actions"><button class="btn danger reset-btn">RESET ALL DATA</button><button class="btn back-btn">BACK</button></div>
     </section>`);

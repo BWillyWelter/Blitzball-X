@@ -311,6 +311,12 @@ class App {
     if (this.touchEnabled()) {
       this.match.touchControls = new TouchControls(wrap, this.input, { onPause: () => this.pause(), settings: this.state.settings });
       wrap.classList.add('touch');
+      // The touch scheme drives the camera by hand: the boom holds the player's yaw instead of
+      // swinging behind their travel heading. That swing is exactly what would make the left-hand
+      // stick (read relative to the camera) spiral, so the two cannot coexist.
+      renderer.gameCam.manual = true;
+      renderer.gameCam.recentre();
+      this.input.touch.camYaw = renderer.gameCam.pYaw;
     }
     hud.setHint(
       userTeam === null
@@ -318,7 +324,7 @@ class App {
           ? 'WATCHING'
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
-          ? `${this.state.settings.touchLayout === 'left' ? 'RIGHT' : 'LEFT'} STICK move & aim the pass · BURST sprint · JUKE + stick flick to dodge · SHOOT hold & release (lit = GAMEBREAKER) · PASS · GK takes the cage`
+          ? 'LEFT half swims · RIGHT half drag to swing the camera · STRIKE pad: hold to wind up, swipe to aim, lift to shoot · PASS · BURST hold · BLOCK · HIT · TACKLE · GK takes the cage'
           : 'WASD move & aim (aim the pass lead) · SHIFT burst · J shoot (E = gamebreaker) · K pass/call · L juke/slide tackle · I hit · U breach/dive · Q switch · V take the cage · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim, renderer);
@@ -637,6 +643,12 @@ class App {
         return;
       }
       const input = this.input.poll();
+      // Touch camera: hand this frame's drag to the boom. The yaw comes back the other way, just
+      // below, so the left-hand stick is read relative to the camera.
+      if (m.touchControls) {
+        const look = this.input.consumeLook();
+        if (look.x || look.y) m.renderer.gameCam.orbit(look.x, look.y);
+      }
       // Halftime montage: runs over the frozen pool, dismissed by a tap or a key, and always
       // closes itself before the second half starts so it can never sit on top of live play.
       if (m.montage.shown) {
@@ -731,6 +743,7 @@ class App {
         }
       }
       m.renderer.update(dt);
+      if (m.touchControls) this.input.touch.camYaw = m.renderer.gameCam.pYaw;
       m.hud.update();
       // Bench panel: opens itself at a stoppage (foul, goal reset, the break) so the change can be
       // made while the ball is dead, and never covers live play.

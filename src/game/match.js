@@ -544,9 +544,16 @@ cageAvailable() {
   }
 
   /** Movement input as a world-space direction (Rematch-style aiming axis), or null if neutral. */
+  /**
+   * World-space direction the player is aiming a shot with. A touch swipe in the strike zone
+   * publishes an explicit aim (aimX/aimZ) that wins over the movement stick, so a swipe aims the
+   * shot without also steering the swimmer.
+   */
   aimInputDir() {
     const inp = this.userInput;
-    if (!inp || (inp.moveX === 0 && inp.moveZ === 0)) return null;
+    if (!inp) return null;
+    if (inp.aimX || inp.aimZ) return new Vec3(inp.aimX, 0, inp.aimZ).normalize();
+    if (inp.moveX === 0 && inp.moveZ === 0) return null;
     return new Vec3(inp.moveX, 0, inp.moveZ).normalize();
   }
 

@@ -109,6 +109,11 @@ export class InputManager {
       shootHeld: false,
       jukeHeld: false,
       jukeDir: null, // stick direction captured mid-flick while JUKE is held
+      aimX: 0, // world-space shot aim from a strike-pad swipe
+      aimZ: 0,
+      lookX: 0, // unread camera drag, in screen pixels (see consumeLook)
+      lookY: 0,
+      camYaw: 0, // published by the frame loop: the stick is read relative to the camera
       edges: new Set(),
     };
 
@@ -167,6 +172,7 @@ export class InputManager {
       Object.assign(this.touch, {
         moveX: 0, moveZ: 0, moveY: 0, active: false,
         turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null, playcall: 0,
+        aimX: 0, aimZ: 0, lookX: 0, lookY: 0,
       });
       Object.assign(this.input, emptyInput());
       this.touch.edges.clear();
@@ -368,13 +374,16 @@ export class InputManager {
     const touch = this.touch;
 
     if (touch.active) {
-      moveX = Number.isFinite(touch.moveX)
-        ? touch.moveX
-        : 0;
-
-      moveZ = Number.isFinite(touch.moveZ)
-        ? touch.moveZ
-        : 0;
+      // The stick is read relative to the camera: pushing it up swims away from the lens, which
+      // is the only thing that makes a hand-driven camera usable. Rotate the thumb vector into
+      // world space here so the simulation (and the shot aim) keep working in world axes.
+      const yaw = Number.isFinite(touch.camYaw) ? touch.camYaw : 0;
+      const stickX = Number.isFinite(touch.moveX) ? touch.moveX : 0;
+      const stickZ = Number.isFinite(touch.moveZ) ? touch.moveZ : 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      moveX = cos * stickX - sin * stickZ;
+      moveZ = -sin * stickX - cos * stickZ;
 
       this.lastDevice = 'touch';
     }
@@ -582,6 +591,11 @@ export class InputManager {
       Math.min(1, moveY)
     );
 
+    // A strike-pad swipe aims the shot itself. It is already world space (the touch controller
+    // rotates it with the same camera yaw as the stick) and only the shot reads it.
+    output.aimX = Number.isFinite(touch.aimX) ? touch.aimX : 0;
+    output.aimZ = Number.isFinite(touch.aimZ) ? touch.aimZ : 0;
+
     output.turbo = !!turbo;
     output.shoot = !!shootHeld;
     output.shootPressed = !!shootPressed;
@@ -622,6 +636,14 @@ export class InputManager {
     touch.playcall = 0;
 
     return output;
+  }
+
+  /** Hand the frame loop this frame's camera drag (screen pixels) and reset the accumulator. */
+  consumeLook() {
+    const out = { x: this.touch.lookX, y: this.touch.lookY };
+    this.touch.lookX = 0;
+    this.touch.lookY = 0;
+    return out;
   }
 
   flushOneShots() {

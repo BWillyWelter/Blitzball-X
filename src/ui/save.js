@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   commentary: true,
   screenShake: true,
   reducedMotion: false,
+  touchControls: 'auto', // auto (coarse pointer only) | on | off
   touchLayout: 'right', // right (stick left, actions right) | left (left-handed mirror)
   touchScale: 1, // 0.8 – 1.3 on-screen button size
   touchOpacity: 1, // 0.4 – 1 on-screen button opacity

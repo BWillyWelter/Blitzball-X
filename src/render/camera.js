@@ -25,6 +25,12 @@ export class GameCamera {
     this.focus = null;
     this.shakeEnabled = opts.screenShake !== false;
     this.reducedMotion = !!opts.reducedMotion;
+    // Manual orbit (touch: drag the right half of the screen). In manual mode the boom holds the
+    // player's chosen yaw instead of swinging behind their travel heading — that swing is what
+    // makes a camera-relative stick spiral, so the two cannot coexist.
+    this.manual = false;
+    this.orbitYaw = 0; // radians added to the attack-direction base yaw
+    this.orbitPitch = 0; // metres of boom lift (negative = lower, behind the shoulder)
     // Smoothed follow anchor + view yaw for the controlled swimmer.
     this.pPos = new THREE.Vector3();
     this.pYaw = 0;
@@ -49,6 +55,27 @@ export class GameCamera {
       this.replayTimer = 0;
       this.focus = null;
     }
+  }
+
+  /**
+   * Orbit the boom by a drag in screen pixels. Horizontal drag turns the view that way (like a
+   * mouse), vertical drag raises/lowers the vantage: up for the wide look, down to sit on the
+   * shoulder.
+   */
+  orbit(dx, dy) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    this.orbitYaw += dx * 0.006;
+    // Keep the whole circle representable so a long spin can never lose precision.
+    const TAU = Math.PI * 2;
+    this.orbitYaw = ((this.orbitYaw % TAU) + TAU) % TAU;
+    if (this.orbitYaw > Math.PI) this.orbitYaw -= TAU;
+    this.orbitPitch = Math.max(-1.1, Math.min(4.6, this.orbitPitch - dy * 0.012));
+  }
+
+  /** Put the boom back behind the player's attacking direction. */
+  recentre() {
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
   }
 
   punch(amount = 0.4) {
@@ -117,17 +144,20 @@ export class GameCamera {
     // drifts back toward the attack direction when idle — never spins.
     if (!this.pInit) {
       this.pPos.set(p.pos.x, p.y, p.pos.z);
-      this.pYaw = Math.atan2(sim.attackDir(p.team), 0);
+      this.pYaw = Math.atan2(sim.attackDir(p.team), 0) + (this.manual ? this.orbitYaw : 0);
       this.pInit = true;
     }
     this.pPos.lerp(new THREE.Vector3(p.pos.x, p.y, p.pos.z), 1 - Math.exp(-dt * 10));
     const dir = sim.attackDir(p.team);
     const spd = Math.hypot(p.vel.x, p.vel.z);
-    const targetYaw = spd > 0.8 ? Math.atan2(p.vel.x, p.vel.z) : Math.atan2(dir, 0);
+    const targetYaw = this.manual
+      ? Math.atan2(dir, 0) + this.orbitYaw
+      : spd > 0.8 ? Math.atan2(p.vel.x, p.vel.z) : Math.atan2(dir, 0);
     let d = (targetYaw - this.pYaw) % (Math.PI * 2);
     if (d > Math.PI) d -= Math.PI * 2;
     if (d < -Math.PI) d += Math.PI * 2;
-    this.pYaw += d * (1 - Math.exp(-dt * 4.5));
+    // A hand-driven camera has to answer the thumb immediately; the auto-follow stays weighty.
+    this.pYaw += d * (1 - Math.exp(-dt * (this.manual ? 16 : 4.5)));
 
     const back = new THREE.Vector3(-Math.sin(this.pYaw), 0, -Math.cos(this.pYaw));
     const right = new THREE.Vector3(Math.cos(this.pYaw), 0, -Math.sin(this.pYaw));
@@ -143,7 +173,7 @@ export class GameCamera {
       const maxStep = Math.max(0.6, ARENA.sphereRadius - 1.2 - rXZ);
       trimmedBoom = Math.min(boom, maxStep);
     }
-    const camY = Math.max(headY, -ARENA.floorY);
+    const camY = Math.max(headY, -ARENA.floorY) + (this.manual ? this.orbitPitch : 0);
     // Rematch framing: low behind the shoulder, swimmer offset off-centre so you see past them.
     const desiredPos = this.pPos.clone().addScaledVector(back, trimmedBoom).addScaledVector(right, 0.55).add(new THREE.Vector3(0, camY - p.y, 0));
 
