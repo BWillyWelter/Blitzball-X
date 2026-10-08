@@ -148,6 +148,20 @@ export class MatchSim {
     this.events.emit('warmup', { home: this.teams[0], away: this.teams[1] });
   }
 
+  /**
+   * Re-read the module-level RULES into this sim's own snapshot.
+   *
+   * The sim works from a copy of RULES taken at construction, so a live edit to the constants (the
+   * `?tune` dev panel) would otherwise only land in the next match. The other tuning groups —
+   * MOVE, ACTION, COMBAT, STYLE, PHYS, DIFFICULTY — are read straight from their modules every
+   * time, so they need no hook. Rule timers already running (the possession clock, a state timer)
+   * keep their current value and pick the new one up at the next reset, which is what a coach
+   * changing the shot clock mid-match would expect.
+   */
+  syncTuning() {
+    this.rules = { ...RULES };
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------

@@ -74,16 +74,20 @@ const res = await page.evaluate(() => {
   const ms = samples.reduce((a, b) => a + b, 0) / samples.length;
   const { calls, triangles } = gpu.info.render;
   const dpr = gpu.getPixelRatio();
+  // The frame monitor (src/dev/perf.js) must be wired into the real loop: if this is missing, the
+  // `?perf` overlay and every tail number on a real device are silently dead.
+  const monitor = typeof window.__BB_PERF__ === 'object' && window.__BB_PERF__ !== null;
   window.app.go('title');
-  return { ms: +ms.toFixed(1), simMs: +simMs.toFixed(3), calls, triangles, dpr, programs: gpu.info.programs.length };
+  return { ms: +ms.toFixed(1), simMs: +simMs.toFixed(3), calls, triangles, dpr, programs: gpu.info.programs.length, monitor };
 });
-console.log(`mobile ms/frame (software GPU, synchronized): ${res.ms} | sim ms/step: ${res.simMs} | draw calls: ${res.calls} | triangles: ${res.triangles} | programs: ${res.programs} | DPR: ${res.dpr}${errors.length ? ` | PAGE ERRORS: ${errors.length}` : ' | clean'}`);
+console.log(`mobile ms/frame (software GPU, synchronized): ${res.ms} | sim ms/step: ${res.simMs} | draw calls: ${res.calls} | triangles: ${res.triangles} | programs: ${res.programs} | DPR: ${res.dpr} | frame monitor: ${res.monitor ? 'wired' : 'MISSING'}${errors.length ? ` | PAGE ERRORS: ${errors.length}` : ' | clean'}`);
 
 const breaches = [];
 if (budget.calls !== null && res.calls > budget.calls) breaches.push(`draw calls ${res.calls} > ${budget.calls}`);
 if (budget.triangles !== null && res.triangles > budget.triangles) breaches.push(`triangles ${res.triangles} > ${budget.triangles}`);
 if (budget.simMs !== null && res.simMs > budget.simMs) breaches.push(`sim ms/step ${res.simMs} > ${budget.simMs}`);
 if (errors.length) breaches.push(`${errors.length} page error(s)`);
+if (!res.monitor) breaches.push('window.__BB_PERF__ missing — frame monitor not wired into the loop');
 if (breaches.length) for (const b of breaches) console.log(`FAIL  ${b}`);
 else if (budget.calls !== null || budget.triangles !== null || budget.simMs !== null) console.log('PASS  perf budgets met');
 await closeBrowser(browser);

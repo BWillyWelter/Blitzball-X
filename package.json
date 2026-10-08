@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
     "sim": "node scripts/simulate.mjs",
+    "balance": "node scripts/balance.mjs",
     "golden:update": "node scripts/snapshot.mjs --update",
     "qa:screens": "node tools/screens.mjs",
     "qa:play": "node tools/playtest.mjs",
@@ -21,6 +22,7 @@
     "qa:bench": "node tools/benchtest.mjs",
     "qa:perf": "node tools/perfshot.mjs",
     "qa:merge": "node tools/mergecheck.mjs",
+    "qa:devtools": "node tools/devtools.mjs",
     "qa:lighthouse": "node tools/lighthouse.mjs",
     "qa:anim": "node tools/anim.mjs"
   },

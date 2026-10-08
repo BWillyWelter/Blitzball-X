@@ -30,6 +30,39 @@ export function ensureChromiumLibs() {
   return libDir;
 }
 
+/**
+ * Give the bundled Chromium a font configuration when the machine has none.
+ *
+ * A stripped container has no /etc/fonts/fonts.conf, and Chromium does not simply fall back to a
+ * default font when it cannot load a config: the first form control or styled text it has to
+ * rasterise takes the whole renderer process down with
+ * `FATAL: SkFontMgr_FontConfigInterface.cpp Not implemented`. That failure looks like "the page is
+ * broken" from the outside (puppeteer reports a detached frame mid-navigation), which is how a
+ * fontless host once read as a lost WebGL context and as a touch test that stopped at check 62.
+ *
+ * @sparticuz/chromium ships the fonts it expects to run with (fonts.tar.br) and points
+ * FONTCONFIG_PATH at /tmp/fonts, but that alone is not enough for fontconfig to pick them up — the
+ * file has to be named. So: if the machine has a real config, leave the environment alone (a
+ * distro's own fonts are the ones a screenshot should show); otherwise extract the bundled set and
+ * name it. Idempotent, and only ever touched when there is nothing to lose.
+ */
+export function ensureFonts() {
+  if (process.env.FONTCONFIG_FILE) return process.env.FONTCONFIG_FILE;
+  if (fs.existsSync('/etc/fonts/fonts.conf')) return null;
+  const dir = process.env.FONTCONFIG_PATH || '/tmp/fonts';
+  const conf = path.join(dir, 'fonts.conf');
+  if (!fs.existsSync(conf)) {
+    const src = path.resolve('node_modules/@sparticuz/chromium/bin/fonts.tar.br');
+    fs.mkdirSync(dir, { recursive: true });
+    const tarPath = path.join(dir, 'fonts.tar');
+    fs.writeFileSync(tarPath, zlib.brotliDecompressSync(fs.readFileSync(src)));
+    execSync(`tar -xf ${tarPath} -C ${dir}`);
+  }
+  if (!fs.existsSync(conf)) return null; // nothing to point at; let Chromium try on its own
+  process.env.FONTCONFIG_FILE = conf;
+  return conf;
+}
+
 /** The software-GL flags the WebGL tools share. Chrome's bundled args omit these. */
 export const GPU_ARGS = [
   '--use-gl=angle',
@@ -51,6 +84,7 @@ export async function launchBrowser({
   protocolTimeout,
 } = {}) {
   ensureChromiumLibs();
+  ensureFonts();
   if (gpu) chromium.setGraphicsMode = true;
   const launchArgs = gpu
     ? [...chromium.args, ...GPU_ARGS, ...args]

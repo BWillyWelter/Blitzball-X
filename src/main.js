@@ -36,6 +36,7 @@ import { PHYS } from './data/constants.js';
 const MAX_STEPS_PER_FRAME = 5;
 import * as Screens from './ui/screens.js';
 import { startAnimBench } from './dev/animbench.js';
+import { FrameMonitor, PerfOverlay, perfEnabled } from './dev/perf.js';
 
 /**
  * Probe what this browser/device can actually do with WebGL. Used for two things: the start-of-match
@@ -114,6 +115,22 @@ class App {
     this.raf = null;
     this.lastT = performance.now();
     this.accum = 0;
+    // Frame-tail instrumentation (see ./dev/perf.js). Recording is always on because a CI run and
+    // a player's own phone should both be able to report a stutter without a flag; `?perf` only
+    // adds the on-screen readout.
+    this.perf = new FrameMonitor();
+    this.perfOverlay = perfEnabled() ? new PerfOverlay(document.body) : null;
+    window.__BB_PERF__ = {
+      summary: () => this.perf.summary(),
+      reset: () => this.perf.reset(),
+    };
+    // Balance workbench (`?tune`): edits the tuning constants in place and prints the diff as lines
+    // for src/data/constants.js. Loaded on demand rather than with the game — it is a dev tool, and
+    // players should not download it to play a match.
+    this.tuning = null;
+    if (new URLSearchParams(window.location.search).has('tune')) {
+      import('./dev/tuning.js').then((m) => { this.tuning = m.startTuning(this); });
+    }
     const unlock = () => {
       this.audio.unlock();
       if (!this.match && !this.audio.beat) this.audio.startBeat('menu');
@@ -624,6 +641,11 @@ class App {
     // and can be EARLIER than a performance.now() sampled when a match started/resumed, which
     // would produce a negative dt (and a camera lerp that extrapolates off into space).
     const now = performance.now();
+    // Frame interval first: every path below (menu, paused, montage, replay, live) is a rendered
+    // frame and the player feels all of them. `lastT` is deliberately not used for this — it is
+    // reset on resume/start so it cannot measure a gap it did not cause.
+    this.perf.frame(now);
+    this.perfOverlay?.update(this.perf.summary(), now);
     let dt = (now - this.lastT) / 1000;
     this.lastT = now;
     if (dt > 0.1) dt = 0.1;
@@ -699,6 +721,7 @@ class App {
       this.accum += dt;
       const step = PHYS.fixedDt;
       let n = 0;
+      const simT0 = performance.now();
       while (this.accum >= step && n < MAX_STEPS_PER_FRAME) {
         m.sim.step(step);
         m.replayRecorder.record(m.sim, step);
@@ -716,6 +739,7 @@ class App {
         input.cage = false;
         input.playcall = 0;
       }
+      this.perf.sample('sim', performance.now() - simT0);
       // Spiral-of-death guard: the loop above can only drain MAX_STEPS_PER_FRAME steps, but a slow
       // frame can hand it more than that (dt is clamped to 0.1s, which is six steps at 1/60). Any
       // leftover is a backlog we have already fallen behind by — keeping it makes the sim run
@@ -749,7 +773,23 @@ class App {
       // made while the ball is dead, and never covers live play.
       if (m.bench && m.sim.subWindow > 0 && m.sim.state !== 'live' && m.sim.userTeam !== null) m.bench.show();
       else if (m.bench && m.bench.open && m.sim.state === 'live') m.bench.close();
+      // CPU cost of submitting the frame (gl.finish() is never called in the real loop, so the
+      // GPU's own time is not included — this is the budget the game can actually act on).
+      const info = m.renderer.renderer.info;
+      // The composer draws several passes per frame and three resets these counters at the start of
+      // every render() call, so reading them after composer.render() would report only the last pass
+      // (a full-screen quad: one draw call). Reset by hand instead and read the whole frame — the
+      // same thing tools/perfshot.mjs and tools/mergecheck.mjs measure.
+      info.autoReset = false;
+      info.reset();
+      const renderT0 = performance.now();
       m.renderer.render();
+      this.perf.sample('render', performance.now() - renderT0);
+      this.perf.counters({
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        programs: info.programs.length,
+      });
       this.audio.setCrowdLevel(m.renderer.crowdEnergy);
       if (m.sim.state === 'over' && !m.finished) this.finishMatch();
       if (m.userTeam === null && input.switchPlayer) {

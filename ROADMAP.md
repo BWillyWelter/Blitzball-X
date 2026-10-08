@@ -305,3 +305,80 @@ JUMP → DIVE) under the player's thumb mid-play.
       present, fouls/cards live and hit-spam gone, `npm run build` clean, `qa:touch` fully green
       against the preview, `qa:bench` green (8/9 runs; the one failure never reproduced and the
       harness is not a CI gate).
+
+## 8. Phase 9 — seeing what the game is doing
+
+The gates from the previous pass protected the game from *breaking*; nothing helped understand it
+while it ran. Perf numbers were means on a host that is not the player's phone, and balance work went
+guess → edit constant → rebuild → play a few minutes → guess. This phase adds the two instruments
+that make a change answerable in seconds, and uses the first one to close a question that had been
+sitting open as "shader compiles must be causing that hitch".
+
+- [x] **Frame-tail instrumentation (`src/dev/perf.js`).** A rolling window (240 frames) of frame
+      intervals plus named sub-costs, reported as p50/p95/p99/max with an explicit hitch count
+      (a frame ≥ 50 ms, i.e. three vsyncs). Recording is always on — one timestamp and one
+      ring-buffer write per frame — so `window.__BB_PERF__.summary()` works on a real device without
+      a flag; `?perf` adds the on-screen readout (units spelled out per line, orange once the tail
+      is stuttering). The live path also samples the fixed-step block and the render submit, and
+      reads the whole frame's GPU counters — three resets `renderer.info` on every `render()` call,
+      so a naive read after `composer.render()` reports only the last pass (one full-screen quad).
+      `tools/probe.mjs` now prints each round's tail and shader-program count, and `qa:perf` fails if
+      the monitor is missing. Verified by `qa:devtools` in CI, and by hand: on this software-GL host a
+      probe round is p50 ~17 ms with p99 ~230–390 ms, and the p99 is the match's first frame.
+- [x] **The shader-compile hitch: measured, and deliberately NOT "fixed".** Every rendered frame of a
+      match was instrumented to find first-use compiles. Result: the whole 31-program set compiles on
+      the first rendered frame of a match, and the count never moves again — checked across goals,
+      every FX burst, both goal replays, the halftime montage, and a forced substitution (a fresh
+      CharacterView for the incoming swimmer). That first frame is expensive (~3.7 s on swiftshader,
+      where each program is compiled on one core) but it lands behind the match intro: a 1.8 s tip
+      card and the ~7 s warmup before the ball drops. So the obvious fix was tried and rejected on
+      measurement: `renderer.compile(scene, camera)` warmed only 19 of the variants and the first real
+      frame still compiled the rest, while `compileAsync()` covered the set but also built 19 unused
+      variants and cost the same time up front (this host has no `KHR_parallel_shader_compile`, so
+      none of it was parallel). The measurement and the decision are recorded in `renderer.js` so the
+      next person does not re-open it.
+- [x] **Live balance workbench — the tuning constants are now playable.** `?tune` opens a panel with
+      every numeric dial in `src/data/constants.js` (188 today, discovered by walking the objects one
+      level deep, so a new constant appears without anyone remembering to add it): a slider with
+      bounds derived from the value, an exact-entry box beside it, a filter, a RESET, and a diff box
+      that prints the changes as lines to paste straight back into the constants file. Edits apply to
+      the match already in flight — `MatchSim.syncTuning()` re-reads `RULES` (the sim keeps a snapshotted
+      copy; the other groups are read live from their modules), and timers already running keep their
+      value until their next reset, which is what changing the shot clock mid-match should mean.
+      `ARENA` is excluded on purpose: the pool's geometry, water and camera are built from it at match
+      start, so editing it live would leave the arena disagreeing with its own physics. The panel is a
+      separate 7 kB chunk, loaded only with the flag, and `tests/tuning.test.mjs` pins the plumbing
+      (every dial resolves to a finite number, slider bounds always contain their value, the diff is
+      exactly the file's format, and a live edit reaches a running sim).
+- [x] **Balance report with a scoring audit (`npm run balance`).** The old `npm run sim` printed one
+      line per game, which cannot answer the questions tuning actually asks. The report aggregates a
+      slate: match length, goals and margin split (one-goal share, blowouts), overtime rate, the ring
+      split in points (is the 3-point top ring worth the risk?), a per-crew win table, and per-match
+      event rates for 28 event types. It also audits the scoring path: the goal log minus the
+      gamebreaker steal ledger must equal the final score, the ring split must account for every
+      logged goal, and every match must finish — those three are failures; the shape of the numbers
+      never is. CI runs the same 24-game slate and uploads `balance-report.json`.
+- [x] **What the first 24-game slate says** (seed base 1000, PRO, CPU vs CPU — a first read, not a
+      verdict): matches 350 s mean (327–382) with 16.7% overtime; 9.5 goals/match, mean margin 3.7,
+      12.5% one-goal games; 36 shots/match but only 16.6% of them scoring with 16 saves and 5.9 posts
+      — shots are cheap and the keeper/posts take half of them; the top ring is 48 goals for 144
+      points = **60% of all points**, against ~20% for each low ring, so the hardest window is also
+      the default one; volleys (0.13/match) and alley-oops (0.13/match) are nearly extinct in CPU
+      play; subs run 0.58/match, i.e. the bench is still a user-facing feature the AI does not use;
+      the crew table spreads 66.7% (BTP/DCK/SSP/SYK) down to 0% (NSS 0-6, −21 goal difference) on this
+      pairing rule. Each of those is now a question with a number attached instead of a hunch.
+- [x] **The fontless-container crash, root-caused while wiring the tool gate.** `?tune` and the
+      devtools harness kept killing the renderer mid-navigation on this host. The cause was not the
+      page: a stripped container has no `/etc/fonts/fonts.conf`, and Chromium does not fall back — the
+      first form control or styled text it must rasterise dies with
+      `FATAL: SkFontMgr_FontConfigInterface.cpp Not implemented`, which puppeteer reports as a detached
+      frame. `tools/lib/browser.mjs` now extracts the font set `@sparticuz/chromium` already ships and
+      names its config, but only when the machine has no config of its own (a distro's fonts are the
+      ones a screenshot should show). This retires a documented sandbox limitation: `qa:touch`, which
+      used to stop at check 62 in the Freebuff sandbox, now runs to **all touch checks passed**.
+- [x] Verified: `npm run lint` clean, **102/102 tests** (17 new: frame stats, tuning plumbing, balance
+      aggregation + audit), `npm run build` clean (main 339 kB + three 542 kB + the 7 kB `?tune` chunk),
+      perf budget PASS (662 draw calls / 140.5k triangles / 0.47 ms per sim step), `qa:probe` PASS
+      (6/6 contexts released, frame tail + program count reported), `qa:merge` 16/16, `qa:touch` fully
+      green, `qa:devtools` 8/8 (overlay mounts, panel mounts, a dial edit reaches a live match, RESET
+      restores), and the 24-game balance slate reconciles with no problems.

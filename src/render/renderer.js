@@ -124,6 +124,17 @@ export class MatchRenderer {
     this.setupPost();
     this.bindEvents();
 
+    // No precompile step here, deliberately. Measured on this scene (build 337 kB, quality 'high'):
+    // the whole 31-program set compiles on the FIRST rendered frame of a match, and the count never
+    // moves afterwards — checked across goals, FX bursts, both replays, the halftime montage and a
+    // forced substitution (a fresh CharacterView for the incoming swimmer). That first frame lands
+    // behind the match intro (1.8 s tip card, then the ~7 s warmup before the ball drops), so the
+    // compile is already paid where nobody is watching. renderer.compile() was measured too and
+    // made the situation no better: it warmed only 19 of the variants, and the first real frame
+    // still compiled the rest. compileAsync() did cover the set, but added unused variants and
+    // spent the same time up front — on a host without KHR_parallel_shader_compile, none of it in
+    // parallel. Revisit only if a new material type is added that first draws mid-play.
+
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
 

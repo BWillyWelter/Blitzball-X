@@ -186,7 +186,8 @@ entities, so a replay costs no video, no re-simulation and no second scene graph
 
 ```bash
 npm test                        # unit + simulation tests (incl. the golden sim snapshot)
-npm run sim -- 24 pro           # 24 headless CPU matches; exits 1 if any match stalls
+npm run sim -- 24 pro           # 24 headless CPU matches, one line each; exits 1 if any match stalls
+npm run balance -- --games 24   # the same slate, summarised + audited (see below)
 npm run golden:update           # regenerate tests/golden/sim-baseline.json (intended rebalances only)
 npm run qa:screens -- http://localhost:4173/ screenshots/screens   # walk every screen headlessly
 npm run qa:play -- http://localhost:4173/ screenshots/prod         # scripted playtest to results
@@ -195,6 +196,8 @@ npm run qa:anim -- http://localhost:5173/                         # screenshot e
 npm run qa:bench -- http://localhost:5173/                        # bench, subs, cards, goal replay, halftime, recap, career squad
 npm run qa:touch -- http://localhost:5173/                        # touch pad, settings, portrait/landscape
 npm run qa:merge -- http://localhost:5173/                        # static-merge geometry + draw-call budget
+npm run qa:perf -- http://localhost:4173/ --max-calls 700 --max-sim-ms 1.5   # perf budget gate
+npm run qa:devtools -- http://localhost:4173/                     # ?perf overlay + ?tune panel mount and behave
 npm run qa:lighthouse                                             # Lighthouse audit of the built site (npm run build first)
 ```
 
@@ -214,10 +217,29 @@ QA_SEED=777 npm run qa:touch -- http://localhost:5173/
 `qa:anim` drives the single-swimmer animation bench that the app serves at `?bench=anim`
 (`src/dev/animbench.js`), so poses can be scrubbed and captured deterministically.
 
-CI (`.github/workflows/ci.yml`) runs the tests, the simulation sweep and a production build, and
-uploads the built `dist/` as the `blitzball-x-dist` artifact on every push. A `browser-qa` job
-serves that build and runs `qa:touch`, `qa:probe` and `qa:merge`; `qa:probe` fails if a match leaks its WebGL
-context at teardown or the page throws. A `lighthouse` job audits the built site with mobile
+`npm run balance` plays a slate of CPU-vs-CPU matches and reports what the current tuning produces —
+match length, margin split, the ring-point share, a per-crew table, event rates — and audits the
+scoring path while it does (the goal log minus gamebreaker steals must equal the final score). It
+fails on a broken match (unfinished, non-finite, inconsistent scoring), never on the shape of the
+numbers, which is the thing being judged; `--json path` writes the whole slate out for an artifact.
+`npm run qa:perf` is the gate version of the perf spot-check: deterministic counters (draw calls,
+triangles) are held tightly, sim ms/step loosely, and a breach exits 1.
+
+Two dev flags exist for looking at the game while it runs. `?perf` paints a frame-tail overlay
+(p50/p99/max, hitch count and threshold, sim and render cost, live draw calls / triangles / shader
+programs) and `window.__BB_PERF__.summary()` returns the same numbers as JSON — the monitor is
+always recording, so a real device can report a stutter without a flag. `?tune` opens the live
+balance panel: every numeric dial in `src/data/constants.js` (188 of them, discovered by walking the
+objects, so it cannot fall behind a new constant) with a slider and an exact-entry box, editing the
+running match's rules through `MatchSim.syncTuning()` and printing the changes as lines to paste
+back into the constants file. `ARENA` is deliberately excluded — the pool's geometry is built from it
+at match start.
+
+CI (`.github/workflows/ci.yml`) runs lint, the tests, the balance report and a production build, and
+uploads the built `dist/` as the `blitzball-x-dist` artifact and the balance slate as
+`balance-report` on every push. A `browser-qa` job serves that build and runs `qa:touch`, `qa:probe`,
+`qa:merge`, `qa:devtools` and the perf budget; `qa:probe` fails if a match leaks its WebGL context at
+teardown, reports no frames, or the page throws. A `lighthouse` job audits the built site with mobile
 emulation and uploads the full HTML report as the `lighthouse-report` artifact. `qa:lighthouse` needs
 an environment with system fonts to score first paint — fontless containers report `INCONCLUSIVE` (exit 2) instead of a fake zero.
 
