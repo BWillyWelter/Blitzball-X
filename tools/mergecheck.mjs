@@ -1,5 +1,4 @@
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from './lib/browser.mjs';
 
 /**
  * Verifies the static-merge refactor did not move any geometry.
@@ -13,13 +12,7 @@ import puppeteer from 'puppeteer-core';
  */
 
 const url = process.argv[2] || 'http://127.0.0.1:5173/';
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
-});
+const browser = await launchBrowser();
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -36,19 +29,12 @@ await page.evaluate(() => {
   const R = window.app.match.renderer;
   R.scene.updateMatrixWorld(true);
   const out = [];
-  const find = (name) => {
-    let hit = null;
-    R.scene.traverse((o) => { if (o.name === name && o.isMesh) hit = o; });
-    return hit;
-  };
   // Every merged mesh must be finite and non-degenerate, and must sit inside the arena bounds.
   const bad = [];
-  let mergedCount = 0;
   R.scene.traverse((o) => {
     if (!o.isMesh || !o.geometry) return;
     const p = o.geometry.attributes.position;
     if (!p) return;
-    if (o.geometry.userData?.merged) mergedCount++;
     for (let i = 0; i < p.count * 3; i++) {
       if (!Number.isFinite(p.array[i])) { bad.push(o.name || '(unnamed)'); return; }
     }

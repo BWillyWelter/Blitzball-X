@@ -6,17 +6,12 @@
  * eventually costs you the context of the match you are actually playing) or when the page threw.
  * Frame time and heap are reported for eyeballing only — they depend on the host, not the game.
  */
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from './lib/browser.mjs';
 
 const url = process.argv[2] || 'http://localhost:4173/';
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'],
+const browser = await launchBrowser({
+  args: ['--js-flags=--expose-gc'],
   defaultViewport: { width: 1280, height: 720 },
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
 });
 const page = await browser.newPage();
 const msgs = [];

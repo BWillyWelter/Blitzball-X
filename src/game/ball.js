@@ -1,5 +1,5 @@
 import { Vec3, clamp, lerp } from '../core/vec3.js';
-import { ARENA, ACTION, PHYS, RULES, STYLE } from '../data/constants.js';
+import { ARENA, ACTION, PHYS, STYLE } from '../data/constants.js';
 import { updateGlueDribble } from './movement.js';
 
 /** Closest point along this step's flight, preventing fast balls tunnelling through bodies. */

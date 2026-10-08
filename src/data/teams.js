@@ -277,11 +277,6 @@ export function lineupOf(team) {
   return picked;
 }
 
-/** Best-available seven for a crew: keeper, both shooters, then the four best fielders. */
-export function bestLineup(team) {
-  return starters({ ...team, lineup: null });
-}
-
 /**
  * The seven swimmers who start a match — slot order matters: the sim creates players by index,
  * slot 0 is the keeper, slots 1-2 the shooters (index 1 is the captain), slots 3-6 the fielders.
@@ -293,11 +288,6 @@ export function starters(team) {
   const shooters = team.roster.filter((p) => p.role === 'SH').slice(0, 2);
   const fielders = team.roster.filter((p) => p.role === 'FD').slice(0, 4);
   return keeper ? [keeper, ...shooters, ...fielders] : [...shooters, ...fielders];
-}
-
-/** The captain takes the tip-off. */
-export function captainOf(team) {
-  return team.roster.find((p) => p.captain) || starters(team)[1];
 }
 
 /**
@@ -312,4 +302,3 @@ export function benchOf(team) {
     .sort((a, b) => playerOverall(b) - playerOverall(a));
 }
 
-export const PLAYER_BY_ID = Object.fromEntries(TEAMS.flatMap((t) => t.roster.map((p) => [p.id, { ...p, teamId: t.id }])));

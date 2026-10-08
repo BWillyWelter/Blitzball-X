@@ -12,12 +12,11 @@
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
-import { parseArgs } from 'node:util';
 import lighthouse from 'lighthouse';
 import { launch } from 'chrome-launcher';
 import chromium from '@sparticuz/chromium';
+import { ensureChromiumLibs, GPU_ARGS } from './lib/browser.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -82,15 +81,9 @@ console.log(`serving ${root}/ on ${flags.url}`);
 const chromePath = process.env.CHROME_PATH || (await chromium.executablePath());
 const chromeFlags = process.env.CHROME_PATH
   ? ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage']
-  : [
-      ...chromium.args,
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-      '--ignore-gpu-blocklist',
-    ];
+  : [...chromium.args, ...GPU_ARGS];
 if (!process.env.CHROME_PATH) {
-  process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
+  ensureChromiumLibs();
   chromium.setGraphicsMode = true;
 }
 const chrome = await launch({ chromePath, chromeFlags });

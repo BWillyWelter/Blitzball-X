@@ -12,23 +12,14 @@
  * harness by polling input and stepping the sim at the same time.
  * Usage: node tools/touchtest.mjs [url]
  */
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from './lib/browser.mjs';
 
 const url = process.argv[2] || 'http://localhost:4173/';
 
 // Deterministic match seed. Normal play is clock-seeded, but this harness must reproduce the same
 // match every run or CI becomes a lottery. Override to sweep: QA_SEED=123 npm run qa:touch -- <url>
 const QA_SEED = Number(process.env.QA_SEED || 20260902);
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-
-const executablePath = await chromium.executablePath();
-
-const browser = await puppeteer.launch({
-  executablePath,
-  args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  protocolTimeout: 600000
-});
+const browser = await launchBrowser({ gpu: false, protocolTimeout: 600000 });
 
 const page = await browser.newPage();
 

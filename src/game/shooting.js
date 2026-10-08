@@ -1,7 +1,7 @@
 import { Vec3, clamp, lerp } from '../core/vec3.js';
 import { emptyInput } from './entities.js';
 import { updateAI } from './ai.js';
-import { ARENA, ACTION, MOVE, RULES, STYLE, PHYS } from '../data/constants.js';
+import { ARENA, ACTION, STYLE, PHYS } from '../data/constants.js';
 
 /**
  * Shooting, volleys and Gamebreaker drives, extracted from MatchSim.

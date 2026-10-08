@@ -83,7 +83,6 @@ export const RULES = {
   foulFreeSwim: true, // the fouled side keeps possession, placed at the spot
   cardThreshold: 2, // offences before a swimmer is sent off
   redMinSeverity: 1.15, // a genuinely ugly one is an instant red regardless of the count
-  sentOffDuration: 9999, // a red card is permanent for the match
   // Substitutions: five in the water, four on the bench. Coaches get four changes, made at a
   // stoppage or queued for the next whistle. A forced replacement (red card) doesn't count.
   subsPerTeam: 4,
@@ -91,7 +90,6 @@ export const RULES = {
   // It costs the outfield swimmer (who goes back on AI) and the keeper is slower to turn, so it
   // is a read on the play rather than a free upgrade — but inside the box you own the shot.
   keeperSwitchCooldown: 0.8,
-  subDuration: 1.2, // seconds the incoming swimmer waits at the touch wall
   subWindow: 2.6, // seconds the bench panel stays open at a stoppage
 };
 
@@ -103,7 +101,6 @@ export const PHYS = {
   ballFloat: 0.9, // a loose ball is buoyant and drifts back to the playing plane…
   ballBuoyancy: 3.4, // …so a dropped ball never settles on the pool floor out of reach
   wallRestitution: 0.72,
-  currentStrength: 6, // pulls a ball that got behind the goal line back into play
   // Struck spin. A shot is hit with english and the ball bends across its flight line
   // (Magnus-style lateral acceleration per unit spin), so a curled finish can come round the
   // keeper's dive and a skied strike wobbles off line.
@@ -132,7 +129,6 @@ export const MOVE = {
   keeperDiveWindow: 0.5, // seconds the dive stays live
   keeperDiveLateral: 15.5, // lateral lunge speed while diving (m/s)
   keeperDiveCooldown: 1.0,
-  keeperDiveStamina: 5.5,
   keeperDiveCommit: 0.22, // how long the lunge actually accelerates before you recover
   breachVel: 5.6,
   breachCooldown: 0.45,
@@ -141,7 +137,6 @@ export const MOVE = {
   verticalDrag: 6, // vertical velocity decay when the stick/buttons are centred
   verticalHome: 5, // buoyancy: rate a swimmer eases back to the playing plane
   fallenDuration: 1.15,
-  stumbleDuration: 0.85,
   reelDuration: 0.55, // soft knockdown: staggered but back on their feet fast
   // Stamina. A separate meter from turbo: turbo is the burst button, stamina is the body.
   // Cruising is nearly free (the sport is meant to be played continuously), sprinting is what
@@ -163,8 +158,6 @@ export const MOVE = {
   // stick at a capped angular rate (faster travel and heavier bodies turn more lazily) and a hard
   // carve scrubs speed. Straight-line pace is untouched — it is the late cut that now costs real
   // distance, so beating a defender is a change of direction you have to earn.
-  turnRate: 6.6, // rad/s a swimmer can swing their heading (scaled by spd, mass, speed)
-  turnBleed: 1.1, // speed scrubbed per radian of hard turn
   massBase: 0.88, // body mass from `pow`: heavier = lazier turn, slower acceleration
   massPerPow: 0.24,
 };
@@ -183,13 +176,9 @@ export const ACTION = {
   lobHeight: 1.75,
   tackleRange: 1.65,
   tackleCooldown: 0.8,
-  tackleWhiffRecovery: 0.45,
   hitRange: 1.4,
   hitCooldown: 1.3,
-  hitRecovery: 0.35,
-  trickDuration: 0.45,
   trickCooldown: 0.5,
-  washRange: 1.9,
   volleyRange: 9.5, // scaled with the arena (was 7.5)
   pickupRadius: 1.15,
   keeperPickupRadius: 1.6,
@@ -251,9 +240,6 @@ export const COMBAT = {
   // Impulse given to the victim, scaled by the hitter's power and the impact angle.
   pushFallen: 3.6,
   pushReel: 2.1,
-  // Reeling: a soft knockdown that keeps a defender out of the play for a beat.
-  reelBase: 0.5,
-  reelPerImpact: 0.45,
   // Dive tackle. This is the "commit harder" dial: you launch yourself, and a whiff costs real time.
   diveSpeed: 4.8,
   diveCommit: 0.8,
@@ -319,7 +305,3 @@ export const DIFFICULTY = {
   },
 };
 
-export const ROLES = { GK: 'KEEPER', FD: 'FIELDER', SH: 'SHOOTER' };
-
-/** Starter shape: 1 keeper + 4 fielders + 2 shooters (the captains) = 7 in the water. */
-export const STARTER_SHAPE = { GK: 1, FD: 4, SH: 2 };

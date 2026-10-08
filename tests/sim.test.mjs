@@ -35,14 +35,6 @@ function skipToLive(sim) {
   return sim.state === 'live';
 }
 
-// Single helper used by tests that previously assumed 3 outfielders: outfield is now 6
-// (2 shooters + 4 fielders) plus the keeper = 7 swimmers in the water.
-function expectSeven(sim) {
-  assert.equal(sim.players.length, 14);
-  assert.equal(sim.outfield(0).length, 6);
-  assert.equal(sim.keeperOf(0).isKeeper, true);
-}
-
 test('data integrity: 8 crews, 11-player rosters (GK + 4 FD + 2 SH starters), captains', () => {
   assert.equal(TEAMS.length, 8);
   const ids = new Set();
@@ -704,7 +696,7 @@ test('CPU can trigger FLOW on its own (trigger is not user-gated)', () => {
     steps++;
   }
   assert.ok(teams.size > 0, 'no FLOW ever started in a full CPU match');
-  for (const t of teams) assert.equal(sim.userTeam, null, 'flow fired with no user team');
+  for (const _ of teams) assert.equal(sim.userTeam, null, 'flow fired with no user team');
 });
 
 test('steered shots: aim input flips the shot side symmetrically', () => {

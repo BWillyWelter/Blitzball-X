@@ -4,17 +4,10 @@
  * which runs many full matches (slow); this one exits in a few seconds.
  * Usage: node tools/perfshot.mjs [url]
  */
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from './lib/browser.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:4173/';
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  args: ['--no-sandbox', '--disable-setuid-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  executablePath: await chromium.executablePath(),
-  headless: true,
-});
+const browser = await launchBrowser({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));

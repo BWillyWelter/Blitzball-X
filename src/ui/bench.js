@@ -161,20 +161,6 @@ export class BenchPanel {
     else this.show();
   }
 
-  /**
-   * Make a change without the panel: swap the most tired swimmer in the water for the best
-   * bench match. This is the keyboard-1..4 / quick-tap path and the fallback when the player
-   * wants the change without reading the list.
-   */
-  quickSub() {
-    const sim = this.sim;
-    if (!this.available()) return false;
-    if (!sim.userSubRequest()) return false;
-    this.render();
-    this.onSub?.();
-    return true;
-  }
-
   /** Rebuild the panel body. Cheap enough to call on every open and every change. */
   render() {
     if (!this.open || !this.el) return;

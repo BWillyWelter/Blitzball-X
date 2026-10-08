@@ -197,10 +197,6 @@ export class AudioSystem {
     this.noise({ dur: 0.05, vol: 0.12 * strength, filter: 1800, q: 0.8 });
   }
 
-  dribble() {
-    this.tone({ freq: 140, type: 'sine', dur: 0.09, vol: 0.14, slide: 60 });
-  }
-
   /** Underwater swim stroke: a soft low-passed swoosh. */
   stroke(strength = 0.6) {
     this.noise({ dur: 0.22, vol: 0.09 * strength, filter: 380, slide: 900, q: 0.5, type: 'lowpass', attack: 0.04 });
@@ -217,11 +213,6 @@ export class AudioSystem {
     this.noise({ dur: 0.08, vol: 0.2, filter: 2400 });
   }
 
-  board() {
-    this.tone({ freq: 240, type: 'square', dur: 0.12, vol: 0.18, slide: 120, filter: { freq: 900 } });
-    this.noise({ dur: 0.1, vol: 0.2, filter: 700 });
-  }
-
   slam() {
     this.tone({ freq: 90, type: 'sine', dur: 0.45, vol: 0.7, slide: 30 });
     this.noise({ dur: 0.3, vol: 0.5, filter: 400, q: 0.5, type: 'lowpass' });
@@ -233,29 +224,9 @@ export class AudioSystem {
     this.noise({ dur: 0.3, vol: 0.28, filter: 600 * pitch, slide: 2600 * pitch, q: 0.7, attack: 0.03 });
   }
 
-  shotCharge() {
-    this.tone({ freq: 180, type: 'sine', dur: 0.22, vol: 0.16, slide: 520, filter: { freq: 1400 } });
-    this.noise({ dur: 0.18, vol: 0.1, filter: 900, slide: 2200, q: 1.2, attack: 0.04 });
-  }
-
-  perfectShot() {
-    this.tone({ freq: 740, type: 'square', dur: 0.16, vol: 0.22, slide: 1480, filter: { freq: 3200 } });
-    this.tone({ freq: 1480, type: 'triangle', dur: 0.32, vol: 0.16, slide: 900, filter: { freq: 2600 } });
-    this.noise({ dur: 0.24, vol: 0.24, filter: 4200, slide: 1800, q: 0.6, type: 'highpass', attack: 0.01 });
-  }
-
-  fence() {
-    this.noise({ dur: 0.35, vol: 0.3, filter: 2200, q: 2 });
-    this.tone({ freq: 1800, type: 'triangle', dur: 0.3, vol: 0.08 });
-  }
-
   thud() {
     this.tone({ freq: 110, type: 'sine', dur: 0.25, vol: 0.55, slide: 40 });
     this.noise({ dur: 0.15, vol: 0.3, filter: 300, type: 'lowpass' });
-  }
-
-  sneakerSqueak() {
-    this.tone({ freq: 2200, type: 'sawtooth', dur: 0.12, vol: 0.05, slide: 2900, filter: { freq: 3500, type: 'bandpass', q: 6 } });
   }
 
   stealHit() {

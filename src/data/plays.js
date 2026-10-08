@@ -69,11 +69,3 @@ export const DEFENSE_PLAYS = [
     fatigue: 1.45,
   },
 ];
-
-export function offensePlayByIndex(i) {
-  return OFFENSE_PLAYS[i] || OFFENSE_PLAYS[0];
-}
-
-export function defensePlayByIndex(i) {
-  return DEFENSE_PLAYS[i] || DEFENSE_PLAYS[0];
-}

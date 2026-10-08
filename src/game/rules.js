@@ -1,5 +1,4 @@
-import { clamp } from '../core/vec3.js';
-import { ARENA, RULES, STYLE } from '../data/constants.js';
+import { RULES, STYLE } from '../data/constants.js';
 
 /**
  * Flow, style meter, scoring and game-over rules, extracted from MatchSim. Functions take

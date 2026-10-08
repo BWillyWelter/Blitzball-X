@@ -1,17 +1,11 @@
 /** Screenshot every menu screen + pause overlay for visual QA. Usage: node tools/screens.mjs [url] [dir] */
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
+import { launchBrowser } from './lib/browser.mjs';
 const url = process.argv[2] || 'http://localhost:5173/';
 const dir = process.argv[3] || 'screenshots/screens';
 fs.mkdirSync(dir, { recursive: true });
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+const browser = await launchBrowser({
   defaultViewport: { width: parseInt(process.env.W || '1280', 10), height: parseInt(process.env.H || '720', 10) },
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
 });
 const page = await browser.newPage();
 const errors = [];

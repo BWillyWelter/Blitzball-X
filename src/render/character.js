@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyTrack, applyTurbulence } from './posetracks.js';
+import { applyTrack } from './posetracks.js';
 import {
   SHOOT, PASS, CATCH_ABSORB, TACKLE, HIT, SAVE, VOLLEY,
   STUMBLE, FALLEN, REEL, CELEBRATE, GBWIND, trickTrack,

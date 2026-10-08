@@ -13,7 +13,6 @@ import { moveToward } from './ai-core.js';
  * toward the crease; an explicit DROP ZONE play overrides that so the tactical choice stays readable.
  */
 export function defenseAI(sim, p, dt, roll) {
-  const ai = p.ai;
   const diff = sim.difficulty;
   const rng = sim.rng;
   const holder = sim.ball.holder;

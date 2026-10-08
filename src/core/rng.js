@@ -19,23 +19,7 @@ export class RNG {
     return min + (max - min) * this.next();
   }
 
-  int(min, maxInclusive) {
-    return Math.floor(this.range(min, maxInclusive + 1));
-  }
-
   chance(p) {
     return this.next() < p;
-  }
-
-  pick(arr) {
-    return arr[Math.floor(this.next() * arr.length)];
-  }
-
-  shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(this.next() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
   }
 }

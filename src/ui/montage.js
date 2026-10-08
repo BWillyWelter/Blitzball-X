@@ -1,4 +1,4 @@
-import { buildReport, headline } from '../game/report.js';
+import { buildReport } from '../game/report.js';
 
 /**
  * HALFTIME MONTAGE — the break, explained.
@@ -146,12 +146,6 @@ const MONTAGE_CSS = `
   .montage-count i { transition: none; }
 }
 `;
-
-const clock = (t) => {
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-};
 
 export class MontageOverlay {
   constructor(wrap) {

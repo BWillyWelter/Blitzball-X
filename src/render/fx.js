@@ -102,22 +102,6 @@ export class FXSystem {
     });
   }
 
-  dust(pos, count = 8, strength = 1) {
-    const c = new THREE.Color(0xb9b3a6);
-    for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const s = (0.6 + Math.random() * 1.4) * strength;
-      this.spawn(
-        { x: pos.x + Math.cos(a) * 0.15, y: pos.y + 0.05, z: pos.z + Math.sin(a) * 0.15 },
-        { x: Math.cos(a) * s, y: 0.6 + Math.random() * 0.8 * strength, z: Math.sin(a) * s },
-        c,
-        0.25 + Math.random() * 0.3,
-        0.45 + Math.random() * 0.3,
-        { gravity: -1.5, drag: 0.94 },
-      );
-    }
-  }
-
   /** Underwater equivalent of dust: a cloud of small bubbles that rise. */
   bubbles(pos, count = 8, strength = 1, y = 0.6) {
     const c = new THREE.Color(0xdff6ff);
@@ -131,22 +115,6 @@ export class FXSystem {
         0.08 + Math.random() * 0.14,
         0.6 + Math.random() * 0.5,
         { gravity: 1.2, drag: 0.94, floor: false },
-      );
-    }
-  }
-
-  /** Continuous emitter: glowing embers rising off ON FIRE / gamebreaker players. */
-  embers(pos, color, dt, rate = 26) {
-    this._emberAcc = (this._emberAcc || 0) + rate * dt;
-    const c = new THREE.Color(color);
-    const baseY = pos.y ?? 0;
-    while (this._emberAcc >= 1) {
-      this._emberAcc -= 1;
-      this.spawn(
-        { x: pos.x + (Math.random() - 0.5) * 0.55, y: baseY + 0.15 + Math.random() * 0.95, z: pos.z + (Math.random() - 0.5) * 0.55 },
-        { x: (Math.random() - 0.5) * 0.5, y: 1.3 + Math.random() * 1.7, z: (Math.random() - 0.5) * 0.5 },
-        c, 0.09 + Math.random() * 0.13, 0.4 + Math.random() * 0.55,
-        { gravity: 2.0, drag: 0.96, floor: false },
       );
     }
   }

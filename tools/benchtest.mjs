@@ -1,5 +1,4 @@
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from './lib/browser.mjs';
 
 /**
  * Bench / discipline browser check.
@@ -11,13 +10,7 @@ import puppeteer from 'puppeteer-core';
  * a GPU leak and a visual ghost, and no node test can see it.
  */
 const url = process.argv[2] || 'http://localhost:5173/';
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-const executablePath = await chromium.executablePath();
-const browser = await puppeteer.launch({
-  executablePath,
-  args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  protocolTimeout: 600000,
-});
+const browser = await launchBrowser({ gpu: false, protocolTimeout: 600000 });
 
 let failures = 0;
 const errors = [];
@@ -314,7 +307,6 @@ const replayOff = await page.evaluate(async () => {
   const app = window.app;
   const m = app.match;
   const sim = m.sim;
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const saved = app.state.settings.replay;
   app.state.settings.replay = 'off';
   let guard = 0;
@@ -620,11 +612,7 @@ const lead = await page.evaluate(async () => {
   const short = land(-1);
   const long = land(1);
   const styleBefore = passer.stats.style;
-  let led = null;
   let popups = 0;
-  sim.events.on('leadpass', (e) => {
-    led = e;
-  });
   sim.events.on('style', ({ label }) => {
     if (/LEAD PASS/.test(label)) popups++;
   });

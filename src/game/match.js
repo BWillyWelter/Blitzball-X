@@ -676,21 +676,6 @@ cageAvailable() {
     return true;
   }
 
-  /** The player's coach: swap the gassed-out swimmer on the water for the best bench match. */
-  userSubRequest() {
-    if (this.userTeam === null) return false;
-    const team = this.userTeam;
-    if (!this.canSub(team)) return false;
-    const gassed = this.players
-      .filter((p) => p.team === team && this.subIsSafe(team, p))
-      .sort((a, b) => a.stamina - b.stamina);
-    const out = gassed[0];
-    if (!out || out.stamina > MOVE.staminaMax * 0.55) return false;
-    const incoming = this.bestSubFor(team, out);
-    if (!incoming) return false;
-    return this.queueSub(team, out, incoming);
-  }
-
   /** Queue a change: it swims on at the next stoppage, or immediately if the ball is dead. */
   queueSub(team, out, incoming) {
     if (!this.subIsSafe(team, out) || !incoming || incoming.team !== team) return false;

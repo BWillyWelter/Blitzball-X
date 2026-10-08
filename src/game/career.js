@@ -147,12 +147,6 @@ export function defaultSquad(career) {
   return [keeper, me, partner || me, ...fielders].filter(Boolean).map((p) => p.id);
 }
 
-/** Swimmers the coach can still name: everyone on the eleven who is fit this week. */
-export function availablePlayers(career) {
-  const roster = careerRoster(career) || [];
-  return roster.filter((p) => !isInjured(career, p.id));
-}
-
 /**
  * The seven that actually take the pool. An injury or a mid-edit save can leave the named squad
  * short-handed, so every named swimmer is re-checked here and the best fit replacement is dropped
@@ -337,25 +331,4 @@ export function careerTitle(career) {
   if (r >= 450) return 'BLITZER';
   if (r >= 200) return 'REGULAR';
   return 'ROOKIE';
-}
-
-/** Quick AI-vs-AI result for simulated ladder games (not used by the player path). */
-export function simQuick(homeId, awayId, seed) {
-  const rng = new RNG(seed);
-  const h = teamOverall(TEAMS.find((t) => t.id === homeId));
-  const a = teamOverall(TEAMS.find((t) => t.id === awayId));
-  let hs = 0;
-  let as = 0;
-  // ~12 goals a match on average, split by rating gap; no draws.
-  const goals = rng.int(8, 16);
-  for (let i = 0; i < goals; i++) {
-    const pH = 0.5 + (h - a) / 200;
-    if (rng.chance(pH)) hs += 1;
-    else as += 1;
-  }
-  if (hs === as) {
-    if (rng.chance(0.5 + (h - a) / 200)) hs++;
-    else as++;
-  }
-  return [hs, as];
 }

@@ -5,21 +5,16 @@
  * Usage: node tools/playtest.mjs [url] [shotsDir] [maxSimSeconds]
  * Env: USER_TEAM=1 -> user-controlled match with scripted keyboard input; VERBOSE=1 -> console
  */
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
+import { launchBrowser } from './lib/browser.mjs';
 
 const url = process.argv[2] || 'http://localhost:5173/';
 const dir = process.argv[3] || 'screenshots/play';
 const maxSim = parseFloat(process.argv[4] || '600');
 fs.mkdirSync(dir, { recursive: true });
-process.env.LD_LIBRARY_PATH = `/tmp/al2023/lib:/tmp:${process.env.LD_LIBRARY_PATH || ''}`;
-chromium.setGraphicsMode = true;
-const browser = await puppeteer.launch({
-  args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
+const browser = await launchBrowser({
+  args: ['--autoplay-policy=no-user-gesture-required'],
   defaultViewport: { width: parseInt(process.env.W || '1280', 10), height: parseInt(process.env.H || '720', 10) },
-  executablePath: await chromium.executablePath(),
-  headless: 'shell',
 });
 const page = await browser.newPage();
 const errors = [];

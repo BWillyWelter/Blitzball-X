@@ -9,7 +9,6 @@
   --pink-deep: #b8006c;
   --cyan: #5cf2ff;
   --lime: #c8ff3d;
-  --purple: #c026ff;
   --font-display: 'Bangers', Impact, 'Arial Narrow Bold', sans-serif;
   --font-cond: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --font-tag: 'Permanent Marker', cursive;
@@ -634,15 +633,6 @@ select {
 }
 .ladder-item.now .li-rival {
   color: var(--ink);
-}
-.form-up {
-  color: #7dffb2;
-}
-.form-down {
-  color: var(--pink);
-}
-.form-flat {
-  color: var(--cyan);
 }
 .cn-rival {
   margin-top: 8px;

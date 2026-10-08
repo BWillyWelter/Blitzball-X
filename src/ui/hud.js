@@ -1,5 +1,4 @@
 import { RULES } from '../data/constants.js';
-import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { moveFor } from '../game/moves.js';
 
 /**
