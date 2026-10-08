@@ -63,3 +63,29 @@ export async function launchBrowser({
   if (protocolTimeout) opts.protocolTimeout = protocolTimeout;
   return puppeteer.launch(opts);
 }
+
+/**
+ * Close a browser without letting a stalled Chromium shutdown hang the tool. With a live
+ * software-GL context the headless shell has been observed to take ~100 s to exit, and every
+ * caller either process.exit()s afterwards or has nothing left to do — so a bounded wait plus
+ * SIGKILL is safe here. Returns false when the graceful close had to be forced.
+ */
+export async function closeBrowser(browser, { timeout = 8000 } = {}) {
+  let done = false;
+  const closing = browser.close().then(() => { done = true; }, () => { done = true; });
+  const stalled = await Promise.race([
+    closing.then(() => false),
+    new Promise((resolve) => {
+      const t = setTimeout(() => resolve(true), timeout);
+      if (typeof t.unref === 'function') t.unref();
+    }),
+  ]);
+  if (stalled) {
+    const proc = typeof browser.process === 'function' ? browser.process() : null;
+    if (proc && !proc.killed) {
+      try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+  if (!done) await Promise.race([closing, new Promise((r) => setTimeout(r, 1000))]);
+  return !stalled;
+}

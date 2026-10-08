@@ -185,8 +185,9 @@ entities, so a replay costs no video, no re-simulation and no second scene graph
 ## QA
 
 ```bash
-npm test                        # unit + simulation tests
+npm test                        # unit + simulation tests (incl. the golden sim snapshot)
 npm run sim -- 24 pro           # 24 headless CPU matches; exits 1 if any match stalls
+npm run golden:update           # regenerate tests/golden/sim-baseline.json (intended rebalances only)
 npm run qa:screens -- http://localhost:4173/ screenshots/screens   # walk every screen headlessly
 npm run qa:play -- http://localhost:4173/ screenshots/prod         # scripted playtest to results
 npm run qa:probe -- http://localhost:4173/                         # repeat matches: GPU contexts, heap, frame time
@@ -196,6 +197,11 @@ npm run qa:touch -- http://localhost:5173/                        # touch pad, s
 npm run qa:merge -- http://localhost:5173/                        # static-merge geometry + draw-call budget
 npm run qa:lighthouse                                             # Lighthouse audit of the built site (npm run build first)
 ```
+
+The sim's behavior is pinned by a committed baseline (`tests/golden/sim-baseline.json`): three
+fixed seeds are replayed on every `npm test` and any moved scoreline, match length, stat or event
+count fails the build with a field-by-field diff. An intended rebalance therefore has to run
+`npm run golden:update` deliberately, and the regenerated baseline shows exactly what it changed.
 
 Browser QA harnesses pin the match seed, so a run reproduces the same match every time instead of
 rolling the dice. `startMatch({ …, seed })` takes one directly, and `?seed=123` in the URL does the

@@ -16,7 +16,7 @@ export function buildCourt(scene, theme) {
   group.add(buildMachinery(theme));
   group.add(buildGoal(1, theme));
   group.add(buildGoal(-1, theme));
-  group.add(buildBubbles(theme));
+  group.add(buildBubbles());
   group.add(buildSurroundings(theme));
   scene.add(group);
   return group;
@@ -460,7 +460,7 @@ function buildMachinery(theme) {
 // Ambient bubbles / particles inside the sphere
 // ---------------------------------------------------------------------------
 
-function buildBubbles(theme) {
+function buildBubbles() {
   const count = 320;
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(count * 3);

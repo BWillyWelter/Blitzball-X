@@ -91,7 +91,7 @@ export function probeWebGL() {
         out.renderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
         out.vendor = String(gl.getParameter(ext ? ext.UNMASKED_VENDOR_WEBGL : gl.VENDOR));
         out.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-      } catch (e) {
+      } catch {
         /* some drivers throw on these queries; the booleans are what matter */
       }
     }
@@ -327,7 +327,7 @@ class App {
           ? 'LEFT half swims · RIGHT half drag to swing the camera · STRIKE pad: hold to wind up, swipe to aim, lift to shoot · PASS · BURST hold · BLOCK · HIT · TACKLE · GK takes the cage'
           : 'WASD move & aim (aim the pass lead) · SHIFT burst · J shoot (E = gamebreaker) · K pass/call · L juke/slide tackle · I hit · U breach/dive · Q switch · V take the cage · 1-3/7-9 plays',
     );
-    this.bindMatchAudio(sim, renderer);
+    this.bindMatchAudio(sim);
     if (this.audio.unlocked) {
       this.audio.startBeat('match');
       this.audio.startCrowd();
@@ -367,7 +367,7 @@ class App {
     return isTouchDevice();
   }
 
-  bindMatchAudio(sim, renderer) {
+  bindMatchAudio(sim) {
     const a = this.audio;
     const ev = sim.events;
     ev.on('wall', ({ speed }) => a.bounce(Math.min(1, speed / 6)));

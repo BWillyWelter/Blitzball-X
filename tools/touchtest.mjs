@@ -862,7 +862,7 @@ const ownership = await page.evaluate(() => {
   tacticSim.userPlayTimer = 0;
   const tacticPlayer = tacticSim.controlled;
   tacticPlayer.input.playcall = offenseCall;
-  tacticSim.processInput(tacticPlayer, 1 / 60);
+  tacticSim.processInput(tacticPlayer);
   const offenseTactic = offenseCall >= 1 && offenseCall <= 3 && tacticSim.offPlay[tacticSim.userTeam] === offenseCall - 1;
   input.flushOneShots();
   fire('defensePlay', 'pointerdown', 122);
@@ -870,7 +870,7 @@ const ownership = await page.evaluate(() => {
   fire('defensePlay', 'pointerup', 122);
   tacticSim.userPlayTimer = 0;
   tacticPlayer.input.playcall = defenseCall;
-  tacticSim.processInput(tacticPlayer, 1 / 60);
+  tacticSim.processInput(tacticPlayer);
   const defenseTactic = defenseCall >= 7 && defenseCall <= 9 && tacticSim.defPlay[tacticSim.userTeam] === defenseCall - 7;
   input.flushOneShots();
   tc.reset();

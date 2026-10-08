@@ -761,13 +761,13 @@ test('call-for-pass routes the carrier pass to the flagged teammate', () => {
   sim.giveBall(carrier);
   if (sim.ball.holder !== carrier) return; // possession churned; not this seed's day
   caller.input.pass = true; // user, off the ball, calls for the pass
-  sim.processInput(caller, DT);
+  sim.processInput(caller);
   assert.ok(sim.callPassTimer > 0, 'call registered');
   // The sim flags the nearest non-keeper, non-carrier teammate; the carrier must pass to them.
   const expected = sim.teammatesOf(caller).filter((q) => q !== sim.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(caller.pos) - b.pos.distanceToXZ(caller.pos))[0];
   assert.equal(sim.callPassTarget(carrier), expected, 'flagged teammate is the pass target');
   carrier.input.pass = true;
-  sim.processInput(carrier, DT);
+  sim.processInput(carrier);
   assert.ok(sim.ball.flight && sim.ball.flight.target === expected, 'carrier pass went to the flagged teammate');
 });
 

@@ -564,13 +564,13 @@ const cageDive = await page.evaluate(() => {
   const p = sim.controlled;
   p.input.breach = true;
   p.input.moveZ = 1;
-  sim.processInput(p, 1 / 60);
+  sim.processInput(p);
   const dived = p.diveT > 0;
   const cd = p.cd.dive;
   // Leave the cage: the switch button is the way out.
   p.input.breach = false;
   p.input.switchPlayer = true;
-  sim.processInput(p, 1 / 60);
+  sim.processInput(p);
   const out = {
     dived,
     cd,

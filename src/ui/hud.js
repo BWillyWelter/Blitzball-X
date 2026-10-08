@@ -331,7 +331,7 @@ export class HUD {
 
   bind() {
     const ev = this.sim.events;
-    ev.on('style', ({ player, points, label, combo, big, team }) => {
+    ev.on('style', ({ points, label, combo, big, team }) => {
       if (this.sim.userTeam !== null && team !== this.sim.userTeam && !big) return; // only show CPU big plays
       this.popup(`${label}`, `+${points}`, team, big, combo);
     });

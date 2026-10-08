@@ -926,7 +926,7 @@ cageAvailable() {
       else updateAI(this, p, dt);
     }
     // 2. Actions
-    for (const p of this.players) this.processInput(p, dt);
+    for (const p of this.players) this.processInput(p);
     // 3. Physics
     for (const p of this.players) this.updatePlayerPhysics(p, dt, false);
     this.separatePlayers();
@@ -974,7 +974,7 @@ cageAvailable() {
   // Input → actions
   // ---------------------------------------------------------------------------
 
-  processInput(p, dt) {
+  processInput(p) {
     const inp = p.input;
     if (inp.switchPlayer && this.isUser(p)) this.switchControlled();
     // Taking the cage is its own button, not a mode: one press in, one press out (the SWAP

@@ -46,8 +46,9 @@ export class GameCamera {
   /**
    * Kept for the renderer's event bindings. Only goals and gamebreakers cut away — open play
    * (including shots and volleys) stays in the shoulder cam, which is the Rematch feel.
+   * The hold length is chosen per mode inside punchIn(), never by the caller.
    */
-  setMode(mode, duration = 1.5, focus = null) {
+  setMode(mode, focus = null) {
     if (mode === 'score' || mode === 'gamebreaker') {
       this.punchIn(focus, mode === 'score' ? 1.7 : 2.6);
     } else {

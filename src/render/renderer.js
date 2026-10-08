@@ -407,7 +407,6 @@ export class MatchRenderer {
     on('score', ({ player, gb, team: teamIndex, ring }) => {
       this.gameCam.setMode(
         'score',
-        gb ? 2.0 : 1.3,
         player
       );
 
@@ -622,7 +621,6 @@ export class MatchRenderer {
       if (volley || gb) {
         this.gameCam.setMode(
           'goalcam',
-          gb ? 1.8 : 1.2,
           player
         );
       }
@@ -649,7 +647,6 @@ export class MatchRenderer {
     on('alleyoop', ({ finisher }) => {
       this.gameCam.setMode(
         'goalcam',
-        1.4,
         finisher
       );
     });
@@ -657,7 +654,6 @@ export class MatchRenderer {
     on('gamebreaker', ({ player }) => {
       this.gameCam.setMode(
         'gamebreaker',
-        3.0,
         player
       );
 
@@ -676,7 +672,6 @@ export class MatchRenderer {
     on('gbshot', ({ player }) => {
       this.gameCam.setMode(
         'goalcam',
-        1.8,
         player
       );
     });
@@ -691,7 +686,7 @@ export class MatchRenderer {
     });
 
     on('reset', () => {
-      this.gameCam.setMode('play', 0);
+      this.gameCam.setMode('play');
     });
   }
 

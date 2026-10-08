@@ -325,7 +325,7 @@ export class AudioSystem {
     try {
       this.crowd.src.stop();
       this.crowd.lfo.stop();
-    } catch (e) {
+    } catch {
       /* already stopped */
     }
     this.crowd = null;
@@ -346,7 +346,7 @@ export class AudioSystem {
    * `auto` picks a track that isn't the one currently playing, so a new match always
    * changes the record. An explicit id is honoured as-is.
    */
-  pickTrack(style) {
+  pickTrack() {
     const want = this.settings.musicTrack;
     if (want && want !== 'auto' && TRACKS[want]) return want;
     const pool = Object.keys(TRACKS).filter((k) => k !== this._lastTrackId);
@@ -358,7 +358,7 @@ export class AudioSystem {
   startBeat(style = 'menu') {
     if (!this.unlocked) return;
     this.stopBeat();
-    const id = this.pickTrack(style);
+    const id = this.pickTrack();
     const T = TRACKS[id];
     const bpm = style === 'match' ? T.bpmMatch || T.bpm : T.bpm;
     const beat = {
@@ -572,7 +572,7 @@ export class AudioSystem {
     const target = on ? this.settings.musicVolume * 0.35 : this.settings.musicVolume;
     try {
       this.musicBus.gain.setTargetAtTime(target, this.ctx.currentTime, 0.12);
-    } catch (e) {
+    } catch {
       /* context closing */
     }
   }
@@ -620,7 +620,7 @@ export class AudioSystem {
       if (priority >= 2 && synth.speaking) synth.cancel();
       synth.speak(u);
       return true;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -633,7 +633,7 @@ export class AudioSystem {
     if (!synth) return;
     try {
       synth.cancel();
-    } catch (e) {
+    } catch {
       /* nothing speaking */
     }
   }
