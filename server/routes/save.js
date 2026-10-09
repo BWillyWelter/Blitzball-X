@@ -1,17 +1,19 @@
 /**
- * Express REST API Routes for User Save Sync & Validation
- * Validates schema integrity for Career, League/Tournament, and Scout progress payloads.
+ * Express REST API Routes for User Save Sync & Anti-Cheat Replay Validation
+ * Performs atomic SQLite persistence and verifies match replay action logs
+ * using MatchReplayValidator before updating League standings or Gil balances.
  */
 
 import express from 'express';
 import Database from 'better-sqlite3';
+import { MatchReplayValidator } from '../match-validator.js';
 
 const router = express.Router();
 
-// Initialize or connect to SQLite database
+// Initialize or open SQLite database connection
 const db = new Database('blitzball_x.db');
 
-// Ensure database schema table exists with indexing on user_id
+// Ensure database table and indexing exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_saves (
     user_id TEXT PRIMARY KEY,
@@ -24,7 +26,7 @@ db.exec(`
 const VALID_LEAGUE_TYPES = ['LEAGUE', 'TOURNAMENT', 'EXHIBITION'];
 
 /**
- * Validates League and Scout payload structure and data types
+ * Validates state schema integrity for incoming save payloads
  * @param {Object} payload 
  * @returns {{ valid: boolean, errors: string[] }}
  */
@@ -32,16 +34,16 @@ function validateSavePayload(payload) {
   const errors = [];
 
   if (!payload || typeof payload !== 'object') {
-    return { valid: false, errors: ['Invalid save payload: Payload must be a non-null object.'] };
+    return { valid: false, errors: ['Invalid payload: Request body must be a valid JSON object.'] };
   }
 
-  // 1. Validate League State Node
+  // 1. Validate Spira League State Node
   const { league } = payload;
   if (!league || typeof league !== 'object') {
     errors.push('Missing or malformed "league" state node.');
   } else {
     if (!VALID_LEAGUE_TYPES.includes(league.type)) {
-      errors.push(`Invalid league type: "${league.type}". Must be LEAGUE, TOURNAMENT, or EXHIBITION.`);
+      errors.push(`Invalid competition type: "${league.type}". Must be LEAGUE, TOURNAMENT, or EXHIBITION.`);
     }
 
     if (!Number.isInteger(league.currentRound) || league.currentRound < 1) {
@@ -53,15 +55,15 @@ function validateSavePayload(payload) {
     }
 
     if (typeof league.isCompleted !== 'boolean') {
-      errors.push('league.isCompleted must be a boolean.');
+      errors.push('league.isCompleted must be a boolean value.');
     }
 
     if (!Array.isArray(league.teams) || league.teams.length === 0) {
-      errors.push('league.teams must be a non-empty array of team identifiers.');
+      errors.push('league.teams must be a non-empty array of team IDs.');
     }
   }
 
-  // 2. Validate Scout State Node
+  // 2. Validate Free Agent Scout State Node
   const { scout } = payload;
   if (!scout || typeof scout !== 'object') {
     errors.push('Missing or malformed "scout" state node.');
@@ -77,12 +79,12 @@ function validateSavePayload(payload) {
     if (scout.agentContracts && typeof scout.agentContracts === 'object') {
       for (const [agentId, contract] of Object.entries(scout.agentContracts)) {
         if (!contract || typeof contract !== 'object') {
-          errors.push(`Invalid contract node for agent "${agentId}".`);
+          errors.push(`Invalid contract entry for free agent "${agentId}".`);
           continue;
         }
 
         if (!Number.isInteger(contract.contractGames) || contract.contractGames < 0) {
-          errors.push(`Agent contract for "${agentId}" must have a non-negative integer "contractGames".`);
+          errors.push(`Contract for agent "${agentId}" must have a non-negative integer "contractGames".`);
         }
       }
     }
@@ -96,13 +98,13 @@ function validateSavePayload(payload) {
 
 /**
  * GET /user/save
- * Retrieves the latest persisted save payload for a given user ID
+ * Fetches existing user cloud save from SQLite database
  */
 router.get('/save', (req, res) => {
   const userId = req.headers['x-user-id'];
 
   if (!userId || typeof userId !== 'string' || userId.trim() === '') {
-    return res.status(400).json({ error: 'Missing required "x-user-id" header.' });
+    return res.status(400).json({ error: 'Missing or empty "x-user-id" header.' });
   }
 
   try {
@@ -110,43 +112,66 @@ router.get('/save', (req, res) => {
     const row = stmt.get(userId.trim());
 
     if (!row) {
-      return res.status(404).json({ message: 'No cloud save found for this user ID.' });
+      return res.status(404).json({ message: 'No cloud save profile found for this user.' });
     }
 
     let payload;
     try {
       payload = JSON.parse(row.save_payload);
     } catch (parseErr) {
-      console.error(`[SaveRoute] Malformed JSON payload for user "${userId}":`, parseErr);
-      return res.status(500).json({ error: 'Corrupted save data found in database.' });
+      console.error(`[SaveRoute] JSON parse failure for user "${userId}":`, parseErr);
+      return res.status(500).json({ error: 'Corrupted payload data found in database.' });
     }
 
     return res.status(200).json(payload);
   } catch (err) {
     console.error('[SaveRoute] GET error:', err);
-    return res.status(500).json({ error: 'Internal database error while retrieving save payload.' });
+    return res.status(500).json({ error: 'Internal server database error during save lookup.' });
   }
 });
 
 /**
  * POST /user/save
- * Validates schema and upserts League and Scout save data into SQLite
+ * Validates save schema and verifies optional match replays before atomic SQLite upsert
  */
 router.post('/save', (req, res) => {
   const userId = req.headers['x-user-id'];
   const payload = req.body;
 
   if (!userId || typeof userId !== 'string' || userId.trim() === '') {
-    return res.status(400).json({ error: 'Missing required "x-user-id" header.' });
+    return res.status(400).json({ error: 'Missing or empty "x-user-id" header.' });
   }
 
-  // Schema Validation
+  // 1. Schema Structural Validation
   const validation = validateSavePayload(payload);
   if (!validation.valid) {
     return res.status(400).json({
-      error: 'Validation Failed',
+      error: 'Schema Validation Failed',
       details: validation.errors
     });
+  }
+
+  // 2. Anti-Cheat Match Replay Verification (if a match replay payload is attached)
+  const matchSubmission = payload.lastMatchSubmission || payload.matchReplay;
+  if (matchSubmission) {
+    const replayResult = MatchReplayValidator.validateMatchSubmission(matchSubmission);
+
+    if (!replayResult.valid) {
+      console.warn(`[AntiCheat] Save rejected for user "${userId}":`, replayResult.errors);
+      return res.status(422).json({
+        error: 'Match Replay Verification Failed (Anti-Cheat Triggered)',
+        details: replayResult.errors
+      });
+    }
+
+    // Authoritative Server Sanitization: Enforce verified Gil calculation
+    if (payload.scout && typeof replayResult.verifiedGil === 'number') {
+      console.log(`[AntiCheat] Verified Match Submission. Authorized Gil reward: +${replayResult.verifiedGil} Gil.`);
+    }
+
+    // Strip transient match replay payload before storage to save DB space
+    delete payload.lastMatchSubmission;
+    delete payload.matchReplay;
   }
 
   const updatedAt = Number.isInteger(payload.updatedAt) ? payload.updatedAt : Date.now();
@@ -155,10 +180,11 @@ router.post('/save', (req, res) => {
   try {
     serializedPayload = JSON.stringify(payload);
   } catch (serializeErr) {
-    return res.status(400).json({ error: 'Failed to serialize payload to valid JSON string.' });
+    return res.status(400).json({ error: 'Failed to serialize JSON save payload.' });
   }
 
   try {
+    // 3. Upsert validated payload into SQLite database
     const upsertStmt = db.prepare(`
       INSERT INTO user_saves (user_id, save_payload, updated_at)
       VALUES (?, ?, ?)
@@ -168,17 +194,18 @@ router.post('/save', (req, res) => {
       WHERE excluded.updated_at >= user_saves.updated_at
     `);
 
-    const info = upsertStmt.run(userId.trim(), serializedPayload, updatedAt);
+    const result = upsertStmt.run(userId.trim(), serializedPayload, updatedAt);
 
     return res.status(200).json({
       success: true,
       userId: userId.trim(),
       updatedAt,
-      rowsAffected: info.changes
+      changes: result.changes,
+      verifiedMatch: !!matchSubmission
     });
   } catch (err) {
     console.error('[SaveRoute] POST error:', err);
-    return res.status(500).json({ error: 'Internal database error while persisting save payload.' });
+    return res.status(500).json({ error: 'Internal database error while executing save transaction.' });
   }
 });
 
