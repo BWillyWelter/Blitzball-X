@@ -1,29 +1,42 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 export default defineConfig({
-  base: './',
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    strictPort: true,
-    allowedHosts: true,
-  },
-  preview: {
-    host: '0.0.0.0',
-    port: 4173,
-    strictPort: true,
-    allowedHosts: true,
-  },
+  root: '.',
+  base: './', // Ensures relative pathing for file:// protocols in native mobile webviews
+  publicDir: 'public',
+
   build: {
-    target: 'es2020',
+    outDir: 'dist',
+    assetsDir: 'assets',
     sourcemap: false,
-    chunkSizeWarningLimit: 1200,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          three: ['three'],
-        },
-      },
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Strips debugging logs in production builds
+        drop_debugger: true
+      }
     },
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html')
+      },
+      output: {
+        // Modular vendor splitting for faster initial webview loading
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) {
+            return 'three-vendor';
+          }
+        }
+      }
+    },
+    target: 'es2020',
+    chunkSizeWarningLimit: 1000
   },
+
+  server: {
+    host: true,
+    port: 3000,
+    open: true
+  }
 });
