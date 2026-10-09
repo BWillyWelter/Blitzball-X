@@ -1,195 +1,348 @@
 /**
- * FFX Sphere Pool Procedural Web Audio Engine & Synthesizer
+ * Procedural Web Audio API Sound Engine for Blitzball-X
+ * Synthesizes arcade audio in real time without external audio assets:
+ * - Victory Crowd Fanfares (synthesized brass/chords)
+ * - Stadium Goal Buzzers (dual sawtooth + filter distortion growl)
+ * - Water Splash Impacts (bandpass filtered white noise sweep + sine sub-pop)
+ * - Sphere Pool Ambience (low-frequency underwater acoustics)
+ * - Ref Whistles, Bubble Pops, and Dynamic Crowd Cheers
  */
 
 export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.masterGain = null;
-    this.underwaterGain = null;
-    this.ambientOsc = null;
-    this.bubbleTimer = null;
-    this.initialized = false;
+    this.ambienceGain = null;
+    this.isAmbiencePlaying = false;
+
+    this.initContext();
   }
 
-  init() {
-    if (this.initialized) return;
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
+  /**
+   * Initializes or unlocks the WebAudio context on user gesture
+   */
+  initContext() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        this.masterGain.connect(this.ctx.destination);
+      }
+    }
 
-    this.ctx = new AudioContext();
-
-    // Master Output Node
-    this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.7;
-    this.masterGain.connect(this.ctx.destination);
-
-    // Dedicated Underwater Low-Pass Bus
-    this.underwaterBus = this.ctx.createBiquadFilter();
-    this.underwaterBus.type = 'lowpass';
-    this.underwaterBus.frequency.value = 450; // Muffles high frequencies for underwater immersion
-    this.underwaterBus.connect(this.masterGain);
-
-    this.initialized = true;
+    if (this.ctx && this.ctx.state === 'suspended') {
+      const unlock = () => {
+        this.ctx.resume();
+        window.removeEventListener('click', unlock);
+        window.removeEventListener('touchstart', unlock);
+      };
+      window.addEventListener('click', unlock);
+      window.addEventListener('touchstart', unlock);
+    }
   }
 
-  ensureContext() {
-    if (!this.initialized) this.init();
+  ensureContextReady() {
+    if (!this.ctx) this.initContext();
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
   }
 
   /**
-   * Starts continuous underwater sphere pool sub-bass ambient hum and random bubble pops
+   * Generates a procedural white noise buffer for splash and crowd acoustics
+   * @param {number} durationSec 
+   * @returns {AudioBuffer}
    */
-  startSpherePoolAmbience() {
-    this.ensureContext();
-    if (!this.ctx || this.ambientOsc) return;
+  createNoiseBuffer(durationSec = 2.0) {
+    if (!this.ctx) return null;
+    const bufferSize = this.ctx.sampleRate * durationSec;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = buffer.getChannelData(0);
 
-    const now = this.ctx.currentTime;
-
-    // Sub-bass ambient pool drone (55Hz rumble)
-    this.ambientOsc = this.ctx.createOscillator();
-    const ambientGain = this.ctx.createGain();
-
-    this.ambientOsc.type = 'sine';
-    this.ambientOsc.frequency.setValueAtTime(55, now);
-
-    // LFO to gently oscillate the pool hum depth
-    const lfo = this.ctx.createOscillator();
-    const lfoGain = this.ctx.createGain();
-    lfo.frequency.setValueAtTime(0.2, now); // 0.2Hz slow pulse
-    lfoGain.gain.setValueAtTime(8, now);
-
-    lfo.connect(this.ambientOsc.frequency);
-    lfo.start(now);
-
-    ambientGain.gain.setValueAtTime(0.3, now);
-
-    this.ambientOsc.connect(ambientGain);
-    ambientGain.connect(this.underwaterBus);
-    this.ambientOsc.start(now);
-
-    // Schedule periodic underwater bubble pop accents
-    this.bubbleTimer = setInterval(() => {
-      if (Math.random() > 0.4) this.playBubblePop();
-    }, 1200);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+    return buffer;
   }
 
   /**
-   * Generates a single underwater bubble pop sound
+   * 1. Procedural Victory Crowd Fanfare (Triad Brass Chords)
+   * Plays a triumphant 3-note FFX fanfare sequence (C -> F -> G -> High C)
    */
-  playBubblePop() {
+  playCrowdFanfare() {
+    this.ensureContextReady();
     if (!this.ctx) return;
-    const now = this.ctx.currentTime;
 
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
+    const notes = [
+      { freq: 261.63, start: 0.00, duration: 0.15 }, // C4
+      { freq: 349.23, start: 0.15, duration: 0.15 }, // F4
+      { freq: 392.00, start: 0.30, duration: 0.15 }, // G4
+      { freq: 523.25, start: 0.45, duration: 0.70 }  // C5 (Hold)
+    ];
 
-    const startFreq = 250 + Math.random() * 200;
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(startFreq, now);
-    osc.frequency.exponentialRampToValueAtTime(startFreq * 2.2, now + 0.08); // Rising pitch pitch sweep
+    notes.forEach(n => {
+      const now = this.ctx.currentTime + n.start;
+      
+      // Dual Sawtooth/Square blend for brass timbre
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
 
-    gain.gain.setValueAtTime(0.15, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc1.type = 'sawtooth';
+      osc2.type = 'square';
+      osc1.frequency.setValueAtTime(n.freq, now);
+      osc2.frequency.setValueAtTime(n.freq * 1.002, now); // Slight detune
 
-    osc.connect(gain);
-    gain.connect(this.underwaterBus);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(800, now);
+      filter.frequency.exponentialRampToValueAtTime(3200, now + 0.05);
+      filter.frequency.exponentialRampToValueAtTime(1000, now + n.duration);
 
-    osc.start(now);
-    osc.stop(now + 0.09);
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.3, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + n.duration);
+
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + n.duration);
+      osc2.stop(now + n.duration);
+    });
+
+    // Layer fan crowd cheer underneath fanfare
+    this.playCrowdCheer(1.5);
   }
 
   /**
-   * Sharp 裁判 (Ref) Whistle Snap for match kickoff, half-time, and goals
+   * 2. Stadium Goal Buzzer (Deep growling goal horn)
    */
-  playRefWhistle() {
-    this.ensureContext();
+  playGoalBuzzer(duration = 1.2) {
+    this.ensureContextReady();
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
 
-    // Dual modulated sine waves for realistic whistle beat frequency
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc2.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(110, now); // A2
+    osc2.frequency.setValueAtTime(116.54, now); // A#2 (Dissonant growl)
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1200, now);
+    filter.frequency.linearRampToValueAtTime(600, now + duration);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.5, now + 0.05);
+    gain.gain.setValueAtTime(0.5, now + duration - 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + duration);
+    osc2.stop(now + duration);
+  }
+
+  /**
+   * 3. Hydrodynamic Water Splash Impact
+   * Synthesizes a high-velocity entry splash using noise sweeps + sub pop
+   * @param {number} [scale=1.0] Impact magnitude scale (0.5 to 2.0)
+   */
+  playWaterSplash(scale = 1.0) {
+    this.ensureContextReady();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const duration = 0.6 * scale;
+
+    // A. High-Frequency Water Spray (Bandpass Filter Sweep)
+    const noiseBuffer = this.createNoiseBuffer(duration);
+    if (noiseBuffer) {
+      const noiseSource = this.ctx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.setValueAtTime(3.0, now);
+      filter.frequency.setValueAtTime(3500 * scale, now);
+      filter.frequency.exponentialRampToValueAtTime(400, now + duration);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.4 * scale, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      noiseSource.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      noiseSource.start(now);
+    }
+
+    // B. Low-Frequency Underwater Impact "Thump" (Sine Pitch Drop)
+    const subOsc = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+
+    subOsc.type = 'sine';
+    subOsc.frequency.setValueAtTime(180 * scale, now);
+    subOsc.frequency.exponentialRampToValueAtTime(35, now + 0.25);
+
+    subGain.gain.setValueAtTime(0.6 * scale, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+    subOsc.connect(subGain);
+    subGain.connect(this.masterGain);
+
+    subOsc.start(now);
+    subOsc.stop(now + 0.25);
+  }
+
+  /**
+   * 4. Referee Whistle Effect (Dual Sine with Vibrato LFO)
+   */
+  playRefWhistle() {
+    this.ensureContextReady();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const duration = 0.4;
+
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
     const gain = this.ctx.createGain();
 
     osc1.type = 'sine';
     osc2.type = 'sine';
+    osc1.frequency.setValueAtTime(2800, now);
+    osc2.frequency.setValueAtTime(3000, now);
 
-    osc1.frequency.setValueAtTime(2400, now);
-    osc2.frequency.setValueAtTime(2450, now); // 50Hz beat interference
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(35, now); // Fast trill
+    lfoGain.gain.setValueAtTime(120, now);
+
+    lfo.connect(osc1.frequency);
+    lfo.connect(osc2.frequency);
 
     gain.gain.setValueAtTime(0.01, now);
-    gain.gain.linearRampToValueAtTime(0.6, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    gain.gain.linearRampToValueAtTime(0.3, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(this.masterGain); // Bypass underwater bus for crisp surface whistle sound
+    gain.connect(this.masterGain);
 
+    lfo.start(now);
     osc1.start(now);
     osc2.start(now);
-    osc1.stop(now + 0.36);
-    osc2.stop(now + 0.36);
+    lfo.stop(now + duration);
+    osc1.stop(now + duration);
+    osc2.stop(now + duration);
   }
 
   /**
-   * Dynamic crowd cheer roar for goal execution and Jecht Shots
-   * @param {number} intensity Level of cheer hype (0.5 to 2.0)
+   * 5. Bubble Pop Sound (Encounter & UI Navigation)
    */
-  playCrowdCheer(intensity = 1.0) {
-    this.ensureContext();
+  playBubblePop() {
+    this.ensureContextReady();
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
-    const duration = 1.8 * intensity;
-
-    // Filtered pink noise buffer for crowd roar
-    const bufferSize = this.ctx.sampleRate * duration;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-
-    let b0 = 0, b1 = 0, b2 = 0;
-    for (let i = 0; i < bufferSize; i++) {
-      const white = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + white * 0.0555179;
-      b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.96900 * b2 + white * 0.1538520;
-      data[i] = (b0 + b1 + b2) * 0.1;
-    }
-
-    const crowdSource = this.ctx.createBufferSource();
-    crowdSource.buffer = buffer;
-
-    // Bandpass filter centered around stadium resonance
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(800, now);
-    filter.Q.setValueAtTime(1.2, now);
-
+    const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.01, now);
-    gain.gain.linearRampToValueAtTime(0.5 * intensity, now + 0.3);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
-    crowdSource.connect(filter);
-    filter.connect(gain);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+    osc.connect(gain);
     gain.connect(this.masterGain);
 
-    crowdSource.start(now);
+    osc.start(now);
+    osc.stop(now + 0.08);
   }
 
-  stopAmbience() {
-    if (this.ambientOsc) {
-      this.ambientOsc.stop();
-      this.ambientOsc = null;
-    }
-    if (this.bubbleTimer) {
-      clearInterval(this.bubbleTimer);
-      this.bubbleTimer = null;
+  /**
+   * 6. Crowd Cheer Swell
+   */
+  playCrowdCheer(intensity = 1.0) {
+    this.ensureContextReady();
+    if (!this.ctx) return;
+
+    const duration = 2.0 * intensity;
+    const now = this.ctx.currentTime;
+    const noiseBuffer = this.createNoiseBuffer(duration);
+
+    if (noiseBuffer) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = noiseBuffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.setValueAtTime(1.5, now);
+      filter.frequency.setValueAtTime(800, now);
+      filter.frequency.linearRampToValueAtTime(1800, now + 0.5);
+      filter.frequency.linearRampToValueAtTime(600, now + duration);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.35 * intensity, now + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      source.start(now);
     }
   }
-}
+
+  /**
+   * 7. Continuous Sphere Pool Underwater Ambience
+   */
+  startSpherePoolAmbience() {
+    this.ensureContextReady();
+    if (!this.ctx || this.isAmbiencePlaying) return;
+
+    this.ambienceGain = this.ctx.createGain();
+    this.ambienceGain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+
+    // Deep lowpass rumbling underwater noise
+    const noiseBuffer = this.createNoiseBuffer(5.0);
+    if (noiseBuffer) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = noiseBuffer;
+      source.loop = true;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(220, this.ctx.currentTime);
+
+      source.connect(filter);
+      filter.connect(this.ambienceGain);
+      this.ambienceGain.connect(this.masterGain);
+
+      source.start();
+      this.isAmbiencePlaying = true;
+    }
+  }
+  }
