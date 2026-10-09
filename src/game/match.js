@@ -160,4 +160,4 @@ export class FFXMatch {
       this.state = MATCH_STATES.FREE_SWIM;
     }
   }
-        }
+                    }
