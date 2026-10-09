@@ -1,7 +1,7 @@
 /**
  * Blitzball-X Application Entry Point & Core Game Engine Loop
  * Connects 3D Sphere Pool WebGL, FFX Match Engine, Audio Synthesizer,
- * Techcopy QTE Overlays, League Brackets, Scout Systems, and SaveManager Auto-Sync.
+ * Techcopy QTE Overlays, Tech Assignment Menu, League Brackets, Scout Systems, and SaveManager.
  */
 
 import * as THREE from 'three';
@@ -15,6 +15,7 @@ import { LeagueManager } from './game/league.js';
 import { ScoutManager } from './game/scout.js';
 import { LeagueViewUI } from './ui/league-view.js';
 import { ScoutViewUI } from './ui/scout-view.js';
+import { TechViewUI } from './ui/tech-view.js';
 import { TechcopyQTEController } from './render/qte.js';
 import { SoundEngine } from './ui/audio.js';
 import { TEAMS } from './data/teams.js';
@@ -41,6 +42,7 @@ export class BlitzballApp {
     this.qteController = new TechcopyQTEController(this.container, this.audio);
     this.leagueView = new LeagueViewUI(this.container);
     this.scoutView = new ScoutViewUI(this.container);
+    this.techView = new TechViewUI(this.container);
 
     // Active Game State Handles
     this.league = null;
@@ -72,7 +74,7 @@ export class BlitzballApp {
     // 3. Initialize default match (Besaid Aurochs vs. Luca Goers)
     this.startNewMatch('besaid_aurochs', 'luca_goers');
 
-    // 4. Bind UI top-bar triggers for League and Scout overlays
+    // 4. Bind UI top-bar triggers for League, Scout, and Tech View overlays
     this.bindGlobalMenuTriggers();
 
     // 5. Start audio ambience & render loop
@@ -126,7 +128,7 @@ export class BlitzballApp {
   }
 
   /**
-   * Binds UI overlay shortcuts for League Standings and Free Agent Scouting
+   * Binds UI overlay shortcuts for League Standings, Free Agent Scouting, and Technique Setup
    */
   bindGlobalMenuTriggers() {
     window.addEventListener('keydown', (e) => {
@@ -135,6 +137,10 @@ export class BlitzballApp {
       }
       if (e.key === 's' || e.key === 'S') {
         this.scoutView.open(this.scout, () => this.autoSaveProgress());
+      }
+      if (e.key === 't' || e.key === 'T') {
+        const homeTeam = TEAMS['besaid_aurochs'];
+        this.techView.open(homeTeam, () => this.autoSaveProgress());
       }
     });
   }
@@ -222,8 +228,11 @@ export class BlitzballApp {
     // 5. Persist auto-save payload to local & cloud endpoints
     await this.autoSaveProgress();
 
-    // 6. Display League Standings View with updated results
-    this.leagueView.open(this.league, () => this.handleNextScheduledMatch());
+    // 6. Display Pre-Match Technique Assignment before advancing to next scheduled match
+    const homeTeam = TEAMS['besaid_aurochs'];
+    this.techView.open(homeTeam, () => {
+      this.leagueView.open(this.league, () => this.handleNextScheduledMatch());
+    });
   }
 
   /**
@@ -256,4 +265,4 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
     window.app = new BlitzballApp();
   });
-      }
+}
