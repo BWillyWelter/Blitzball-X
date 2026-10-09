@@ -1294,6 +1294,70 @@ test('a standing hit staggers; a charging hit puts a swimmer down', () => {
   assert.deepEqual(knocked, ['reel', 'fallen'], `standing = stagger, charging = knockdown (${knocked})`);
 });
 
+test('manual keeper height is committed, bounded and cannot be steered mid-dive', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], seed: 11, userTeam: 0 });
+  sim.state = 'live';
+  sim.ball.pos.copy(sim.ownGoalPos(0));
+  assert.equal(sim.takeCage(), true);
+  const gk = sim.controlled;
+  gk.y = 0;
+  gk.pos.z = 0;
+  gk.input = { ...emptyInput(), moveY: 1, breach: true };
+  sim.processInput(gk);
+  assert.equal(gk.diveHeight, 1);
+  gk.input.moveY = -1;
+  gk.input.moveZ = -1;
+  for (let i = 0; i < 6; i++) {
+    sim.tickCooldowns(gk, DT);
+    sim.updatePlayerPhysics(gk, DT, false);
+  }
+  assert.ok(gk.y > 0.5, 'committed high stays high despite opposite steering');
+  assert.equal(gk.pos.z, 0, 'a vertical-only dive does not drift sideways');
+  assert.equal(sim.keeperDive(gk, { height: -1 }), false, 'cooldown prevents recommit');
+  gk.y = ARENA.keeperMaxY;
+  sim.updatePlayerPhysics(gk, DT, false);
+  assert.equal(gk.y, ARENA.keeperMaxY);
+});
+
+test('manual height reads change save probability without mislabelling wrong/late reads', () => {
+  const shot = (height, age = 0.12, side = 0, ballY = 1.9) => {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], seed: 11, userTeam: 0 });
+    sim.state = 'live';
+    sim.ball.pos.copy(sim.ownGoalPos(0));
+    assert.equal(sim.takeCage(), true);
+    const gk = sim.controlled;
+    gk.y = 0;
+    gk.pos.z = 0;
+    assert.equal(sim.keeperDive(gk, { height, z: side }), true);
+    sim.tickCooldowns(gk, age);
+    const shooter = sim.outfield(1)[0];
+    sim.ball.holder = null;
+    sim.ball.pos.set(gk.pos.x, ballY, 0.4);
+    sim.ballPreviousPosition.copy(sim.ball.pos);
+    sim.ball.vel.set(-26, 0, 0);
+    sim.ball.flight = { kind: 'shot', shooter, quality: 1.3, checked: new Set() };
+    let probability;
+    let save;
+    sim.rng.chance = (p) => { probability ??= p; return true; };
+    sim.events.on('save', (e) => { save = e; });
+    sim.checkKeeperSave();
+    assert.ok(save, 'known shot must be checked');
+    return { probability, save };
+  };
+  const flat = shot(0), high = shot(1), low = shot(-1), late = shot(1, 0.01);
+  assert.ok(high.probability > flat.probability, 'correct height improves probability');
+  assert.ok(flat.probability > low.probability, 'wrong height costs probability');
+  assert.equal(high.save.heightRead, true);
+  assert.equal(high.save.read, true);
+  assert.equal(low.save.heightRead, false);
+  assert.equal(low.save.heightWrong, true);
+  assert.equal(low.save.read, false);
+  assert.equal(late.save.read, false);
+  assert.equal(late.save.heightRead, false);
+  assert.equal(shot(1, 0.12, -1).save.read, false, 'wrong side cannot earn a height read');
+  assert.equal(shot(-1, 0.12, 0, 0.35).save.heightRead, true, 'low-ring read works too');
+});
+
 test('alley-oops are a rarity, not the metagame: the build-up stays on the ground', () => {
   let passes = 0;
   let lobs = 0;
@@ -1312,4 +1376,33 @@ test('alley-oops are a rarity, not the metagame: the build-up stays on the groun
   }
   assert.ok(lobs > 0, `the alley-oop still exists as a set piece (found ${lobs} across ${passes} passes)`);
   assert.ok(lobs < passes * 0.08, `alley-oops stay rare (${lobs} lobs in ${passes} passes)`);
+});
+
+test('the cage survives a teammate picking up the ball (control is never silently stolen)', () => {
+  const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[3], difficulty: 'pro', seed: 61, userTeam: 0 });
+  skipToLive(sim);
+  sim.keeperSwitchCd = 0;
+  sim.ball.pos.copy(sim.ownGoalPos(0));
+  assert.equal(sim.takeCage(), true);
+  const gk = sim.keeperOf(0);
+  assert.equal(sim.controlled, gk);
+  // A fielder inside your own end gathers a loose ball — the classic steal-the-pilot bug.
+  const mate = sim.outfield(0)[0];
+  sim.giveBall(mate);
+  assert.equal(sim.inCage, true, 'the cage is still open');
+  assert.equal(sim.controlled, gk, 'the keeper keeps the pilot role');
+  assert.equal(gk.controlled, true);
+  assert.equal(mate.controlled, false);
+  // The dive still routes to the keeper, not to the fielder that just picked the ball up.
+  gk.state = 'idle';
+  gk.stun = 0;
+  gk.cd.dive = 0;
+  gk.input = { ...emptyInput(), moveY: 1, breach: true };
+  sim.processInput(gk);
+  assert.ok(gk.diveT > 0, 'the cage dive still fires for the keeper');
+  // Leaving restores normal ball-pickup control.
+  assert.equal(sim.leaveCage(), true);
+  assert.equal(sim.inCage, false);
+  sim.giveBall(mate);
+  assert.equal(sim.controlled, mate, 'outside the cage, possession reassigns control');
 });

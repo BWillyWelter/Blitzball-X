@@ -143,3 +143,94 @@ test('ball wall bounds remain enforced during wall cooldown', () => {
   assert.ok(sim.ball.pos.lengthXZ() <= ARENA.ballRadius);
   assert.ok(sim.ball.vel.z < 0);
 });
+
+test('manual keeper pre-positions at bounded pace and holds chosen height', () => {
+  const sim = match();
+  sim.state = 'live';
+  sim.ball.pos.copy(sim.ownGoalPos(0));
+  assert.equal(sim.takeCage(), true);
+  const p = sim.controlled;
+  p.pos.z = 0;
+  p.y = 0;
+  p.input = { ...emptyInput(), moveZ: 0.5, moveY: 1, turbo: true };
+  for (let i = 0; i < 30; i++) updatePlayerPhysics(sim, p, dt, false);
+  assert.ok(p.pos.z > 0.3 && p.pos.z < 1.2, 'analog shuffle is slower than a dive');
+  assert.ok(p.y > 0.8);
+  assert.equal(p.turboActive, false, 'burst is not a free extra keeper lunge');
+  p.input = emptyInput();
+  for (let i = 0; i < 60; i++) updatePlayerPhysics(sim, p, dt, false);
+  const setHeight = p.y;
+  for (let i = 0; i < 60; i++) updatePlayerPhysics(sim, p, dt, false);
+  assert.ok(Math.abs(p.y - setHeight) < 0.01, 'neutral holds the prepared height');
+  p.input.moveZ = 1;
+  p.input.moveY = -1;
+  for (let i = 0; i < 300; i++) updatePlayerPhysics(sim, p, dt, false);
+  assert.equal(p.pos.z, ARENA.keeperMaxZ);
+  assert.equal(p.y, ARENA.keeperMinY);
+  sim.resetPossession(1, 'goal');
+  assert.equal(p.diveT, 0);
+  assert.equal(p.diveHeight, 0);
+});
+
+test('cage keyboard/gamepad/touch share screen-side mapping and latch touch dive aim', () => {
+  const oldWindow = globalThis.window;
+  const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  let pads = [];
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { getGamepads: () => pads } });
+  const input = new InputManager();
+  try {
+    input.setKeeperContext(true, 1);
+    input.keys.add('KeyD');
+    input.keys.add('KeyR');
+    assert.equal(input.poll().moveZ, -1);
+    assert.equal(input.poll().moveY, 1);
+    input.onBlur();
+    input.setKeeperContext(true, -1);
+    pads = [{ connected: true, axes: [1, 0, 0, -1], buttons: Array.from({ length: 16 }, () => ({ pressed: false })) }];
+    assert.equal(input.poll().moveZ, 1);
+    assert.equal(input.poll().moveY, 1);
+    pads = [];
+    input.touch.active = true;
+    input.touch.camYaw = -Math.PI / 2;
+    input.touch.moveX = 1;
+    assert.ok(input.poll().moveZ > 0.99, 'touch rotates only once');
+    input.touch.keeperAim = { z: -0.8, height: 1 };
+    input.touch.edges.add('breach');
+    assert.deepEqual(input.poll().keeperAim, { z: -0.8, height: 1 });
+    assert.deepEqual(input.poll().keeperAim, { z: -0.8, height: 1 }, 'aim survives zero-step frames');
+    input.flushOneShots();
+    assert.equal(input.poll().keeperAim, null);
+    input.onBlur();
+    assert.deepEqual(input.poll(), emptyInput());
+  } finally {
+    input.destroy();
+    if (oldWindow === undefined) delete globalThis.window; else globalThis.window = oldWindow;
+    if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+  }
+});
+
+test('cage camera faces the attack on both ends and ignores movement/orbit yaw', async () => {
+  const THREE = await import('three');
+  const { GameCamera } = await import('../src/render/camera.js');
+  for (const team of [0, 1]) {
+    const sim = new MatchSim({ home: TEAMS[0], away: TEAMS[1], seed: 11, userTeam: team });
+    sim.state = 'live';
+    sim.ball.pos.copy(sim.ownGoalPos(team));
+    assert.equal(sim.takeCage(), true);
+    const p = sim.controlled;
+    const cam = new GameCamera(new THREE.PerspectiveCamera(), { reducedMotion: true });
+    cam.manual = true;
+    cam.orbit(1000, 200);
+    p.vel.set(0, 0, 6);
+    for (let i = 0; i < 120; i++) cam.update(sim, dt);
+    assert.equal(cam.pYaw, Math.atan2(sim.attackDir(team), 0));
+    assert.ok((cam.look.x - cam.pos.x) * sim.attackDir(team) > 0);
+    assert.ok((p.pos.x - cam.pos.x) * sim.attackDir(team) > 0, 'camera stays behind the keeper');
+    assert.ok(cam.pos.length() < ARENA.sphereRadius);
+    assert.ok(cam.fov > 69);
+    sim.leaveCage();
+    cam.update(sim, dt);
+    assert.equal(cam.pInit, true, 'shoulder camera re-latches on exit');
+  }
+});

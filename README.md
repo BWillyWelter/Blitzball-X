@@ -86,11 +86,17 @@ bloom) to prioritize responsive play. Desktop graphics preferences are unchanged
 - **Three scoring windows** at each end: the top ring is worth **3**, the two low rings **1** each.
   The premium window is small, so taking it is a decision.
 - **Gamebreaker goal = 4 and takes 2 off the other team.**
-- **The cage is a role you can pick up.** When the play comes to your end, **V / L3** hands you
-  your own keeper instead of an outfield swimmer; **PASS** hands it straight back. While you have the
-  cage the actions remap to a **dive** — a committed lateral lunge, worth a save if you pick the
-  right side and a sore one if you don't, then locked out for a second. The CPU keeper dives too,
-  so an unmarked one will get punished.
+- **The cage is a role you can pick up.** When play reaches your end, **V / L3 / GK**
+  hands you the keeper; press it again (or **Q / LB**) to leave. Pre-position with movement
+  (A/D or left-stick left/right shuffles across the cage), set height with **R/F / right-stick Y /
+  ▲▼**, then commit a **U/J/L / A/B** dive. On touch, **swipe the DIVE pad** to pick side and
+  height, then **lift to dive**; the stick can keep setting position independently. PASS distributes
+  a caught ball, subject to the four-second hold limit. Dives lock their axes, cost stamina and
+  recover for a second. A correct, timely two-axis read earns **READ SAVE**; wrong height or side
+  loses save probability. Neutral depth holds the position you prepared; leaving the cage restores
+  normal buoyancy. The fixed cage camera cannot spin with a shuffle; its indicator shows your own
+  position and dive intent, never the attacker's hidden target. CPU-only balance is unchanged.
+
 - **Passing is a lead, not a delivery.** The stick aims the *landing spot* rather than the receiver:
   the sim solves where a moving swimmer will actually be when the ball arrives, so a pass held down
   the line finds a runner in space instead of trailing him. Land it and the passer is paid — a

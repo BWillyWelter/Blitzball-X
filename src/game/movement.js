@@ -12,10 +12,11 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
   p.stateTime += dt;
   if (p.stun > 0) p.stun -= dt;
   const inp = p.input;
+  const manualCage = sim.inCage && sim.isUser(p) && p.isKeeper;
   const isCarrier = sim.ball.holder === p;
 
   // Turbo (defensive fatigue: press costs more stamina, zone recovers some)
-  const wantsTurbo = !deadBall && inp.turbo && (inp.moveX !== 0 || inp.moveZ !== 0) && p.turbo > MOVE.turboMin && (p.state === 'swim' || p.state === 'idle');
+  const wantsTurbo = !manualCage && !deadBall && inp.turbo && (inp.moveX !== 0 || inp.moveZ !== 0) && p.turbo > MOVE.turboMin && (p.state === 'swim' || p.state === 'idle');
   p.turboActive = wantsTurbo;
   const endur = 0.7 + (p.data.end / 99) * 0.6;
   const onDefense = sim.possession !== p.team;
@@ -29,7 +30,7 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
   // sprinter has to be rotated. A gassed swimmer recovers turbo more slowly and swims a touch
   // slower, which is what makes the fourth substitution a real decision rather than decoration.
   if (sim.state === 'live' && !p.sentOff) {
-    const effort = Math.hypot(p.vel.x, p.vel.z) / Math.max(0.5, MOVE.maxSpeed);
+    const effort = Math.hypot(p.vel.x, p.vel.z, manualCage ? p.vy : 0) / Math.max(0.5, MOVE.maxSpeed);
     const scale = 1.25 - (p.data.end / 99) * 0.55; // high endurance = cheap
     const drain = p.turboActive ? MOVE.staminaSprintDrain : MOVE.staminaSwimDrain * effort;
     const recovery = MOVE.staminaRegen * clamp(1 - effort / MOVE.staminaRegenFloor, 0, 1);
@@ -40,12 +41,13 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
   }
 
   // Locomotion
-  let maxSpeed = (p.isKeeper ? MOVE.keeperSpeed : MOVE.maxSpeed) * (0.82 + (p.data.spd / 99) * 0.36);
+  let maxSpeed = (manualCage ? MOVE.keeperSetSpeed : p.isKeeper ? MOVE.keeperSpeed : MOVE.maxSpeed) * (0.82 + (p.data.spd / 99) * 0.36);
   if (p.turboActive) maxSpeed *= MOVE.turboMult;
   // Committed keeper dive: for the first slice of the window the lunge overrides normal swim and
   // drives the body sideways hard. After that the keeper is recovering — still in the box, still
   // able to reach, but no longer accelerating, which is exactly what a mistimed dive should feel.
-  const diving = p.diveT > 0 && p.diveCommit > 0 && Math.abs(p.diveDir) > 0.01;
+  const diving = p.diveT > 0 && p.diveCommit > 0 &&
+    (p.diveManual ? !deadBall && p.stun <= 0 : Math.abs(p.diveDir) > 0.01);
   // Empty tank: you keep swimming, just worse — never a statue on the pitch.
   if (p.gassed && !sim.flow[p.team]) maxSpeed *= MOVE.staminaGassedSpeed;
   if (isCarrier) maxSpeed *= MOVE.carrierMult * (sim.offensePlayOf(p.team).speed || 1);
@@ -99,7 +101,11 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
   }
 
   // Vertical (breach)
-  if (p.airborne) {
+  if (diving && p.diveManual) {
+    // Exactly one height integration per step; steering cannot change a committed dive.
+    p.vy = p.diveHeight * MOVE.keeperDiveVertical;
+    p.y += p.vy * dt;
+  } else if (p.airborne) {
     p.vy += PHYS.gravityPlayer * dt;
     p.y += p.vy * dt;
     if (p.y <= 0) {
@@ -120,14 +126,16 @@ export function updatePlayerPhysics(sim, p, dt, deadBall) {
       p.vy += (targetVy - p.vy) * (1 - Math.exp(-MOVE.verticalAccel * dt));
     } else {
       p.vy *= Math.exp(-MOVE.verticalDrag * dt);
-      p.y *= Math.exp(-MOVE.verticalHome * dt);
+      if (!manualCage || deadBall) p.y *= Math.exp(-MOVE.verticalHome * dt);
     }
     p.y += p.vy * dt;
-    if (p.y < ARENA.playerMinY) {
-      p.y = ARENA.playerMinY;
+    const minY = manualCage ? ARENA.keeperMinY : ARENA.playerMinY;
+    const maxY = manualCage ? ARENA.keeperMaxY : ARENA.playerMaxY;
+    if (p.y < minY) {
+      p.y = minY;
       if (p.vy < 0) p.vy = 0;
-    } else if (p.y > ARENA.playerMaxY) {
-      p.y = ARENA.playerMaxY;
+    } else if (p.y > maxY) {
+      p.y = maxY;
       if (p.vy > 0) p.vy = 0;
     }
   }
@@ -260,6 +268,10 @@ export function constrainPlayer(sim, p) {
     const hi = Math.max(inner, outer);
     p.pos.x = clamp(p.pos.x, lo, hi);
     p.pos.z = clamp(p.pos.z, -ARENA.keeperMaxZ, ARENA.keeperMaxZ);
+    if (sim.inCage && sim.isUser(p)) {
+      p.y = clamp(p.y, ARENA.keeperMinY, ARENA.keeperMaxY);
+      if (p.y === ARENA.keeperMinY && p.vy < 0 || p.y === ARENA.keeperMaxY && p.vy > 0) p.vy = 0;
+    }
     return;
   }
   const r = p.pos.lengthXZ();

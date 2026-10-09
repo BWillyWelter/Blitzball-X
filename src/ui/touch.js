@@ -34,6 +34,7 @@ export class TouchControls {
     this.lookId = null;
     this.strikeId = null;
     this.origin = { x: 0, y: 0 };
+    this.strikeOrigin = { x: 0, y: 0 };
     this.lookFrom = { x: 0, y: 0 };
     this.owners = new Map(); // button action -> pointerId
     this.buttons = new Map(); // button action -> element
@@ -190,6 +191,13 @@ export class TouchControls {
   bindStrike() {
     const t = this.input.touch;
     const aim = (dx, dy) => {
+      if (this.cageActive) {
+        t.keeperAim = {
+          z: -this.input.keeperDir * Math.max(-1, Math.min(1, dx / SWIPE_REACH)),
+          height: Math.max(-1, Math.min(1, -dy / SWIPE_REACH)),
+        };
+        return;
+      }
       const len = Math.hypot(dx, dy);
       if (len < SWIPE_MIN) return;
       const yaw = Number.isFinite(t.camYaw) ? t.camYaw : 0;
@@ -206,8 +214,8 @@ export class TouchControls {
     const move = (e) => {
       if (e.pointerId !== this.strikeId) return;
       e.preventDefault();
-      const dx = e.clientX - this.origin.x;
-      const dy = e.clientY - this.origin.y;
+      const dx = e.clientX - this.strikeOrigin.x;
+      const dy = e.clientY - this.strikeOrigin.y;
       const len = Math.hypot(dx, dy);
       const travel = len > SWIPE_REACH ? SWIPE_REACH / len : 1;
       this.strikeDot.style.transform = `translate(-50%, -50%) translate(${dx * travel}px, ${dy * travel}px)`;
@@ -218,11 +226,12 @@ export class TouchControls {
       e.preventDefault();
       e.stopPropagation();
       this.strikeId = e.pointerId;
-      this.origin = { x: e.clientX, y: e.clientY };
+      this.strikeOrigin = { x: e.clientX, y: e.clientY };
+      t.keeperAim = this.cageActive ? { z: 0, height: 0 } : null;
       t.aimX = 0;
       t.aimZ = 0;
-      t.shootHeld = true;
-      t.edges.add('shoot');
+      t.shootHeld = !this.cageActive;
+      if (!this.cageActive) t.edges.add('shoot');
       this.strike.classList.add('down');
       this.strike.setPointerCapture(e.pointerId);
     });
@@ -235,7 +244,12 @@ export class TouchControls {
       this.strike.classList.remove('down');
       this.strikeDot.style.transform = 'translate(-50%, -50%)';
       // A cancelled pointer loses its match: never leave a shot wound up behind the menu.
-      if (e.type === 'pointerup') t.edges.add('shootRelease');
+      if (e.type === 'pointerup') {
+        if (this.cageActive) {
+          aim(e.clientX - this.strikeOrigin.x, e.clientY - this.strikeOrigin.y);
+          t.edges.add('breach');
+        } else t.edges.add('shootRelease');
+      }
       else this.input.onBlur();
     };
     for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) this.strike.addEventListener(name, end);
@@ -244,7 +258,7 @@ export class TouchControls {
   syncHeld() {
     const t = this.input.touch;
     t.turbo = this.owners.has('turbo');
-    t.shootHeld = this.strikeId !== null;
+    t.shootHeld = this.strikeId !== null && !this.cageActive;
     t.moveY = Number(this.owners.has('rise')) - Number(this.owners.has('dive'));
   }
 
@@ -296,6 +310,7 @@ export class TouchControls {
     t.moveY = 0;
     t.aimX = 0;
     t.aimZ = 0;
+    t.keeperAim = null;
     t.lookX = 0;
     t.lookY = 0;
     t.active = false;
@@ -343,9 +358,21 @@ export class TouchControls {
     if (this.el.dataset.phase !== phase) this.el.dataset.phase = phase;
   }
 
-  setGamebreakerReady(ready) { this.strike.classList.toggle('gb-ready', !!ready); }
+  setGamebreakerReady(ready) { this.strike.classList.toggle('gb-ready', !!ready && !this.cageActive); }
 
   setCage(available, active) {
+    if (this.cageActive !== !!active) {
+      // A shot gesture may not carry through a role switch and become an accidental dive.
+      this.input.onBlur();
+      this.cageActive = !!active;
+      this.el.classList.toggle('in-cage', this.cageActive);
+      this.strike.querySelector('.touch-strike-label').textContent = active ? 'DIVE' : 'SHOOT';
+      this.strike.querySelector('.touch-strike-hint').textContent = active ? 'AIM · LIFT TO DIVE' : 'HOLD & SWIPE';
+      this.strike.setAttribute('aria-label', active ? 'Swipe side and height, release to dive' : 'Press and swipe to shoot');
+      this.buttons.get('breach').querySelector('span').textContent = active ? 'DIVE' : 'BLOCK';
+      this.buttons.get('rise').setAttribute('aria-label', active ? 'Aim high / rise' : 'Swim up');
+      this.buttons.get('dive').setAttribute('aria-label', active ? 'Aim low / sink' : 'Swim down');
+    }
     const btn = this.buttons.get('cage');
     btn.classList.toggle('on', !!active);
     btn.style.opacity = active ? '1' : available ? '0.85' : '0.3';

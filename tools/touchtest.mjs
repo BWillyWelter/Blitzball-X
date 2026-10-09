@@ -899,6 +899,80 @@ const ownership = await page.evaluate(() => {
 });
 for (const [name, passed] of Object.entries(ownership)) ok(`rebuilt touch lifecycle: ${name}`, passed);
 
+// ----------------------------------------------------- manual keeper control surface
+const keeperControls = await page.evaluate(() => {
+  const app = window.app;
+  const m = app.match;
+  const sim = m.sim;
+  const input = app.input;
+  const tc = m.touchControls;
+  app.match.paused = true;
+  sim.state = 'live';
+  sim.keeperSwitchCd = 0;
+  sim.ball.holder = null;
+  sim.ball.pos.copy(sim.ownGoalPos(sim.userTeam));
+  const fire = (el, type, x, y, id) => el.dispatchEvent(new PointerEvent(type, {
+    pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true,
+  }));
+  const cage = document.querySelector('[data-action="cage"]');
+  const strike = tc.strike;
+  const move = tc.moveZone;
+  for (const el of [cage, strike, move]) el.setPointerCapture = () => {};
+  fire(cage, 'pointerdown', 0, 0, 140);
+  sim.setUserInput(input.poll());
+  sim.step(1 / 60);
+  input.flushOneShots();
+  input.setKeeperContext(sim.inCage, sim.attackDir(sim.userTeam));
+  tc.setCage(false, sim.inCage);
+  const enteredViaButton = sim.inCage && sim.controlled.isKeeper;
+  const gk = sim.controlled;
+  gk.state = 'idle'; gk.stun = 0; gk.cd.dive = 0;
+  gk.y = 0; gk.pos.z = 0;
+  for (let i = 0; i < 60; i++) m.renderer.gameCam.update(sim, 1 / 60);
+  input.touch.camYaw = m.renderer.gameCam.pYaw;
+  const r = move.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  fire(move, 'pointerdown', x, y, 141);
+  fire(move, 'pointermove', x + 40, y, 141);
+  const before = { ...input.poll() };
+  fire(strike, 'pointerdown', 700, 240, 142);
+  fire(strike, 'pointermove', 740, 200, 142);
+  const holding = { ...input.poll() };
+  const noPrematureDive = !holding.breach && !holding.shootPressed && !input.touch.shootHeld;
+  fire(move, 'pointermove', x + 50, y, 141); // must not use the strike origin
+  const steeringIndependent = input.poll().moveZ * before.moveZ > 0;
+  fire(strike, 'pointerup', 740, 200, 142);
+  const action = { ...input.poll() };
+  const pendingAim = { ...input.poll().keeperAim };
+  sim.setUserInput(action);
+  gk.input = { ...action };
+  sim.processInput(gk);
+  const aimLocked = gk.diveDir < -0.7 && gk.diveHeight > 0.7 && pendingAim.height > 0.7;
+  input.flushOneShots();
+  input.onBlur();
+  fire(move, 'pointerup', x + 50, y, 141);
+  const y0 = gk.y, z0 = gk.pos.z;
+  for (let i = 0; i < 6; i++) {
+    sim.tickCooldowns(gk, 1 / 60);
+    sim.updatePlayerPhysics(gk, 1 / 60, false);
+  }
+  const lungeWorks = gk.y > y0 + 0.3 && gk.pos.z < z0 - 0.5;
+  m.hud.update();
+  const readIndicator = !m.hud.els.keeperRead.hidden && m.hud.els.keeperState.textContent.includes('HIGH');
+  const diveLabel = strike.querySelector('.touch-strike-label').textContent === 'DIVE';
+  // Cancelled gesture must never become a delayed dive.
+  fire(strike, 'pointerdown', 700, 240, 143);
+  fire(strike, 'pointercancel', 720, 200, 143);
+  const cancelSafe = !input.poll().breach && input.pending.size === 0;
+  sim.leaveCage();
+  input.setKeeperContext(false);
+  tc.setCage(true, false);
+  m.hud.update();
+  const restored = strike.querySelector('.touch-strike-label').textContent === 'SHOOT' && m.hud.els.keeperRead.hidden;
+  return { enteredViaButton, noPrematureDive, steeringIndependent, aimLocked, lungeWorks, readIndicator, diveLabel, cancelSafe, restored };
+});
+for (const [name, passed] of Object.entries(keeperControls)) ok(`keeper control surface: ${name}`, passed);
+
 // ----------------------------------------------------- full match on touch
 // Hand the clock back to the app loop for the real thing: un-pause, then re-base its timers so
 // the first resumed frame can't treat the whole deterministic block as one giant dt.

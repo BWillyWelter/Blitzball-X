@@ -120,6 +120,7 @@ export const MOVE = {
   turboRegen: 13,
   turboMin: 6,
   carrierMult: 0.96,
+  keeperSetSpeed: 3.2, // manual pre-position pace: angles before the shot, not a free dive
   keeperSpeed: 6.4, // keeper must still cover a scaled box
   keeperDiveSpeed: 7.9,
   // Committed keeper dive. Taking the cage is a real choice, and the only verb you get in it is
@@ -130,6 +131,8 @@ export const MOVE = {
   keeperDiveLateral: 15.5, // lateral lunge speed while diving (m/s)
   keeperDiveCooldown: 1.0,
   keeperDiveCommit: 0.22, // how long the lunge actually accelerates before you recover
+  keeperDiveVertical: 6.5, // committed high/low lunge speed (m/s)
+  keeperReadMin: 0.08, // minimum commitment age before a manual dive earns READ SAVE
   breachVel: 5.6,
   breachCooldown: 0.45,
   swimVertical: 2.8, // free-swim rise/dive speed (m/s)
@@ -184,6 +187,8 @@ export const ACTION = {
   keeperPickupRadius: 1.6,
   keeperReach: 1.0,
   keeperDiveReach: 0.9, // extra save reach while a dive is live
+  keeperDiveHeightReward: 0.10, // extra save probability when the keeper aimed the right HEIGHT level before the shot arrived
+  keeperDiveHeightWrong: 0.12, // penalty when the keeper committed the wrong height level — a high read too low, or a low read too high
   keeperDiveSave: 0.28, // extra save probability while a dive is live (and aimed the right way)
   keeperDiveWrongSide: 0.22, // penalty when the dive went the other way — overcommitting is punished
   keeperDiveCommitReward: 0.10, // bonus when the dive arrived before the shot — a read, not a reaction

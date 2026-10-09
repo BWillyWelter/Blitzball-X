@@ -95,6 +95,7 @@ export class InputManager {
     this.pending = new Set();
     this.pendingPlaycall = 0;
     this.pendingJukeDir = null;
+    this.pendingKeeperAim = null;
 
     this.onPause = null;
     this.enabled = true;
@@ -113,6 +114,7 @@ export class InputManager {
       aimZ: 0,
       lookX: 0, // unread camera drag, in screen pixels (see consumeLook)
       lookY: 0,
+      keeperAim: null,
       camYaw: 0, // published by the frame loop: the stick is read relative to the camera
       edges: new Set(),
     };
@@ -169,10 +171,11 @@ export class InputManager {
       this.pending.clear();
       this.pendingPlaycall = 0;
       this.pendingJukeDir = null;
+      this.pendingKeeperAim = null;
       Object.assign(this.touch, {
         moveX: 0, moveZ: 0, moveY: 0, active: false,
         turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null, playcall: 0,
-        aimX: 0, aimZ: 0, lookX: 0, lookY: 0,
+        aimX: 0, aimZ: 0, lookX: 0, lookY: 0, keeperAim: null,
       });
       Object.assign(this.input, emptyInput());
       this.touch.edges.clear();
@@ -305,6 +308,7 @@ export class InputManager {
     let moveX = 0;
     let moveZ = 0;
     let moveY = 0;
+    let worldMove = false;
     let turbo = this.down(
       'ShiftLeft',
       'ShiftRight'
@@ -374,6 +378,7 @@ export class InputManager {
     const touch = this.touch;
 
     if (touch.active) {
+      worldMove = true;
       // The stick is read relative to the camera: pushing it up swims away from the lens, which
       // is the only thing that makes a hand-driven camera usable. Rotate the thumb vector into
       // world space here so the simulation (and the shot aim) keep working in world axes.
@@ -454,6 +459,7 @@ export class InputManager {
         axisX !== 0 ||
         axisZ !== 0
       ) {
+        worldMove = false;
         moveX = axisX;
         moveZ = axisZ;
         this.lastDevice = 'gamepad';
@@ -539,6 +545,7 @@ export class InputManager {
         }
       }
 
+      if ([12, 13, 14, 15].some((b) => this.gamepadButton(pad, b))) worldMove = false;
       if (this.gamepadButton(pad, 12)) {
         moveZ = -1;
       }
@@ -566,6 +573,13 @@ export class InputManager {
       this.padPrev = Object.create(null);
     }
 
+    // In the fixed cage view screen-right is -attackDir along z. Touch already rotated
+    // through the camera basis; keyboard/pad use that same basis only inside the cage.
+    if (this.keeperDir && !worldMove) {
+      const side = moveX;
+      moveX = -moveZ * this.keeperDir;
+      moveZ = -side * this.keeperDir;
+    }
     const magnitude = Math.hypot(
       moveX,
       moveZ
@@ -608,6 +622,8 @@ export class InputManager {
     output.trick = !!trick;
     output.hit = !!hit;
     output.breach = !!breach;
+    if (breach && touch.keeperAim) this.pendingKeeperAim = { ...touch.keeperAim };
+    output.keeperAim = (breach || this.pending.has('breach')) ? this.pendingKeeperAim : null;
     output.switchPlayer = !!switchPlayer;
     output.gamebreaker = !!gamebreaker;
     output.cage = !!cage;
@@ -633,6 +649,7 @@ export class InputManager {
     this.released.clear();
     touch.edges.clear();
     touch.jukeDir = null;
+    touch.keeperAim = null;
     touch.playcall = 0;
 
     return output;
@@ -650,6 +667,11 @@ export class InputManager {
     this.pending.clear();
     this.pendingPlaycall = 0;
     this.pendingJukeDir = null;
+    this.pendingKeeperAim = null;
+  }
+
+  setKeeperContext(active, dir = 1) {
+    this.keeperDir = active ? dir : null;
   }
 
   menuPoll() {

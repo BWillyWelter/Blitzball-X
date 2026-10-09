@@ -503,6 +503,7 @@ export function HowToScreen(app) {
             <tr><td>Breach (leap) / Block / Volley a loose ball</td><td>U or J on defense</td><td>A / ✕ on defense</td><td>BLOCK</td></tr>
             <tr><td>Switch swimmer</td><td>Q / TAB</td><td>LB</td><td>automatic (you take the carrier)</td></tr>
             <tr><td>Gamebreaker</td><td>E</td><td>LT + RT</td><td>Strike pad while it glows cyan</td></tr>
+            <tr><td>Keeper dive (in cage)</td><td>U / J / L + A/D side + R/F height</td><td>A / B + left stick side + right stick height</td><td>DIVE pad: swipe side/height, lift to commit</td></tr>
             <tr><td>Take / leave the cage</td><td>V</td><td>L3</td><td>GK (press again to come back out)</td></tr>
             <tr><td>Call play (offense / defense)</td><td>1 2 3 / 7 8 9</td><td>—</td><td>ATTACK / DEFEND</td></tr>
             <tr><td>Pause</td><td>ESC</td><td>START</td><td>II</td></tr>
@@ -518,7 +519,7 @@ export function HowToScreen(app) {
           <ul>
             <li>On touch the <b>left half</b> is your stick — push it forward, back, left or right and your swimmer goes that way <b>relative to the camera</b>. <b>Drag the right half</b> to swing the camera, and use <b>RISE / DIVE</b> for depth.</li>
             <li>The <b>STRIKE pad</b> (bottom right) is the shot: hold to wind up, <b>swipe</b> to bend the shot to that side and to pick your ring tier, lift to fire. Release in the <b>PERFECT</b> window for the cleanest strike. When the meter is full the pad turns cyan and the same swipe launches a <b>Gamebreaker</b>.</li>
-            <li>Around the pad: <b>PASS</b>, <b>BURST</b> (hold to sprint), <b>BLOCK</b> (leap/block off the ball), <b>HIT</b> (big hit) and <b>TACKLE</b> — a slide tackle without the ball, your signature move with it. Use <b>ATTACK / DEFEND</b> to cycle team tactics without pausing, and <b>GK</b> to take the cage.</li>
+            <li>Around the pad: <b>PASS</b>, <b>BURST</b> (hold to sprint), <b>BLOCK</b> (leap/block off the ball), <b>HIT</b> (big hit) and <b>TACKLE</b> — a slide tackle without the ball, your signature move with it. In the cage, the stick pre-positions you, ▲/▼ sets height, and the <b>DIVE pad</b> commits side and height on release. The cage camera stays fixed; the read indicator shows your intent, not where the shot will land. Use <b>ATTACK / DEFEND</b> to cycle team tactics without pausing, and <b>GK</b> to take the cage.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>

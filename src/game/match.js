@@ -1,4 +1,4 @@
-import { Vec3 } from '../core/vec3.js';
+import { Vec3, clamp } from '../core/vec3.js';
 import { RNG } from '../core/rng.js';
 import { EventBus } from '../core/events.js';
 import { ARENA, RULES, MOVE, DIFFICULTY, PHYS } from '../data/constants.js';
@@ -251,6 +251,13 @@ export class MatchSim {
       p.turbo = Math.max(p.turbo, 45);
       p.turboActive = false;
       this.setState(p, 'idle');
+      if (p.diveManual) {
+        p.diveT = 0;
+        p.diveCommit = 0;
+        p.diveDir = 0;
+        p.diveHeight = 0;
+        p.diveManual = false;
+      }
       p.ai = { ...p.ai, cutting: false, cutTimer: 0, target: null, lungedFor: null };
     }
     this.callPassTimer = 0; // stale "I'm open" flags must not survive a possession reset
@@ -436,7 +443,16 @@ export class MatchSim {
     // Inside the cage the player owns the keeper: never yank control back to an outfielder
     // mid-duel, or taking the cage would be a coin flip every time the ball moved.
     const gk = this.keeperOf(this.userTeam);
-    if (gk && this.inCage && gk.controlled && gk.state !== 'fallen') return;
+    if (gk && this.inCage && gk.controlled && gk.state !== 'fallen') {
+      // The cage owns the pilot role, but a substitution nulls `controlled` before calling us —
+      // repair the reference rather than returning and leaving the cage with nobody on screen.
+      if (this.controlled !== gk) {
+        if (this.controlled) this.controlled.controlled = false;
+        this.controlled = gk;
+        gk.controlled = true;
+      }
+      return;
+    }
     const mine = this.outfield(this.userTeam);
     let pick;
     if (this.ball.holder && this.ball.holder.team === this.userTeam && !this.ball.holder.isKeeper) pick = this.ball.holder;
@@ -544,16 +560,21 @@ cageAvailable() {
    */
   keeperDive(p, aim) {
     if (!p || !p.isKeeper || p.cd.dive > 0 || p.state === 'fallen') return false;
-    let dz = aim && aim.z !== undefined ? aim.z : 0;
-    if (Math.abs(dz) < 0.2) dz = 0;
+    if (this.isUser(p) && (p.stun > 0 || p.sentOff || p.subbedOff ||
+      !['idle', 'swim', 'catch'].includes(p.state) || this.state !== 'live')) return false;
+    const dz = Number.isFinite(aim?.z) ? aim.z : 0;
+    const dh = Number.isFinite(aim?.height) ? clamp(aim.height, -1, 1) : 0;
     p.cd.dive = MOVE.keeperDiveCooldown;
     p.diveT = MOVE.keeperDiveWindow;
-    p.diveDir = dz;
-    // The lunge: lateral only, and only for the committed part of the window — after that you are
-    // recovering and a shot can slip past a keeper who has already committed.
+    // Preserve CPU lateral pace; manual input is bounded at its public interface.
+    p.diveDir = Math.abs(dz) < 0.2 ? 0 : dz;
+    p.diveHeight = Math.abs(dh) < 0.2 ? 0 : dh;
+    p.diveManual = this.inCage && this.isUser(p);
+    p.diveOriginY = ARENA.goalY + p.y;
+    p.diveOriginZ = p.pos.z;
     p.diveCommit = MOVE.keeperDiveCommit;
     combat.spendStamina(p, 'fall');
-    this.events.emit('keeperdive', { keeper: p, dir: dz });
+    this.events.emit('keeperdive', { keeper: p, dir: p.diveDir, height: p.diveHeight });
     return true;
   }
 
@@ -801,9 +822,15 @@ cageAvailable() {
     }
     if (announce && this.userTeam !== null) {
       if (p.team === this.userTeam && !p.isKeeper) {
-        if (this.controlled) this.controlled.controlled = false;
-        this.controlled = p;
-        p.controlled = true;
+        // Taking the cage is a deliberate commitment: a teammate picking up a loose ball inside
+        // your own end must not silently hand the pilot role to an outfielder while `inCage`
+        // still points at the keeper (which left the touch pad stuck in DIVE mode with the wrong
+        // swimmer on screen). The keeper keeps the cage until the player leaves it.
+        if (!this.inCage) {
+          if (this.controlled) this.controlled.controlled = false;
+          this.controlled = p;
+          p.controlled = true;
+        }
       } else if (p.team !== this.userTeam) {
         this.autoSelectControlled();
       }
@@ -998,10 +1025,13 @@ cageAvailable() {
       else this.takeCage();
       inp.cage = false;
     }
-    // In the box the dive replaces everything else: it is the only verb a keeper has.
+    // Position with movement/depth; the dive locks both axes until its lunge ends.
     if (this.inCage && this.isUser(p) && p.isKeeper) {
       if (inp.breach || inp.shootPressed || inp.trick) {
-        this.keeperDive(p, { z: inp.moveZ, x: inp.moveX });
+        this.keeperDive(p, inp.keeperAim || {
+          z: Number.isFinite(inp.moveZ) ? clamp(inp.moveZ, -1, 1) : 0,
+          height: inp.moveY,
+        });
         inp.breach = false;
         inp.shootPressed = false;
         inp.trick = false;

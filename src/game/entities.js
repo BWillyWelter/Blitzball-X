@@ -52,6 +52,10 @@ export function createPlayer(data, team, slot) {
     diveT: 0,
     diveDir: 0,
     diveCommit: 0,
+    diveHeight: 0, // committed dive height intention: +1 high, -1 low, 0 horizontal (set at dive commit)
+    diveOriginY: 0, // body-centre height when the dive was committed
+    diveOriginZ: 0, // lateral origin: moving past the shot must not invert a read
+    diveManual: false, // manual height/read rules leave the CPU baseline unchanged
     shot: null,
     trick: null,
     input: emptyInput(),
@@ -105,7 +109,8 @@ export function emptyInput() {
     breach: false,
     switchPlayer: false,
     gamebreaker: false,
-  cage: false, // one-shot: take the cage (hand control to your own keeper)
+    keeperAim: null, // touch dive-pad { z, height } captured on release
+    cage: false, // one-shot: take the cage (hand control to your own keeper)
   };
 }
 
@@ -135,6 +140,8 @@ export function copyInput(dst, src) {
   dst.switchPlayer = src.switchPlayer;
   dst.gamebreaker = src.gamebreaker;
   dst.playcall = src.playcall;
+  dst.cage = src.cage;
+  dst.keeperAim = src.keeperAim;
   return dst;
 }
 

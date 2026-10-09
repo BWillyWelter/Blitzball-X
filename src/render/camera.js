@@ -99,6 +99,11 @@ export class GameCamera {
       this.shakeVec.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s * 0.5);
     } else this.shakeVec.set(0, 0, 0);
 
+    const cage = sim.inCage && sim.controlled?.isKeeper;
+    if (cage && sim.state === 'live') {
+      this.replayTimer = 0;
+      this.replay = null;
+    }
     if (this.replayTimer > 0) {
       this.replayTimer -= dt;
       const f = this.replay && sim.players.includes(this.replay) ? this.replay : sim.controlled;
@@ -137,6 +142,27 @@ export class GameCamera {
       this.pos.lerp(desiredPos, k);
       this.look.lerp(desiredLook, k * 1.3);
       this.fov += (44 - this.fov) * k;
+      this.apply();
+      return;
+    }
+
+    if (cage) {
+      // Fixed behind-the-cage basis: lateral shuffling cannot spin the view or its controls.
+      // Show the whole ring triangle and the attacker, not a predicted landing marker.
+      const dir = sim.attackDir(p.team);
+      this.pYaw = Math.atan2(dir, 0);
+      this.pInit = false; // re-latch the shoulder rig when control returns to the field
+      this.rPos.set(p.pos.x - dir * 3.8, 3.6, p.pos.z * 0.2 - dir * 0.65);
+      this.rLook.set(p.pos.x + dir * 9, 1.2, 0);
+      if ((sim.ball.pos.x - p.pos.x) * dir > 0) {
+        this.rLook.y += Math.max(-0.4, Math.min(0.6, (sim.ball.pos.y - 1.2) * 0.2));
+        this.rLook.z = Math.max(-1.8, Math.min(1.8, sim.ball.pos.z * 0.22));
+      }
+      const k = 1 - Math.exp(-dt * 12);
+      this.pos.lerp(this.rPos, k);
+      if (this.pos.length() > ARENA.sphereRadius - 1) this.pos.setLength(ARENA.sphereRadius - 1);
+      this.look.lerp(this.rLook, k);
+      this.fov += (70 - this.fov) * k;
       this.apply();
       return;
     }

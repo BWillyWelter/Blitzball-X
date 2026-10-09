@@ -1,4 +1,4 @@
-import { RULES } from '../data/constants.js';
+import { RULES, ARENA, MOVE } from '../data/constants.js';
 import { moveFor } from '../game/moves.js';
 
 /**
@@ -262,6 +262,10 @@ export class HUD {
       timing: this.$('.timing'),
       flow: this.$('.flowchip'),
       plays: this.$('.plays'),
+      keeperRead: this.$('.keeper-read'),
+      keeperAim: this.$('.keeper-read-aim'),
+      keeperPosition: this.$('.keeper-read-position'),
+      keeperState: this.$('.keeper-read-state'),
     };
     const [h, a] = sim.teams;
     this.els.homeName.textContent = h.abbr;
@@ -300,6 +304,10 @@ export class HUD {
       </div>
       <div class="popups"></div>
       <div class="banner"><div class="banner-text"></div><div class="banner-sub"></div></div>
+      <div class="keeper-read" hidden aria-label="Keeper commitment">
+        <div class="keeper-read-map" aria-hidden="true"><span class="keeper-read-position"></span><span class="keeper-read-aim"></span></div>
+        <div><strong class="keeper-read-state">SET</strong><small>MOVE: SET POSITION · HEIGHT: R/F / RIGHT STICK / ▲▼<br>DIVE: U/J / A/B / SWIPE & LIFT · V/L3/GK: LEAVE</small></div>
+      </div>
       <div class="timing"></div>
       <div class="combo"></div>
       <div class="heat">ON FIRE</div>
@@ -355,12 +363,13 @@ export class HUD {
       this.popup(incoming.data.nick, `ON · ${incoming.data.role}`, team, false, 0);
     });
     ev.on('block', ({ blocker }) => this.banner('DENIED', '', blocker.team, 1100));
-    ev.on('save', ({ keeper, big, dived }) => {
-      if (dived) this.banner('DIVING SAVE', keeper.data.nick, keeper.team, 1300);
+    ev.on('save', ({ keeper, big, dived, read }) => {
+      if (read) this.banner('READ SAVE', keeper.data.nick, keeper.team, 1300);
+      else if (dived) this.banner('DIVING SAVE', keeper.data.nick, keeper.team, 1300);
       else if (big) this.banner('HUGE SAVE', keeper.data.nick, keeper.team, 1300);
     });
     ev.on('cage', ({ keeper, on }) => {
-      if (on) this.banner('IN THE CAGE', `${keeper.data.nick} · U TO DIVE`, keeper.team, 1400);
+      if (on) this.banner('IN THE CAGE', `${keeper.data.nick} · SET SIDE + HEIGHT, THEN DIVE`, keeper.team, 1400);
     });
     ev.on('bighit', ({ player, hadBall }) => {
       if (hadBall) this.banner('BIG HIT', 'BALL LOOSE', player.team, 1200);
@@ -499,6 +508,7 @@ export class HUD {
   update() {
     const sim = this.sim;
     this.renderPlays();
+    this.renderKeeper();
     const [h, a] = sim.score;
     this.els.homeScore.textContent = h;
     this.els.awayScore.textContent = a;
@@ -539,7 +549,7 @@ export class HUD {
       this.els.pcard.classList.toggle('cage', inCage);
       if (inCage) {
         const ready = p.cd.dive <= 0;
-        this.els.turbo.style.width = `${ready ? 100 : Math.max(0, 100 - (p.cd.dive / 1.0) * 100)}%`;
+        this.els.turbo.style.width = `${ready ? 100 : Math.max(0, 100 - (p.cd.dive / MOVE.keeperDiveCooldown) * 100)}%`;
         this.els.turboWrap.classList.toggle('low', !ready);
         // Refreshed here rather than inside the card guard below: the cooldown changes every
         // frame, and a label that only updated on a player swap would lie about being ready.
@@ -573,6 +583,29 @@ export class HUD {
       }
     }
     this.renderSubs();
+  }
+
+  renderKeeper() {
+    const sim = this.sim;
+    const p = sim.controlled;
+    const el = this.els.keeperRead;
+    el.hidden = !(sim.inCage && p?.isKeeper && sim.state === 'live');
+    if (el.hidden) return;
+    const committed = p.diveT > 0;
+    const inp = sim.userInput;
+    const aim = committed ? { z: p.diveDir, height: p.diveHeight } : inp.keeperAim || { z: inp.moveZ || 0, height: inp.moveY || 0 };
+    const side = -sim.attackDir(p.team) * aim.z;
+    const level = aim.height > 0.2 ? 'HIGH' : aim.height < -0.2 ? 'LOW' : 'FLAT';
+    const direction = side > 0.2 ? 'RIGHT' : side < -0.2 ? 'LEFT' : 'CENTRE';
+    const age = MOVE.keeperDiveWindow - p.diveT;
+    const phase = committed ? age < MOVE.keeperReadMin ? 'COMMITTING' : 'READ WINDOW' : p.cd.dive > 0 ? 'RECOVER' : 'SET';
+    this.els.keeperState.textContent = `${phase} · ${direction} ${level}`;
+    el.dataset.phase = phase;
+    this.els.keeperAim.style.left = `${50 + Math.max(-1, Math.min(1, side)) * 36}%`;
+    this.els.keeperAim.style.top = `${50 - aim.height * 36}%`;
+    this.els.keeperPosition.style.left = `${50 - sim.attackDir(p.team) * p.pos.z / ARENA.keeperMaxZ * 42}%`;
+    const height = (p.y - ARENA.keeperMinY) / (ARENA.keeperMaxY - ARENA.keeperMinY);
+    this.els.keeperPosition.style.top = `${92 - height * 84}%`;
   }
 
   /**

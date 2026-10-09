@@ -342,7 +342,7 @@ class App {
           : 'WATCHING · ESC to leave'
         : this.touchEnabled() || isTouchDevice()
           ? 'LEFT half swims · RIGHT half drag to swing the camera · STRIKE pad: hold to wind up, swipe to aim, lift to shoot · PASS · BURST hold · BLOCK · HIT · TACKLE · GK takes the cage'
-          : 'WASD move & aim (aim the pass lead) · SHIFT burst · J shoot (E = gamebreaker) · K pass/call · L juke/slide tackle · I hit · U breach/dive · Q switch · V take the cage · 1-3/7-9 plays',
+          : 'WASD move & aim (aim the pass lead) · SHIFT burst · J shoot (E = gamebreaker) · K pass/call · L juke/slide tackle · I hit · U breach/dive · Q switch · V cage: A/D shuffle, R/F height, U/J dive · 1-3/7-9 plays',
     );
     this.bindMatchAudio(sim);
     if (this.audio.unlocked) {
@@ -351,6 +351,7 @@ class App {
       this.audio.whistle();
     }
     setTimeout(() => wrap.querySelector('.tip-overlay')?.classList.add('out'), 1800);
+    this.input.setKeeperContext(false);
     this.accum = 0;
     this.lastT = performance.now();
   }
@@ -664,12 +665,13 @@ class App {
         m.renderer.render();
         return;
       }
+      this.input.setKeeperContext(m.sim.inCage, m.sim.attackDir(m.sim.userTeam));
       const input = this.input.poll();
       // Touch camera: hand this frame's drag to the boom. The yaw comes back the other way, just
       // below, so the left-hand stick is read relative to the camera.
       if (m.touchControls) {
         const look = this.input.consumeLook();
-        if (look.x || look.y) m.renderer.gameCam.orbit(look.x, look.y);
+        if (!m.sim.inCage && (look.x || look.y)) m.renderer.gameCam.orbit(look.x, look.y);
       }
       // Halftime montage: runs over the frozen pool, dismissed by a tap or a key, and always
       // closes itself before the second half starts so it can never sit on top of live play.

@@ -1,5 +1,5 @@
 import { Vec3, clamp, lerp } from '../core/vec3.js';
-import { ARENA, ACTION, PHYS, STYLE } from '../data/constants.js';
+import { ARENA, ACTION, PHYS, STYLE, MOVE } from '../data/constants.js';
 import { updateGlueDribble } from './movement.js';
 
 /** Closest point along this step's flight, preventing fast balls tunnelling through bodies. */
@@ -742,19 +742,29 @@ export function checkKeeperSave(sim, ) {
     let diveBonus = 0;
     let diveWrong = false;
     let diveRead = false;
+    let heightRead = false;
+    let heightWrong = false;
     if (keeper.diveT > 0) {
-      const side = Math.sign(signedZ) || 1;
+      const manual = keeper.diveManual;
+      const side = Math.sign(manual ? contact.z - keeper.diveOriginZ : signedZ) || 1;
       const aimed = Math.sign(keeper.diveDir) || 0;
       diveWrong = aimed !== 0 && aimed !== side;
       reach += ACTION.keeperDiveReach * (diveWrong ? 0.3 : 1);
-      // A correct dive is now a clear win over standing and reacting; a wrong dive is a clear
-      // penalty. The commit reward is the skill gate: it pays only when the keeper's dive window
-      // is still open past its committed lunge (diveT past diveCommit), which is the frame window
-      // where the keeper moved BEFORE the shot arrived rather than reacting to it.
-      diveBonus = diveWrong
-        ? -ACTION.keeperDiveWrongSide
-        : ACTION.keeperDiveSave;
-      if (!diveWrong && keeper.diveT > keeper.diveCommit) {
+      diveBonus = diveWrong ? -ACTION.keeperDiveWrongSide : ACTION.keeperDiveSave;
+      const timely = manual
+        ? MOVE.keeperDiveWindow - keeper.diveT >= MOVE.keeperReadMin
+        : keeper.diveT > keeper.diveCommit;
+      if (manual && keeper.diveHeight !== 0) {
+        // Judge intent relative to the ORIGINAL body centre, not the body after it moved.
+        const gap = contact.y - keeper.diveOriginY;
+        const level = Math.abs(gap) > 0.25 ? Math.sign(gap) : 0;
+        heightWrong = level !== 0 && Math.sign(keeper.diveHeight) !== level;
+        heightRead = level !== 0 && !heightWrong && !diveWrong && timely;
+        if (heightWrong) diveBonus -= ACTION.keeperDiveHeightWrong;
+        else if (heightRead) diveBonus += ACTION.keeperDiveHeightReward;
+      }
+      const directed = aimed !== 0 || keeper.diveHeight !== 0;
+      if (!diveWrong && !heightWrong && timely && (!manual || directed)) {
         diveBonus += ACTION.keeperDiveCommitReward;
         diveRead = true;
       }
@@ -902,6 +912,8 @@ export function checkKeeperSave(sim, ) {
         big,
         dived,
         read,
+        heightRead,
+        heightWrong,
         caught: catches,
       });
 
