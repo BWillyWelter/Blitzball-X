@@ -1,6 +1,6 @@
 /**
  * Blitzball-X Application Entry Point & Core Game Engine Loop
- * Connects 3D Sphere Pool WebGL, FFX Match Engine, Audio Synthesizer,
+ * Connects 3D Sphere Pool WebGL, FFX Match Engine, Tactical AI Engine, Audio Synthesizer,
  * Techcopy QTE Overlays, Tech Assignment Menu, League Brackets, Scout Systems, and SaveManager.
  */
 
@@ -17,6 +17,7 @@ import { LeagueViewUI } from './ui/league-view.js';
 import { ScoutViewUI } from './ui/scout-view.js';
 import { TechViewUI } from './ui/tech-view.js';
 import { TechcopyQTEController } from './render/qte.js';
+import { TacticalAIEngine } from './game/ai.js';
 import { SoundEngine } from './ui/audio.js';
 import { TEAMS } from './data/teams.js';
 
@@ -44,10 +45,11 @@ export class BlitzballApp {
     this.scoutView = new ScoutViewUI(this.container);
     this.techView = new TechViewUI(this.container);
 
-    // Active Game State Handles
+    // Active Game & AI Handles
     this.league = null;
     this.scout = null;
     this.match = null;
+    this.aiEngine = null;
     this.savedState = null;
 
     this.lastTime = performance.now();
@@ -84,7 +86,7 @@ export class BlitzballApp {
   }
 
   /**
-   * Initializes a new FFX Match session and binds Techcopy QTE event hooks
+   * Initializes a new FFX Match session and binds Tactical AI + Techcopy hooks
    */
   startNewMatch(homeTeamId, awayTeamId) {
     const homeTeam = TEAMS[homeTeamId] || TEAMS.besaid_aurochs;
@@ -92,9 +94,11 @@ export class BlitzballApp {
 
     this.match = new FFXMatch(homeTeam, awayTeam);
 
+    // Instantiate Tactical AI for the away team (e.g. Luca Goers)
+    this.aiEngine = new TacticalAIEngine(awayTeam);
+
     // Bind Techcopy Execution Hook
     this.match.onTechniqueExecuted = (executor, tech) => {
-      // Trigger Techcopy QTE prompt if an opponent uses a learnable technique
       if (executor.teamId !== 'besaid_aurochs' && this.match.techcopyEngine?.canCopyTech(executor, tech.id)) {
         this.triggerTechcopyQTE(executor, tech);
       }
@@ -115,7 +119,6 @@ export class BlitzballApp {
       },
       (result) => {
         if (result.success) {
-          // Unlock technique on primary player character (Tidus / Active Carrier)
           const playerToLearn = this.match.homeTeam.players.find(p => p.id === 'p_tidus') || this.match.homeTeam.players[0];
           if (playerToLearn && !playerToLearn.techs.includes(tech.id)) {
             playerToLearn.techs.push(tech.id);
@@ -155,26 +158,64 @@ export class BlitzballApp {
     this.lastTime = now;
 
     if (this.match) {
-      // 1. Process 3D Swimming Controls during Free Swim (Skip if QTE active)
-      if (!this.qteController.isActive && this.match.state === MATCH_STATES.FREE_SWIM && this.match.ballCarrier) {
-        const swimDir = this.touch.getSwimDirection();
-        this.match.ballCarrier.position.x += swimDir.x * 4.0 * delta;
-        this.match.ballCarrier.position.z += swimDir.z * 4.0 * delta;
+      // 1. Update AI Tactical Formations
+      if (this.aiEngine) {
+        this.aiEngine.updateTactics(this.match);
       }
 
-      // 2. Step Match Engine State Machine (Pause match step when QTE is active)
+      // 2. Process 3D Swimming Controls during Free Swim (Skip if QTE active)
+      if (!this.qteController.isActive && this.match.state === MATCH_STATES.FREE_SWIM) {
+        // Player (Besaid Aurochs) Swimming
+        if (this.match.ballCarrier && this.match.ballCarrier.teamId === 'besaid_aurochs') {
+          const swimDir = this.touch.getSwimDirection();
+          this.match.ballCarrier.position.x += swimDir.x * 4.0 * delta;
+          this.match.ballCarrier.position.z += swimDir.z * 4.0 * delta;
+        }
+
+        // Opponent AI Swimming & Field Positioning
+        if (this.aiEngine && this.match.awayTeam) {
+          this.match.awayTeam.players.forEach(aiPlayer => {
+            if (!aiPlayer.position) return;
+            const dir = this.aiEngine.calculatePlayerMovement(aiPlayer, this.match);
+            const speed = aiPlayer.spd || 30;
+            const moveFactor = (speed / 30) * 3.5 * delta;
+            
+            aiPlayer.position.x += dir.x * moveFactor;
+            aiPlayer.position.z += dir.z * moveFactor;
+          });
+        }
+      }
+
+      // 3. Step Match Engine State Machine
       if (!this.qteController.isActive) {
         const previousState = this.match.state;
         this.match.step(delta);
 
-        // Trigger Encounter Menu Modal on defender interception
+        // Trigger Encounter Menu or AI Decision Step
         if (this.match.state === MATCH_STATES.ENCOUNTER_MENU && previousState !== MATCH_STATES.ENCOUNTER_MENU) {
           this.touch.triggerHaptic('encounter');
-          this.hud.showEncounterMenu(
-            this.match.ballCarrier,
-            this.match.nearbyDefenders,
-            (action, payload) => this.match.executeEncounterAction(action, payload)
-          );
+          
+          if (this.match.ballCarrier && this.match.ballCarrier.teamId !== 'besaid_aurochs' && this.aiEngine) {
+            // AI Ball Carrier Decision
+            const keeper = this.match.homeTeam.players.find(p => p.pos === 'GK') || this.match.homeTeam.players[this.match.homeTeam.players.length - 1];
+            const distToGoal = Math.abs(this.match.ballCarrier.position.z - 18);
+            
+            const aiChoice = this.aiEngine.selectEncounterAction(
+              this.match.ballCarrier,
+              this.match.nearbyDefenders,
+              keeper,
+              distToGoal
+            );
+            
+            this.match.executeEncounterAction(aiChoice.action, aiChoice);
+          } else {
+            // Player Menu Modal
+            this.hud.showEncounterMenu(
+              this.match.ballCarrier,
+              this.match.nearbyDefenders,
+              (action, payload) => this.match.executeEncounterAction(action, payload)
+            );
+          }
         }
 
         // Detect Match Completion & Trigger Auto-Save Pipeline
@@ -183,11 +224,11 @@ export class BlitzballApp {
         }
       }
 
-      // 3. Draw Mini-Map Radar
+      // 4. Draw Mini-Map Radar
       this.hud.drawRadar(this.match);
     }
 
-    // 4. Update 3D Water Volume & Render
+    // 5. Update 3D Water Volume & Render
     this.environment.update(delta);
     this.renderer.render(this.scene, this.camera, delta);
 
