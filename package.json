@@ -1,48 +1,32 @@
 {
   "name": "blitzball-x",
-  "version": "1.1.0",
-  "description": "BLITZBALL X — arcade underwater 3-on-3 Blitzball. Turbo, tricks, washes, big hits, keepers, Gamebreakers. Two halves, most goals wins.",
-  "private": true,
+  "version": "1.0.0",
+  "description": "Fast-paced mobile sports action game built with WebGL and TypeScript/ES6",
   "type": "module",
+  "main": "src/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
-    "sim": "node scripts/simulate.mjs",
-    "balance": "node scripts/balance.mjs",
-    "golden:update": "node scripts/snapshot.mjs --update",
-    "qa:screens": "node tools/screens.mjs",
-    "qa:play": "node tools/playtest.mjs",
-    "qa:shot": "node tools/shot.mjs",
-    "qa:probe": "node tools/probe.mjs",
-    "qa:touch": "node tools/touchtest.mjs",
-    "qa:context": "node tools/contexttest.mjs",
-    "qa:bench": "node tools/benchtest.mjs",
-    "qa:perf": "node tools/perfshot.mjs",
-    "qa:merge": "node tools/mergecheck.mjs",
-    "qa:devtools": "node tools/devtools.mjs",
-    "qa:lighthouse": "node tools/lighthouse.mjs",
-    "qa:anim": "node tools/anim.mjs"
+    "simulate": "node scripts/simulate.mjs",
+    "lint": "eslint src/**/*.js"
   },
   "dependencies": {
-    "@fontsource/bangers": "^5.3.0",
-    "@fontsource/barlow-condensed": "^5.3.0",
-    "@fontsource/permanent-marker": "^5.3.0",
-    "three": "^0.185.1"
+    "three": "^0.165.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
-    "@sparticuz/chromium": "^149.0.0",
-    "chrome-launcher": "^1.2.1",
-    "eslint": "^9.39.5",
-    "globals": "^16.5.0",
-    "lighthouse": "^13.5.0",
-    "puppeteer-core": "^25.10.0",
-    "vite": "^7.3.6"
+    "eslint": "^9.0.0",
+    "terser": "^5.31.0",
+    "vite": "^5.2.0"
   },
-  "engines": {
-    "node": ">=20"
-  }
+  "keywords": [
+    "blitzball",
+    "mobile-game",
+    "webgl",
+    "threejs",
+    "sports-game"
+  ],
+  "author": "",
+  "license": "MIT"
 }
