@@ -1,7 +1,7 @@
 /**
  * Blitzball-X Application Entry Point & Core Game Engine Loop
- * Connects 3D Sphere Pool WebGL, FFX Match State Machine, Audio Engine,
- * League Brackets, Scout Systems, and SaveManager Auto-Persistence.
+ * Connects 3D Sphere Pool WebGL, FFX Match Engine, Audio Synthesizer,
+ * Techcopy QTE Overlays, League Brackets, Scout Systems, and SaveManager Auto-Sync.
  */
 
 import * as THREE from 'three';
@@ -15,6 +15,7 @@ import { LeagueManager } from './game/league.js';
 import { ScoutManager } from './game/scout.js';
 import { LeagueViewUI } from './ui/league-view.js';
 import { ScoutViewUI } from './ui/scout-view.js';
+import { TechcopyQTEController } from './render/qte.js';
 import { SoundEngine } from './ui/audio.js';
 import { TEAMS } from './data/teams.js';
 
@@ -34,9 +35,10 @@ export class BlitzballApp {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.environment = new SpherePoolEnvironment(this.scene);
 
-    // UI & Touch Controls
+    // UI, Touch Controls & QTE Controller
     this.hud = new FFXHUD(this.container);
     this.touch = new FFXTouchController(this.canvas);
+    this.qteController = new TechcopyQTEController(this.container, this.audio);
     this.leagueView = new LeagueViewUI(this.container);
     this.scoutView = new ScoutViewUI(this.container);
 
@@ -80,21 +82,53 @@ export class BlitzballApp {
   }
 
   /**
-   * Initializes a new FFX Match session
+   * Initializes a new FFX Match session and binds Techcopy QTE event hooks
    */
   startNewMatch(homeTeamId, awayTeamId) {
     const homeTeam = TEAMS[homeTeamId] || TEAMS.besaid_aurochs;
     const awayTeam = TEAMS[awayTeamId] || TEAMS.luca_goers;
 
     this.match = new FFXMatch(homeTeam, awayTeam);
+
+    // Bind Techcopy Execution Hook
+    this.match.onTechniqueExecuted = (executor, tech) => {
+      // Trigger Techcopy QTE prompt if an opponent uses a learnable technique
+      if (executor.teamId !== 'besaid_aurochs' && this.match.techcopyEngine?.canCopyTech(executor, tech.id)) {
+        this.triggerTechcopyQTE(executor, tech);
+      }
+    };
+
     this.audio.playRefWhistle();
+  }
+
+  /**
+   * Triggers the Techcopy QTE overlay and handles technique unlocking
+   */
+  triggerTechcopyQTE(executor, tech) {
+    this.qteController.triggerPrompt(
+      {
+        techName: tech.name || tech.id,
+        playerName: executor.name,
+        durationMs: 800
+      },
+      (result) => {
+        if (result.success) {
+          // Unlock technique on primary player character (Tidus / Active Carrier)
+          const playerToLearn = this.match.homeTeam.players.find(p => p.id === 'p_tidus') || this.match.homeTeam.players[0];
+          if (playerToLearn && !playerToLearn.techs.includes(tech.id)) {
+            playerToLearn.techs.push(tech.id);
+            this.touch.triggerHaptic('goal');
+            this.autoSaveProgress();
+          }
+        }
+      }
+    );
   }
 
   /**
    * Binds UI overlay shortcuts for League Standings and Free Agent Scouting
    */
   bindGlobalMenuTriggers() {
-    // Esc key or HUD buttons to toggle menus
     window.addEventListener('keydown', (e) => {
       if (e.key === 'l' || e.key === 'L') {
         this.leagueView.open(this.league, () => this.handleNextScheduledMatch());
@@ -115,37 +149,39 @@ export class BlitzballApp {
     this.lastTime = now;
 
     if (this.match) {
-      // 1. Process 3D Swimming Controls during Free Swim
-      if (this.match.state === MATCH_STATES.FREE_SWIM && this.match.ballCarrier) {
+      // 1. Process 3D Swimming Controls during Free Swim (Skip if QTE active)
+      if (!this.qteController.isActive && this.match.state === MATCH_STATES.FREE_SWIM && this.match.ballCarrier) {
         const swimDir = this.touch.getSwimDirection();
         this.match.ballCarrier.position.x += swimDir.x * 4.0 * delta;
         this.match.ballCarrier.position.z += swimDir.z * 4.0 * delta;
       }
 
-      // 2. Step Match Engine State Machine
-      const previousState = this.match.state;
-      this.match.step(delta);
+      // 2. Step Match Engine State Machine (Pause match step when QTE is active)
+      if (!this.qteController.isActive) {
+        const previousState = this.match.state;
+        this.match.step(delta);
 
-      // 3. Trigger Encounter Menu Modal on defender interception
-      if (this.match.state === MATCH_STATES.ENCOUNTER_MENU && previousState !== MATCH_STATES.ENCOUNTER_MENU) {
-        this.touch.triggerHaptic('encounter');
-        this.hud.showEncounterMenu(
-          this.match.ballCarrier,
-          this.match.nearbyDefenders,
-          (action, payload) => this.match.executeEncounterAction(action, payload)
-        );
+        // Trigger Encounter Menu Modal on defender interception
+        if (this.match.state === MATCH_STATES.ENCOUNTER_MENU && previousState !== MATCH_STATES.ENCOUNTER_MENU) {
+          this.touch.triggerHaptic('encounter');
+          this.hud.showEncounterMenu(
+            this.match.ballCarrier,
+            this.match.nearbyDefenders,
+            (action, payload) => this.match.executeEncounterAction(action, payload)
+          );
+        }
+
+        // Detect Match Completion & Trigger Auto-Save Pipeline
+        if (this.match.state === MATCH_STATES.MATCH_OVER && previousState !== MATCH_STATES.MATCH_OVER) {
+          this.handleMatchCompletion();
+        }
       }
 
-      // 4. Detect Match Completion & Trigger Auto-Save Pipeline
-      if (this.match.state === MATCH_STATES.MATCH_OVER && previousState !== MATCH_STATES.MATCH_OVER) {
-        this.handleMatchCompletion();
-      }
-
-      // 5. Draw Mini-Map Radar
+      // 3. Draw Mini-Map Radar
       this.hud.drawRadar(this.match);
     }
 
-    // 6. Update 3D Water Volume & Render
+    // 4. Update 3D Water Volume & Render
     this.environment.update(delta);
     this.renderer.render(this.scene, this.camera, delta);
 
@@ -172,9 +208,9 @@ export class BlitzballApp {
 
     // 3. Award victory Gil & XP
     if (this.match.homeScore > this.match.awayScore) {
-      this.scout.gil += 1000; // Match win bonus
+      this.scout.gil += 1000;
     } else {
-      this.scout.gil += 300;  // Participation bonus
+      this.scout.gil += 300;
     }
 
     // 4. Decay player contracts by 1 game
@@ -220,4 +256,4 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
     window.app = new BlitzballApp();
   });
-  }
+      }
