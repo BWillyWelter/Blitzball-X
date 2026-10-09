@@ -43,4 +43,9 @@ export default [
     files: ['*.js', '*.mjs'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.node } },
   },
+  {
+    // The Express API server that landed alongside the game: plain Node ESM.
+    files: ['server/**/*.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.node } },
+  },
 ];
