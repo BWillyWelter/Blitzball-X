@@ -1,74 +1,135 @@
-import { createHash } from 'node:crypto';
-import { createSeedableRNG } from '../src/core/rng.js';
-import { Match } from '../src/game/match.js';
+/**
+ * Server-Side Blitzball Match Replay & Anti-Cheat Validator
+ * Re-runs encounter physics, stat variance, and goal resolutions deterministically.
+ */
+
+import { FFX_CONSTANTS } from '../src/data/constants.js';
+import { EncounterEngine } from '../src/game/combat.js';
 import { TEAMS } from '../src/data/teams.js';
+import { createSeedableRNG } from '../src/core/rng.js';
 
-export class MatchValidator {
+export class MatchReplayValidator {
   /**
-   * Validates a client-submitted replay log headlessly.
+   * Validates a client match submission against a deterministic server replay
    * 
-   * @param {Object} payload
-   * @param {number} payload.seed
-   * @param {string} payload.homeTeamId
-   * @param {string} payload.awayTeamId
-   * @param {Array<{tick: number, action: string, payload: Object}>} payload.inputLog
-   * @param {number} payload.claimedHomeScore
-   * @param {number} payload.claimedAwayScore
-   * @returns {{ valid: boolean, serverHomeScore: number, serverAwayScore: number, checksum: string, reason?: string }}
+   * @param {Object} submission
+   * @param {number} submission.matchSeed Initial RNG seed for the match
+   * @param {string} submission.homeTeamId Home team identifier
+   * @param {string} submission.awayTeamId Away team identifier
+   * @param {Array<Object>} submission.actionLog Sequence of player encounters and shot actions
+   * @param {number} submission.reportedHomeScore Home score claimed by client
+   * @param {number} submission.reportedAwayScore Away score claimed by client
+   * @param {number} submission.reportedGilEarned Gil addition claimed by client
+   * @returns {{ valid: boolean, errors: string[], verifiedHomeScore: number, verifiedAwayScore: number, verifiedGil: number }}
    */
-  static validateMatch(payload) {
-    const { seed, homeTeamId, awayTeamId, inputLog, claimedHomeScore, claimedAwayScore } = payload;
+  static validateMatchSubmission(submission) {
+    const errors = [];
+    const {
+      matchSeed,
+      homeTeamId,
+      awayTeamId,
+      actionLog = [],
+      reportedHomeScore,
+      reportedAwayScore,
+      reportedGilEarned
+    } = submission;
 
-    if (!TEAMS[homeTeamId] || !TEAMS[awayTeamId]) {
-      return { valid: false, serverHomeScore: 0, serverAwayScore: 0, checksum: '', reason: 'Invalid team configuration' };
+    // 1. Basic Schema & Team Checks
+    if (!matchSeed || typeof matchSeed !== 'number') {
+      errors.push('Invalid or missing matchSeed.');
     }
 
-    const rng = createSeedableRNG(seed);
-    const match = new Match({
-      homeTeam: TEAMS[homeTeamId],
-      awayTeam: TEAMS[awayTeamId],
-      rng,
-      headless: true
+    const homeTeam = TEAMS[homeTeamId];
+    const awayTeam = TEAMS[awayTeamId];
+
+    if (!homeTeam || !awayTeam) {
+      errors.push(`Invalid team IDs: home="${homeTeamId}", away="${awayTeamId}".`);
+      return { valid: false, errors, verifiedHomeScore: 0, verifiedAwayScore: 0, verifiedGil: 0 };
+    }
+
+    // Initialize seedable server RNG matching client match start seed
+    const serverRNG = createSeedableRNG(matchSeed);
+
+    let serverHomeScore = 0;
+    let serverAwayScore = 0;
+
+    // 2. Re-simulate Encounter Actions in Sequence
+    actionLog.forEach((action, index) => {
+      const { type, carrierId, defenderIds = [], isHomeCarrier, shotDistance = 0 } = action;
+
+      // Find character profiles in team rosters
+      const teamPlayers = isHomeCarrier ? homeTeam.players : awayTeam.players;
+      const enemyPlayers = isHomeCarrier ? awayTeam.players : homeTeam.players;
+
+      const carrier = teamPlayers.find(p => p.id === carrierId) || teamPlayers[0];
+      const defenders = enemyPlayers.filter(p => defenderIds.includes(p.id));
+      const keeper = enemyPlayers[enemyPlayers.length - 1]; // Keeper is last roster slot
+
+      if (type === 'BREAKTHROUGH') {
+        // Re-calculate Breakthrough EN vs TCK
+        EncounterEngine.resolveBreakthrough(carrier, defenders, serverRNG);
+      } else if (type === 'SHOOT') {
+        // Step A: Breakthrough defenders
+        const breakRes = EncounterEngine.resolveBreakthrough(carrier, defenders, serverRNG);
+        
+        if (breakRes.success) {
+          // Step B: Block phase
+          const remainingDefs = enemyPlayers.filter(p => !defenderIds.includes(p.id) && p !== keeper);
+          const blockRes = EncounterEngine.resolveBlockPhase(carrier.sh, remainingDefs, serverRNG);
+
+          if (!blockRes.blocked) {
+            // Step C: Calculate Hydrodynamic Water Stat Decay
+            const decayedSH = Math.max(0, blockRes.remainingStat - Math.floor(shotDistance * FFX_CONSTANTS.WATER.STAT_DECAY_PER_METER));
+
+            // Step D: Keeper Catch (CAT) Resolution
+            const keeperRes = EncounterEngine.resolveKeeperCatch(decayedSH, keeper, serverRNG);
+
+            if (keeperRes.isGoal) {
+              if (isHomeCarrier) {
+                serverHomeScore++;
+              } else {
+                serverAwayScore++;
+              }
+            }
+          }
+        }
+      }
     });
 
-    let inputIndex = 0;
-    const totalTicks = match.totalTicks || 3600; // 60 FPS * 60s
-
-    for (let tick = 0; tick < totalTicks; tick++) {
-      // Process all input actions corresponding to the current tick
-      while (inputIndex < inputLog.length && inputLog[inputIndex].tick === tick) {
-        const input = inputLog[inputIndex];
-        match.applyPlayerInput(input.action, input.payload);
-        inputIndex++;
-      }
-
-      match.step();
-      if (match.isFinished()) break;
+    // 3. Verify Claimed Scores vs Re-simulated Scores
+    if (reportedHomeScore !== serverHomeScore) {
+      errors.push(`Home score mismatch: client claimed ${reportedHomeScore}, server calculated ${serverHomeScore}.`);
     }
 
-    const finalResult = match.getFinalResult();
-    const matchesClaimed = finalResult.homeScore === claimedHomeScore && finalResult.awayScore === claimedAwayScore;
-
-    // Generate cryptographic checksum of final state
-    const hash = createHash('sha256');
-    hash.update(`${seed}:${finalResult.homeScore}:${finalResult.awayScore}:${match.getTickCount()}`);
-    const checksum = hash.digest('hex');
-
-    if (!matchesClaimed) {
-      return {
-        valid: false,
-        serverHomeScore: finalResult.homeScore,
-        serverAwayScore: finalResult.awayScore,
-        checksum,
-        reason: `Score mismatch. Server evaluated ${finalResult.homeScore}-${finalResult.awayScore}, client reported ${claimedHomeScore}-${claimedAwayScore}.`
-      };
+    if (reportedAwayScore !== serverAwayScore) {
+      errors.push(`Away score mismatch: client claimed ${reportedAwayScore}, server calculated ${serverAwayScore}.`);
     }
+
+    // 4. Calculate Allowed Gil Rewards
+    let calculatedGil = 0;
+    if (serverHomeScore > serverAwayScore) {
+      calculatedGil = 1000; // Base Win Gil
+    } else if (serverHomeScore === serverAwayScore) {
+      calculatedGil = 500;  // Draw Gil
+    } else {
+      calculatedGil = 300;  // Participation Loss Gil
+    }
+
+    // Goal bonus (+50 Gil per home goal, max +250)
+    calculatedGil += Math.min(250, serverHomeScore * 50);
+
+    if (reportedGilEarned > calculatedGil) {
+      errors.push(`Gil reward inflation detected: client requested ${reportedGilEarned} Gil, server cap is ${calculatedGil} Gil.`);
+    }
+
+    const isValid = errors.length === 0;
 
     return {
-      valid: true,
-      serverHomeScore: finalResult.homeScore,
-      serverAwayScore: finalResult.awayScore,
-      checksum
+      valid: isValid,
+      errors,
+      verifiedHomeScore: serverHomeScore,
+      verifiedAwayScore: serverAwayScore,
+      verifiedGil: isValid ? reportedGilEarned : calculatedGil
     };
   }
-  }
+}
