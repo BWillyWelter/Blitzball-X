@@ -184,8 +184,9 @@ export const ACTION = {
   keeperPickupRadius: 1.6,
   keeperReach: 1.0,
   keeperDiveReach: 0.9, // extra save reach while a dive is live
-  keeperDiveSave: 0.16, // extra save probability while a dive is live (and aimed the right way)
-  keeperDiveWrongSide: 0.1, // penalty when the dive went the other way — overcommitting is punished
+  keeperDiveSave: 0.28, // extra save probability while a dive is live (and aimed the right way)
+  keeperDiveWrongSide: 0.22, // penalty when the dive went the other way — overcommitting is punished
+  keeperDiveCommitReward: 0.10, // bonus when the dive arrived before the shot — a read, not a reaction
   // Aiming the pass. The stick no longer picks only WHO you pass to: at the moment of release it
   // biases WHERE the ball lands, so the lead is a decision. Holding the run pushes the ball in
   // front of the receiver (a lead pass, worth style, but a defender can read it); holding it

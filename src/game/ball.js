@@ -741,12 +741,23 @@ export function checkKeeperSave(sim, ) {
     // because the keeper's body is committed and the shot has already found the far corner.
     let diveBonus = 0;
     let diveWrong = false;
+    let diveRead = false;
     if (keeper.diveT > 0) {
       const side = Math.sign(signedZ) || 1;
       const aimed = Math.sign(keeper.diveDir) || 0;
       diveWrong = aimed !== 0 && aimed !== side;
       reach += ACTION.keeperDiveReach * (diveWrong ? 0.3 : 1);
-      diveBonus = diveWrong ? -ACTION.keeperDiveWrongSide : ACTION.keeperDiveSave;
+      // A correct dive is now a clear win over standing and reacting; a wrong dive is a clear
+      // penalty. The commit reward is the skill gate: it pays only when the keeper's dive window
+      // is still open past its committed lunge (diveT past diveCommit), which is the frame window
+      // where the keeper moved BEFORE the shot arrived rather than reacting to it.
+      diveBonus = diveWrong
+        ? -ACTION.keeperDiveWrongSide
+        : ACTION.keeperDiveSave;
+      if (!diveWrong && keeper.diveT > keeper.diveCommit) {
+        diveBonus += ACTION.keeperDiveCommitReward;
+        diveRead = true;
+      }
     }
 
     if (
@@ -865,19 +876,24 @@ export function checkKeeperSave(sim, ) {
       // A dive that got there is worth more than a save that happened to him — that is the
       // reward for reading the shooter instead of standing in the lane.
       const dived = keeper.diveT > 0;
+      const read = dived && diveRead;
       sim.addStyle(
         keeper,
-        dived
+        read
           ? STYLE.saveDive
-          : big
-            ? STYLE.saveBig
-            : STYLE.save,
-        dived
-          ? 'DIVING SAVE'
-          : big
-            ? 'HUGE SAVE'
-            : 'SAVE',
-        { big, dived }
+          : dived
+            ? STYLE.saveDive
+            : big
+              ? STYLE.saveBig
+              : STYLE.save,
+        read
+          ? 'READ SAVE'
+          : dived
+            ? 'DIVING SAVE'
+            : big
+              ? 'HUGE SAVE'
+              : 'SAVE',
+        { big, dived, read }
       );
 
       sim.events.emit('save', {
@@ -885,6 +901,7 @@ export function checkKeeperSave(sim, ) {
         shooter: flight.shooter,
         big,
         dived,
+        read,
         caught: catches,
       });
 

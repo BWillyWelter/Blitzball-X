@@ -1297,7 +1297,7 @@ test('a standing hit staggers; a charging hit puts a swimmer down', () => {
 test('alley-oops are a rarity, not the metagame: the build-up stays on the ground', () => {
   let passes = 0;
   let lobs = 0;
-  for (let seed = 600; seed < 603; seed++) {
+  for (let seed = 600; seed < 620; seed++) {
     const sim = new MatchSim({ home: TEAMS[seed % 8], away: TEAMS[(seed + 3) % 8], difficulty: 'pro', seed, userTeam: null });
     sim.events.on('pass', (e) => {
       passes++;
@@ -1310,6 +1310,6 @@ test('alley-oops are a rarity, not the metagame: the build-up stays on the groun
     }
     assert.equal(sim.state, 'over', 'match finished');
   }
-  assert.ok(lobs > 0, 'the alley-oop still exists as a set piece');
+  assert.ok(lobs > 0, `the alley-oop still exists as a set piece (found ${lobs} across ${passes} passes)`);
   assert.ok(lobs < passes * 0.08, `alley-oops stay rare (${lobs} lobs in ${passes} passes)`);
 });
