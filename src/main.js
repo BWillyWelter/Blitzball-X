@@ -5,6 +5,7 @@
  */
 
 import * as THREE from 'three';
+import './styles.css';
 import { GameRenderer } from './render/renderer.js';
 import { SpherePoolEnvironment } from './render/court.js';
 import { FFXMatch, MATCH_STATES } from './game/match.js';
