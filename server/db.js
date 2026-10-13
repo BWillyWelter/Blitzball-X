@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 
-const db = new Database(resolve(process.cwd(), 'blitzball.db'));
+const databasePath = resolve(process.env.DATABASE_PATH || 'blitzball.db');
+const db = new Database(databasePath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
-// Initialize Database Schema
+// Initialize the shared database schema for accounts, saves, and leaderboard data.
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

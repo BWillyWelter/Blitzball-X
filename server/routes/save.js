@@ -5,15 +5,12 @@
  */
 
 import express from 'express';
-import Database from 'better-sqlite3';
 import { MatchReplayValidator } from '../match-validator.js';
+import db from '../db.js';
 
 const router = express.Router();
 
-// Initialize or open SQLite database connection
-const db = new Database('blitzball_x.db');
-
-// Ensure database table and indexing exist
+// Ensure the shared SQLite database has save storage and its lookup index.
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_saves (
     user_id TEXT PRIMARY KEY,
