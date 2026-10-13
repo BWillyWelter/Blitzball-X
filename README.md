@@ -244,3 +244,19 @@ npx cap open android
    ```
 
 3. Open your browser and navigate to `http://localhost:5173`.
+
+
+## First-person single-player career blueprint
+
+The standalone, strict TypeScript reference core is in `src/career-mode/`. It implements headless
+physics/FOV, encounters, XP, statuses, Techcopy, injury recovery, contracts, rivals, free-agent bids,
+calendar, chemistry and validated between-match saves. Engine rendering/tactical AI use adapter ports;
+this does **not** replace the current browser game. See [the architecture blueprint](docs/CAREER_MODE_BLUEPRINT.md)
+for formulas, explicit missing-policy assumptions, integration boundaries and release requirements.
+
+```bash
+npm ci --prefix src/career-mode
+npm run --prefix src/career-mode typecheck
+npm run --prefix src/career-mode test
+npm run --prefix src/career-mode demo
+```

@@ -179,7 +179,7 @@ router.post('/save', (req, res) => {
 
   try {
     serializedPayload = JSON.stringify(payload);
-  } catch (serializeErr) {
+  } catch {
     return res.status(400).json({ error: 'Failed to serialize JSON save payload.' });
   }
 

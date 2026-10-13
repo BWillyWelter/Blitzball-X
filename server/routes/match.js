@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { MatchValidator } from '../match-validator.js';
+import { MatchReplayValidator } from '../match-validator.js';
 import db from '../db.js';
 
 const router = Router();
@@ -7,35 +7,38 @@ const router = Router();
 // Submit & Validate Completed Match
 router.post('/submit', (req, res) => {
   const userId = req.headers['x-user-id'];
-  const { seed, homeTeamId, awayTeamId, inputLog, claimedHomeScore, claimedAwayScore, username } = req.body;
+  const {
+    matchSeed, homeTeamId, awayTeamId, actionLog,
+    reportedHomeScore, reportedAwayScore, reportedGilEarned, username
+  } = req.body;
 
   if (!userId) {
     return res.status(401).json({ error: 'Missing x-user-id header' });
   }
 
-  // 1. Run Headless Replay Validation Engine
-  const validation = MatchValidator.validateMatch({
-    seed,
+  // 1. Run headless replay validation: the server re-simulates the encounter
+  //    log from the original seed and compares it with the claimed result.
+  const validation = MatchReplayValidator.validateMatchSubmission({
+    matchSeed,
     homeTeamId,
     awayTeamId,
-    inputLog: inputLog || [],
-    claimedHomeScore,
-    claimedAwayScore
+    actionLog: actionLog || [],
+    reportedHomeScore,
+    reportedAwayScore,
+    reportedGilEarned
   });
 
   if (!validation.valid) {
-    console.warn(`[Anti-Cheat Triggered] User ${userId} failed match validation: ${validation.reason}`);
+    console.warn(`[Anti-Cheat Triggered] User ${userId} failed match validation: ${validation.errors.join(' | ')}`);
     return res.status(400).json({
       success: false,
       error: 'Match verification failed. Result rejected.',
-      details: validation.reason
+      details: validation.errors
     });
   }
 
-  // 2. Update Leaderboard Stats on Verified Match
-  const isWin = claimedHomeScore > claimedAwayScore;
-  const userScore = claimedHomeScore;
-
+  // 2. Update leaderboard stats with the server-verified result and Gil reward.
+  const isWin = validation.verifiedHomeScore > validation.verifiedAwayScore;
   const stmt = db.prepare(`
     INSERT INTO leaderboard (user_id, username, wins, losses, goals_scored, xp, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -53,15 +56,15 @@ router.post('/submit', (req, res) => {
     username || 'Player',
     isWin ? 1 : 0,
     isWin ? 0 : 1,
-    userScore,
+    validation.verifiedHomeScore,
     isWin ? 150 : 50,
     Date.now()
   );
 
   return res.json({
     success: true,
-    verifiedScore: { home: validation.serverHomeScore, away: validation.serverAwayScore },
-    checksum: validation.checksum
+    verifiedScore: { home: validation.verifiedHomeScore, away: validation.verifiedAwayScore },
+    verifiedGil: validation.verifiedGil
   });
 });
 

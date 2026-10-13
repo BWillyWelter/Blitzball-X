@@ -8,13 +8,17 @@ export class FFXHUD {
    */
   constructor(container) {
     this.container = container;
+    // Own root element: the HUD must never assign to the shared container's
+    // innerHTML — that would destroy siblings such as the WebGL game canvas.
+    this.root = document.createElement('div');
+    this.container.appendChild(this.root);
     this.buildDOM();
-    this.radarCanvas = this.container.querySelector('#radar-canvas');
+    this.radarCanvas = this.root.querySelector('#radar-canvas');
     this.radarCtx = this.radarCanvas.getContext('2d');
   }
 
   buildDOM() {
-    this.container.innerHTML = `
+    this.root.innerHTML = `
       <div class="hud-frame">
         
         <!-- Top Score Bar -->

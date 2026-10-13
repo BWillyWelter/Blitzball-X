@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import './styles.css';
 import { GameRenderer } from './render/renderer.js';
 import { SpherePoolEnvironment } from './render/court.js';
-import { FFXMatch, MATCH_STATES } from './game/match.js';
+import { FFXMatch, MATCH_STATES } from './game/ffx-match.js';
 import { FFXHUD } from './ui/hud.js';
 import { FFXTouchController } from './ui/touch.js';
 import { SaveManager } from './ui/save.js';
@@ -18,14 +18,17 @@ import { LeagueViewUI } from './ui/league-view.js';
 import { ScoutViewUI } from './ui/scout-view.js';
 import { TechViewUI } from './ui/tech-view.js';
 import { TechcopyQTEController } from './render/qte.js';
-import { TacticalAIEngine } from './game/ai.js';
+import { TacticalAIEngine } from './game/tactical-ai.js';
 import { SoundEngine } from './ui/audio.js';
-import { TEAMS } from './data/teams.js';
+import { TEAMS } from './data/ffx-teams.js';
 
 export class BlitzballApp {
   constructor() {
     this.container = document.getElementById('app') || document.body;
     this.canvas = document.createElement('canvas');
+    // .game-canvas is what the stylesheet keys off for absolute fill and
+    // touch-action: none (no scroll/pinch while swimming).
+    this.canvas.className = 'game-canvas';
     this.container.appendChild(this.canvas);
 
     // Core Managers

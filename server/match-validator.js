@@ -4,8 +4,8 @@
  */
 
 import { FFX_CONSTANTS } from '../src/data/constants.js';
-import { EncounterEngine } from '../src/game/combat.js';
-import { TEAMS } from '../src/data/teams.js';
+import { EncounterEngine } from '../src/game/encounter-engine.js';
+import { TEAMS } from '../src/data/ffx-teams.js';
 import { createSeedableRNG } from '../src/core/rng.js';
 
 export class MatchReplayValidator {
@@ -24,6 +24,9 @@ export class MatchReplayValidator {
    */
   static validateMatchSubmission(submission) {
     const errors = [];
+    if (!submission || typeof submission !== 'object' || Array.isArray(submission)) {
+      return { valid: false, errors: ['Invalid match submission schema.'], verifiedHomeScore: 0, verifiedAwayScore: 0, verifiedGil: 0 };
+    }
     const {
       matchSeed,
       homeTeamId,
@@ -35,8 +38,17 @@ export class MatchReplayValidator {
     } = submission;
 
     // 1. Basic Schema & Team Checks
-    if (!matchSeed || typeof matchSeed !== 'number') {
+    if (!Number.isSafeInteger(matchSeed) || matchSeed < 0) {
       errors.push('Invalid or missing matchSeed.');
+    }
+    if (!Array.isArray(actionLog) || !Number.isSafeInteger(reportedHomeScore) || reportedHomeScore < 0 || !Number.isSafeInteger(reportedAwayScore) || reportedAwayScore < 0 || !Number.isFinite(reportedGilEarned) || reportedGilEarned < 0) {
+      errors.push('Invalid match submission schema.');
+      return { valid: false, errors, verifiedHomeScore: 0, verifiedAwayScore: 0, verifiedGil: 0 };
+    }
+
+    if (homeTeamId === awayTeamId) {
+      errors.push('Home and away teams must be different.');
+      return { valid: false, errors, verifiedHomeScore: 0, verifiedAwayScore: 0, verifiedGil: 0 };
     }
 
     const homeTeam = TEAMS[homeTeamId];
@@ -54,16 +66,28 @@ export class MatchReplayValidator {
     let serverAwayScore = 0;
 
     // 2. Re-simulate Encounter Actions in Sequence
-    actionLog.forEach((action, index) => {
+    actionLog.forEach((action, _index) => {
+      if (!action || typeof action !== 'object' || Array.isArray(action)) {
+        errors.push(`Invalid action at index ${_index}.`);
+        return;
+      }
       const { type, carrierId, defenderIds = [], isHomeCarrier, shotDistance = 0 } = action;
+      if (!['BREAKTHROUGH', 'SHOOT'].includes(type) || typeof isHomeCarrier !== 'boolean' || !Array.isArray(defenderIds) || !Number.isFinite(shotDistance) || shotDistance < 0) {
+        errors.push(`Invalid action at index ${_index}.`);
+        return;
+      }
 
       // Find character profiles in team rosters
       const teamPlayers = isHomeCarrier ? homeTeam.players : awayTeam.players;
       const enemyPlayers = isHomeCarrier ? awayTeam.players : homeTeam.players;
 
-      const carrier = teamPlayers.find(p => p.id === carrierId) || teamPlayers[0];
+      const carrier = teamPlayers.find(p => p.id === carrierId);
       const defenders = enemyPlayers.filter(p => defenderIds.includes(p.id));
-      const keeper = enemyPlayers[enemyPlayers.length - 1]; // Keeper is last roster slot
+      const keeper = enemyPlayers.find((p) => p.pos === 'KP');
+      if (!carrier || !keeper || defenders.length !== new Set(defenderIds).size || defenderIds.some((id) => !enemyPlayers.some((p) => p.id === id)) || defenderIds.includes(keeper.id)) {
+        errors.push(`Invalid player reference at action ${_index}.`);
+        return;
+      }
 
       if (type === 'BREAKTHROUGH') {
         // Re-calculate Breakthrough EN vs TCK
@@ -74,12 +98,14 @@ export class MatchReplayValidator {
         
         if (breakRes.success) {
           // Step B: Block phase
-          const remainingDefs = enemyPlayers.filter(p => !defenderIds.includes(p.id) && p !== keeper);
+          // The action log's defender list is the encounter boundary. Players outside
+          // that boundary do not participate in this discrete block phase.
+          const remainingDefs = [];
           const blockRes = EncounterEngine.resolveBlockPhase(carrier.sh, remainingDefs, serverRNG);
 
           if (!blockRes.blocked) {
             // Step C: Calculate Hydrodynamic Water Stat Decay
-            const decayedSH = Math.max(0, blockRes.remainingStat - Math.floor(shotDistance * FFX_CONSTANTS.WATER.STAT_DECAY_PER_METER));
+            const decayedSH = EncounterEngine.applyWaterDecay(blockRes.remainingStat, shotDistance, FFX_CONSTANTS.WATER.STAT_DECAY_PER_METER);
 
             // Step D: Keeper Catch (CAT) Resolution
             const keeperRes = EncounterEngine.resolveKeeperCatch(decayedSH, keeper, serverRNG);

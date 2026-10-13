@@ -2,7 +2,7 @@
  * FFX League, Tournament & Prize Manager for Blitzball-X
  */
 
-import { TEAMS } from '../data/teams.js';
+import { TEAMS } from '../data/ffx-teams.js';
 import { createSeedableRNG } from '../core/rng.js';
 
 export const COMPETITION_TYPES = {

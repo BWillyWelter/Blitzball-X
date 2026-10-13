@@ -106,21 +106,21 @@ export class ScoutViewUI {
                 const isSigned = contract.contractGames > 0;
 
                 return `
-                  <div class="agent-card" data-id="\${agent.id}" style="
+                  <div class="agent-card" data-id="${agent.id}" style="
                     padding: 10px;
                     border-radius: 6px;
-                    border: 1px solid \${isSelected ? '#facc15' : 'rgba(56, 189, 248, 0.3)'};
-                    background: \${isSelected ? 'rgba(56, 189, 248, 0.25)' : 'rgba(15, 23, 42, 0.4)'};
+                    border: 1px solid ${isSelected ? '#facc15' : 'rgba(56, 189, 248, 0.3)'};
+                    background: ${isSelected ? 'rgba(56, 189, 248, 0.25)' : 'rgba(15, 23, 42, 0.4)'};
                     cursor: pointer;
                     transition: all 0.15s ease;
                   ">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <div style="font-weight: bold; color: \${isSelected ? '#facc15' : '#ffffff'};">${agent.name} (${agent.pos})</div>
-                      <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: \${isSigned ? '#059669' : '#0284c7'};">
-                        \${isSigned ? `${contract.contractGames} Games` : 'Free Agent'}
+                      <div style="font-weight: bold; color: ${isSelected ? '#facc15' : '#ffffff'};">${agent.name} (${agent.pos})</div>
+                      <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: ${isSigned ? '#059669' : '#0284c7'};">
+                        ${isSigned ? `${contract.contractGames} Games` : 'Free Agent'}
                       </span>
                     </div>
-                    <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">📍 \${agent.location}</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">📍 ${agent.location}</div>
                   </div>
                 `;
               }).join('')}
@@ -155,7 +155,6 @@ export class ScoutViewUI {
     if (!agent) return '<div style="color: #94a3b8;">Select a free agent to inspect stats.</div>';
 
     const level = this.scoutManager.scoutLevel;
-    const contract = this.scoutManager.agentContracts[this.selectedAgentId];
     const totalCost = agent.salary * this.contractGames;
     const canAfford = this.scoutManager.gil >= totalCost;
 

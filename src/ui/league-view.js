@@ -3,7 +3,7 @@
  */
 
 import { COMPETITION_TYPES } from '../game/league.js';
-import { TEAMS } from '../data/teams.js';
+import { TEAMS } from '../data/ffx-teams.js';
 
 export class LeagueViewUI {
   /**
@@ -70,7 +70,7 @@ export class LeagueViewUI {
           
           <div style="display: flex; gap: 8px;">
             <button id="tab-standings" style="${this.getTabStyle('STANDINGS')}">STANDINGS</button>
-            ${isTournament ? `<button id="tab-bracket" style="\${this.getTabStyle('BRACKET')}">BRACKET</button>` : ''}
+            ${isTournament ? `<button id="tab-bracket" style="${this.getTabStyle('BRACKET')}">BRACKET</button>` : ''}
             <button id="tab-prizes" style="${this.getTabStyle('PRIZES')}">PRIZES</button>
           </div>
         </div>
@@ -149,16 +149,16 @@ export class LeagueViewUI {
         </thead>
         <tbody>
           ${sorted.map((team, idx) => `
-            <tr style="border-bottom: 1px solid rgba(56, 189, 248, 0.2); background: \${team.teamId === 'besaid_aurochs' ? 'rgba(56, 189, 248, 0.25)' : 'transparent'};">
-              <td style="padding: 12px; font-weight: bold;">\${idx + 1}</td>
+            <tr style="border-bottom: 1px solid rgba(56, 189, 248, 0.2); background: ${team.teamId === 'besaid_aurochs' ? 'rgba(56, 189, 248, 0.25)' : 'transparent'};">
+              <td style="padding: 12px; font-weight: bold;">${idx + 1}</td>
               <td style="padding: 12px; font-weight: bold; color: ${team.teamId === 'besaid_aurochs' ? '#38bdf8' : '#ffffff'};">${team.name}</td>
-              <td style="padding: 12px; text-align: center;">\${team.played}</td>
-              <td style="padding: 12px; text-align: center;">\${team.wins}</td>
-              <td style="padding: 12px; text-align: center;">\${team.draws}</td>
-              <td style="padding: 12px; text-align: center;">\${team.losses}</td>
-              <td style="padding: 12px; text-align: center;">\${team.goalsFor}</td>
-              <td style="padding: 12px; text-align: center;">\${team.goalsAgainst}</td>
-              <td style="padding: 12px; text-align: center; font-weight: bold; color: #facc15;">\${team.points}</td>
+              <td style="padding: 12px; text-align: center;">${team.played}</td>
+              <td style="padding: 12px; text-align: center;">${team.wins}</td>
+              <td style="padding: 12px; text-align: center;">${team.draws}</td>
+              <td style="padding: 12px; text-align: center;">${team.losses}</td>
+              <td style="padding: 12px; text-align: center;">${team.goalsFor}</td>
+              <td style="padding: 12px; text-align: center;">${team.goalsAgainst}</td>
+              <td style="padding: 12px; text-align: center; font-weight: bold; color: #facc15;">${team.points}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -184,7 +184,7 @@ export class LeagueViewUI {
             <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid #38bdf8; border-radius: 6px; padding: 10px; width: 180px;">
               <div style="color: ${m.winner === m.home ? '#facc15' : '#ffffff'}">${getTeamName(m.home)}</div>
               <div style="color: ${m.winner === m.away ? '#facc15' : '#ffffff'}">${getTeamName(m.away)}</div>
-              <div style="font-size: 11px; color: #94a3b8; margin-top: 4px; text-align: right;">\${m.score || 'VS'}</div>
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 4px; text-align: right;">${m.score || 'VS'}</div>
             </div>
           `).join('')}
         </div>
@@ -196,7 +196,7 @@ export class LeagueViewUI {
             <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid #38bdf8; border-radius: 6px; padding: 10px; width: 180px;">
               <div style="color: ${m.winner === m.home ? '#facc15' : '#ffffff'}">${getTeamName(m.home)}</div>
               <div style="color: ${m.winner === m.away ? '#facc15' : '#ffffff'}">${getTeamName(m.away)}</div>
-              <div style="font-size: 11px; color: #94a3b8; margin-top: 4px; text-align: right;">\${m.score || 'VS'}</div>
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 4px; text-align: right;">${m.score || 'VS'}</div>
             </div>
           `).join('')}
         </div>

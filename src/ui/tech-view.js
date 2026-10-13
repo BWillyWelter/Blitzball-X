@@ -4,7 +4,7 @@
  * HP cost readouts, and Key Tech slot progression.
  */
 
-import { TECHNIQUES } from '../data/techniques.js';
+import { TECHNIQUES } from '../game/techniques.js';
 
 export class TechViewUI {
   /**

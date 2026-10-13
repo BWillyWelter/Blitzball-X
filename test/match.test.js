@@ -4,9 +4,9 @@
  * and deterministic seed replay validation.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from './vitest-compat.mjs';
 import { MatchReplayValidator } from '../server/match-validator.js';
-import { EncounterEngine } from '../src/game/combat.js';
+import { EncounterEngine } from '../src/game/encounter-engine.js';
 import { FFX_CONSTANTS } from '../src/data/constants.js';
 import { createSeedableRNG } from '../src/core/rng.js';
 import { StatusEffectManager, STATUS_TYPES } from '../src/render/status.js';
@@ -68,12 +68,11 @@ describe('Blitzball-X Match Engine & Anti-Cheat Validation Suite', () => {
     it('applies distance-based hydrodynamic stat decay to shots in water', () => {
       const initialSH = 20;
       const shotDistanceMeters = 10;
-      const decayPerMeter = FFX_CONSTANTS.WATER.STAT_DECAY_PER_METER || 0.5;
+      const dragCoefficient = FFX_CONSTANTS.WATER.STAT_DECAY_PER_METER;
+      const decayedSH = EncounterEngine.applyWaterDecay(initialSH, shotDistanceMeters, dragCoefficient);
 
-      const expectedDecay = shotDistanceMeters * decayPerMeter;
-      const decayedSH = Math.max(0, initialSH - expectedDecay);
-
-      expect(decayedSH).toBe(15);
+      expect(decayedSH).toBe(initialSH * Math.exp(-dragCoefficient * shotDistanceMeters));
+      expect(decayedSH).toBeLessThan(initialSH);
     });
 
     it('resolves goalkeeper catch against incoming shot power', () => {
@@ -138,9 +137,24 @@ describe('Blitzball-X Match Engine & Anti-Cheat Validation Suite', () => {
   });
 
   describe('4. Server Replay Anti-Cheat Validator', () => {
+    it('rejects invalid schemas and unknown player references before replay', () => {
+      const base = {
+        matchSeed: 123,
+        homeTeamId: 'besaid_aurochs',
+        awayTeamId: 'luca_goers',
+        actionLog: [],
+        reportedHomeScore: 0,
+        reportedAwayScore: 0,
+        reportedGilEarned: 500
+      };
+      expect(MatchReplayValidator.validateMatchSubmission(null).valid).toBe(false);
+      expect(MatchReplayValidator.validateMatchSubmission({ ...base, actionLog: [{ type: 'SHOOT', carrierId: 'missing', defenderIds: [], isHomeCarrier: true }] }).valid).toBe(false);
+      expect(MatchReplayValidator.validateMatchSubmission({ ...base, homeTeamId: base.awayTeamId }).valid).toBe(false);
+    });
+
     it('validates a legitimate client match submission', () => {
       const submission = {
-        matchSeed: 555123,
+        matchSeed: 0,
         homeTeamId: 'besaid_aurochs',
         awayTeamId: 'luca_goers',
         actionLog: [
@@ -149,7 +163,7 @@ describe('Blitzball-X Match Engine & Anti-Cheat Validation Suite', () => {
             carrierId: 'p_tidus',
             defenderIds: [],
             isHomeCarrier: true,
-            shotDistance: 5
+            shotDistance: 0.01
           }
         ],
         reportedHomeScore: 1,

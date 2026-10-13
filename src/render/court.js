@@ -159,10 +159,10 @@ export class SpherePoolEnvironment {
     // Metallic Equatorial Boundary Ring
     const ringGeo = new THREE.TorusGeometry(20.2, 0.6, 16, 100);
     const ringMat = new THREE.MeshStandardMaterial({
-      color: #0284c7,
+      color: '#0284c7',
       metalness: 0.8,
       roughness: 0.2,
-      emissive: #0369a1,
+      emissive: '#0369a1',
       emissiveIntensity: 0.3
     });
 

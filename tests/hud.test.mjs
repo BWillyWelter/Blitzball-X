@@ -22,12 +22,25 @@ function makeHud() {
   };
   const container = {
     markup: '',
-    set innerHTML(value) { this.markup = value; },
+    child: null,
+    appendChild(node) { this.child = node; },
     querySelector(selector) {
       if (selector === '#radar-canvas') return radar;
       if (selector === '#encounter-window') return encounter;
       if (selector === '#carrier-stats') return stats;
       throw new Error(`Unexpected selector: ${selector}`);
+    },
+  };
+  // The HUD builds into its own root element so it never wipes the shared
+  // container (the WebGL game canvas lives there). Minimal document stub:
+  // createElement hands back an object whose innerHTML lands in container.markup
+  // and whose queries hit the same selector map the assertions rely on.
+  globalThis.document = {
+    createElement() {
+      return {
+        set innerHTML(value) { container.markup = value; },
+        querySelector: (selector) => container.querySelector(selector),
+      };
     },
   };
   return { hud: new FFXHUD(container), container, encounter, stats, actions };

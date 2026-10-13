@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { crypto as _crypto } from 'node:crypto'; // reserved for signed session tokens
+import { webcrypto as _crypto } from 'node:crypto'; // reserved for signed session tokens
 import saveRoutes from './routes/save.js';
 import matchRoutes from './routes/match.js';
 import db from './db.js';
