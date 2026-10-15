@@ -162,11 +162,20 @@ const bad = Object.values(report.audits)
   .sort((a, b) => (a.score ?? 1) - (b.score ?? 1));
 if (!bad.length) console.log('  (none)');
 for (const a of bad.slice(0, 24)) {
-  console.log(`  ${a.score === 0 ? 'x' : '~'} ${a.id}  ${a.displayValue || ''}`);
-  const items = a.details?.items?.slice(0, 3) || [];
+    console.log(`  ${a.score === 0 ? 'x' : '~'} ${a.id}  ${a.displayValue || ''}`);
+  const itemsRaw = a.details?.items;
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw.slice(0, 3)
+    : itemsRaw
+      ? Object.values(itemsRaw).slice(0, 3)
+      : [];
   for (const it of items) {
-    const line = it.url || it.node?.selector || it.source?.value || '';
+    const line =
+      typeof it === 'string'
+        ? it
+        : (it?.url || it?.node?.selector || it?.source?.value || '');
     if (line) console.log(`      ${String(line).slice(0, 140)}`);
+  }
   }
 }
 console.log(`\nreports: ${jsonPath} + ${htmlPath}`);
