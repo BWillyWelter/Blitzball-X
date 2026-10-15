@@ -19,11 +19,14 @@ export function toon(color, opts = {}) {
   const key = typeof color === 'string' ? color + JSON.stringify(opts) : null;
   if (key && toonCache.has(key)) return toonCache.get(key);
   const m = new THREE.MeshToonMaterial({ color, gradientMap: toonGradient(), ...opts });
+  // Toon ramps are cached across swimmers; per-player teardown must not dispose them.
+  m.userData.sharedResource = true;
   if (key) toonCache.set(key, m);
   return m;
 }
 
 export const outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x0b0b12, side: THREE.BackSide });
+outlineMaterial.userData.sharedResource = true;
 
 /** Adds an inverted-hull outline to a mesh. */
 export function withOutline(mesh, thickness = 0.035) {

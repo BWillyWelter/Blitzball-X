@@ -42,6 +42,8 @@ export class GameRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.quality = 'high';
+    this.maxDPR = GRAPHICS.MAX_DPR_CAP;
 
     // Performance monitoring for dynamic resolution scaling.
     this.frameCount = 0;
@@ -65,6 +67,16 @@ export class GameRenderer {
     window.addEventListener('resize', this.onWindowResize);
     canvas.addEventListener('webglcontextlost', this.onContextLost, false);
     canvas.addEventListener('webglcontextrestored', this.onContextRestored, false);
+  }
+
+  /** Apply a user-facing quality preset without taking control away from the FPS fallback. */
+  setQuality(level = 'high') {
+    this.quality = ['low', 'medium', 'high'].includes(level) ? level : 'high';
+    this.maxDPR = this.quality === 'low' ? 1 : this.quality === 'medium' ? 1.4 : GRAPHICS.MAX_DPR_CAP;
+    this.currentDPR = Math.max(GRAPHICS.MIN_DPR, Math.min(window.devicePixelRatio || 1, this.maxDPR));
+    this.renderer.setPixelRatio(this.currentDPR);
+    this.renderer.shadowMap.enabled = this.quality !== 'low';
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
   /**

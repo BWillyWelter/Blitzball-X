@@ -191,8 +191,8 @@ export class GameCamera {
     // Arena wall trim: gameplay happens entirely inside the water sphere, so the boom must never
     // push the camera through the wall. Shortening the boom reads as the camera hugging the
     // swimmer when they drift toward the rim — exactly what we want.
-    const boom = 3.5;
-    const headY = p.y + 1.7;
+    const boom = 4.6;
+    const headY = p.y + 2.1;
     const rXZ = Math.hypot(this.pPos.x, this.pPos.z);
     const rr = Math.hypot(this.pPos.x + back.x * boom, this.pPos.z + back.z * boom);
     let trimmedBoom = boom;
@@ -205,7 +205,7 @@ export class GameCamera {
     const desiredPos = this.pPos.clone().addScaledVector(back, trimmedBoom).addScaledVector(right, 0.55).add(new THREE.Vector3(0, camY - p.y, 0));
 
     const heading = new THREE.Vector3(Math.sin(this.pYaw), 0, Math.cos(this.pYaw));
-    const desiredLook = this.pPos.clone().addScaledVector(heading, 6).addScaledVector(right, 0.3).add(new THREE.Vector3(0, 1.3, 0));
+    const desiredLook = this.pPos.clone().addScaledVector(heading, 7.2).addScaledVector(right, 0.3).add(new THREE.Vector3(0, 1.35, 0));
     // The ball drifts into frame: when it sits ahead of the view direction, lean the look target
     // part-way toward it. Never a hard lock — that was ball cam, and ball cam is gone.
     const bdx = sim.ball.pos.x - p.pos.x;
@@ -219,7 +219,7 @@ export class GameCamera {
       }
     }
     // FLOW widens the view slightly — speed you can feel.
-    const desiredFov = sim.flow && sim.flow[p.team] ? 72 : 64;
+    const desiredFov = sim.flow && sim.flow[p.team] ? 74 : 68;
 
     const k = 1 - Math.exp(-dt * 12);
     this.pos.lerp(desiredPos, k);

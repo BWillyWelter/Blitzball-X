@@ -345,4 +345,37 @@ export class SoundEngine {
       this.isAmbiencePlaying = true;
     }
   }
+
+  unlock() {
+    this.ensureContextReady();
   }
+
+  applyVolumes(settings = this.settings) {
+    if (settings) this.settings = settings;
+    const raw = Number(this.settings?.masterVolume ?? this.settings?.soundVolume ?? 0.8);
+    const volume = Math.max(0, Math.min(1, Number.isFinite(raw) ? raw : 0.8));
+    if (this.masterGain && this.ctx) this.masterGain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.04);
+  }
+
+  playUiTone(frequency = 620, volume = 0.045) {
+    this.ensureContextReady();
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(frequency, now);
+    osc.frequency.exponentialRampToValueAtTime(frequency * 1.28, now + 0.055);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+
+  uiMove() { this.playUiTone(520, 0.025); }
+  uiConfirm() { this.playUiTone(760, 0.06); }
+  uiBack() { this.playUiTone(390, 0.045); }
+  stopVoice() {}
+}

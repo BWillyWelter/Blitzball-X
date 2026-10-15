@@ -63,12 +63,21 @@ export class CharacterView {
    * view is torn down mid-match instead of waiting for the renderer-wide scene clear in dispose().
    */
   dispose() {
+    const geometries = new Set();
+    const materials = new Set();
+    const textures = new Set();
     this.root.traverse((obj) => {
-      obj.geometry?.dispose?.();
-      const mat = obj.material;
-      if (Array.isArray(mat)) for (const m of mat) m?.dispose?.();
-      else mat?.dispose?.();
+      if (obj.geometry) geometries.add(obj.geometry);
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const material of list) {
+        if (!material || materials.has(material)) continue;
+        materials.add(material);
+        if (!material.userData?.sharedResource && material.map) textures.add(material.map);
+        if (!material.userData?.sharedResource) material.dispose?.();
+      }
     });
+    for (const geometry of geometries) geometry.dispose?.();
+    for (const texture of textures) texture.dispose?.();
     this.root.removeFromParent();
     this.root = null;
   }
