@@ -781,7 +781,26 @@ await page.evaluate(() => {
   app.state.settings.touchScale = 1;
   app.match.touchControls.applySettings(app.state.settings);
 });
-
+reset() {
+  if (this.touch) {
+    this.touch.active = false;
+    this.touch.moveX = 0;
+    this.touch.moveZ = 0;
+    this.touch.moveY = 0;
+    this.touch.turbo = false;
+    this.touch.shootHeld = false;
+    this.touch.lookX = 0;
+    this.touch.lookY = 0;
+    this.touch.aimX = 0;
+    this.touch.aimZ = 0;
+    if (this.touch.edges && typeof this.touch.edges.clear === 'function') {
+      this.touch.edges.clear();
+    }
+  }
+  if (this.pending && typeof this.pending.clear === 'function') {
+    this.pending.clear();
+  }
+  }
 // ----------------------------------------------- pointer ownership / interruption regressions
 const ownership = await page.evaluate(() => {
   const input = window.app.input;
