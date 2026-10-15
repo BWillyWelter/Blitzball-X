@@ -14,7 +14,6 @@ import {
   rivalryOf,
 } from '../game/career.js';
 import { RecapPanel } from './recap.js';
-import { TRACKS } from './audio.js';
 // Single source of truth for the build number: the release workflow already refuses to publish a
 // tag that disagrees with this file, and the title screen used to advertise a hardcoded "v1.0"
 // that silently drifted every release.
@@ -519,7 +518,7 @@ export function HowToScreen(app) {
           <ul>
             <li>On touch the <b>left half</b> is your stick — push it forward, back, left or right and your swimmer goes that way <b>relative to the camera</b>. <b>Drag the right half</b> to swing the camera, and use <b>RISE / DIVE</b> for depth.</li>
             <li>The <b>STRIKE pad</b> (bottom right) is the shot: hold to wind up, <b>swipe</b> to bend the shot to that side and to pick your ring tier, lift to fire. Release in the <b>PERFECT</b> window for the cleanest strike. When the meter is full the pad turns cyan and the same swipe launches a <b>Gamebreaker</b>.</li>
-            <li>Around the pad: <b>PASS</b>, <b>BURST</b> (hold to sprint), <b>BLOCK</b> (leap/block off the ball), <b>HIT</b> (big hit) and <b>TACKLE</b> — a slide tackle without the ball, your signature move with it. In the cage, the stick pre-positions you, ▲/▼ sets height, and the <b>DIVE pad</b> commits side and height on release. The cage camera stays fixed; the read indicator shows your intent, not where the shot will land. Use <b>ATTACK / DEFEND</b> to cycle team tactics without pausing, and <b>GK</b> to take the cage.</li>
+            <li>Around the pad: <b>PASS</b>, <b>BURST</b> (hold to sprint), <b>BLOCK</b> (leap/block off the ball), <b>HIT</b> (big hit) and <b>TACKLE</b> — a slide tackle without the ball, your signature move with it. In the cage, the strike pad changes to <b>DIVE</b>: swipe to choose direction and height, then release to commit. The cage camera stays fixed, and <b>GK</b> takes you into or out of the cage. Keyboard players can call offense plays with <b>1 / 2 / 3</b> and defense plays with <b>7 / 8 / 9</b>.</li>
             <li>Hold a direction + trick with <b>turbo</b> for a bigger move and a better chance of <b>washing</b> the defender.</li>
             <li>Release the shot when the charge hits the <b>PERFECT</b> window — timing beats ratings.</li>
             <li>Shift+K lobs to a teammate near the ring: they breach and <b>volley</b> it first time. Volley goals are worth big style.</li>
@@ -559,18 +558,11 @@ export function SettingsScreen(app, params = {}) {
       <header class="screen-head"><h1>SETTINGS</h1><div class="head-sub">Saved automatically</div></header>
       <div class="set-list">
         ${row('masterVolume', 'MASTER VOLUME', 'range')}
-        ${row('musicVolume', 'MUSIC', 'range')}
-        ${row('sfxVolume', 'SFX & CROWD', 'range')}
-        ${row('musicTrack', 'MUSIC TRACK', 'select', [['auto', 'AUTO (new each match)'], ...Object.entries(TRACKS).map(([k, v]) => [k, v.label.toUpperCase()])])}
-        ${row('announcer', 'ANNOUNCER VOICE', 'toggle')}
-        ${row('announcerVolume', 'ANNOUNCER VOLUME', 'range')}
-        ${row('quality', 'GRAPHICS', 'select', [['low', 'LOW (no shadows / bloom)'], ['medium', 'MEDIUM'], ['high', 'HIGH']])}
+        ${row('quality', 'GRAPHICS QUALITY', 'select', [['low', 'LOW · PERFORMANCE'], ['medium', 'MEDIUM'], ['high', 'HIGH · DETAIL']])}
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
-        ${row('commentary', 'COMMENTARY', 'toggle')}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('reducedMotion', 'REDUCED MOTION', 'toggle')}
-        ${row('replay', 'GOAL REPLAY', 'select', [['on', 'ON'], ['off', 'OFF']])}
-        ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO (touch devices)'], ['on', 'ON'], ['off', 'OFF']])}
+        ${row('touchControls', 'TOUCH CONTROLS', 'select', [['auto', 'AUTO · TOUCH DEVICES'], ['on', 'ON'], ['off', 'OFF']])}
         ${row('touchLayout', 'PAD PRESET', 'pick', [['right', 'RIGHT-HAND'], ['left', 'LEFT-HAND']])}
         ${row('touchScale', 'PAD SIZE', 'range', { min: 0.8, max: 1.3, step: 0.05 })}
         ${row('touchOpacity', 'PAD OPACITY', 'range', { min: 0.4, max: 1, step: 0.05 })}
@@ -601,17 +593,15 @@ export function SettingsScreen(app, params = {}) {
         const min = parseFloat(r.dataset.min || '0');
         const max = parseFloat(r.dataset.max || '1');
         r.querySelector('.set-val').textContent = `${Math.round(((s[key] - min) / (max - min)) * 100)}%`;
-        app.audio.applyVolumes();
-        if (key !== 'musicVolume') app.audio.uiMove();
+        app.audio.applyVolumes(s);
+        app.audio.uiMove();
       } else if (input.type === 'checkbox') {
         s[key] = input.checked;
         if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
         if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
-        if (key === 'announcer' && !input.checked) app.audio.stopVoice();
       } else if (input.type === 'select-one' || input.tagName === 'SELECT') s[key] = input.value;
       else s[key] = input.value;
-      // Switching track restarts the loop immediately so the choice is audible.
-      if (key === 'musicTrack') { app.audio._lastTrackId = null; app.audio.startBeat(app.match ? 'match' : 'menu'); }
+      if (key === 'quality') app.applyQuality?.(s.quality);
       // Layout changes are felt immediately, even from the in-match settings overlay.
       if (key.startsWith('touch')) app.match?.touchControls?.applySettings(s);
       app.save();

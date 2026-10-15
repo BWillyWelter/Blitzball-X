@@ -1,308 +1,428 @@
-/**
- * Blitzball-X Application Entry Point & Core Game Engine Loop
- * Connects 3D Sphere Pool WebGL, FFX Match Engine, Tactical AI Engine, Audio Synthesizer,
- * Techcopy QTE Overlays, Tech Assignment Menu, League Brackets, Scout Systems, and SaveManager.
- */
+/** Blitzball-X browser entry point: modern MatchSim, 3D presentation, menus, HUD, and touch. */
 
 import * as THREE from 'three';
+import '@fontsource/bangers/latin-400.css';
+import '@fontsource/barlow-condensed/latin-400.css';
+import '@fontsource/barlow-condensed/latin-700.css';
+import '@fontsource/permanent-marker/latin-400.css';
 import './styles.css';
 import { GameRenderer } from './render/renderer.js';
 import { SpherePoolEnvironment } from './render/court.js';
-import { FFXMatch, MATCH_STATES } from './game/ffx-match.js';
-import { FFXHUD } from './ui/hud.js';
-import { FFXTouchController } from './ui/touch.js';
-import { SaveManager } from './ui/save.js';
-import { LeagueManager } from './game/league.js';
-import { ScoutManager } from './game/scout.js';
-import { LeagueViewUI } from './ui/league-view.js';
-import { ScoutViewUI } from './ui/scout-view.js';
-import { TechViewUI } from './ui/tech-view.js';
-import { TechcopyQTEController } from './render/qte.js';
-import { TacticalAIEngine } from './game/tactical-ai.js';
+import { MatchScene } from './render/match-scene.js';
+import { MatchSim } from './game/match.js';
+import { TEAMS, TEAM_BY_ID } from './data/teams.js';
+import {
+  awardPlayerProgress,
+  careerTeam,
+  createCareer,
+  currentOpponent,
+  fixtureFor,
+  recordResult,
+  rollInjuries,
+} from './game/career.js';
+import { InputManager } from './ui/input.js';
+import { MatchHUD } from './ui/match-hud.js';
+import { TouchControls } from './ui/touch.js';
+import { BenchPanel } from './ui/bench.js';
 import { SoundEngine } from './ui/audio.js';
-import { TEAMS } from './data/ffx-teams.js';
+import {
+  CareerScreen,
+  HowToScreen,
+  PauseOverlay,
+  ResultsScreen,
+  RosterScreen,
+  SettingsScreen,
+  SquadScreen,
+  TeamSelectScreen,
+  TitleScreen,
+} from './ui/screens.js';
+
+const SAVE_KEY = 'blitzball_x_save_data_v1';
+const DEFAULT_SETTINGS = Object.freeze({
+  masterVolume: 0.8,
+  quality: 'medium',
+  difficulty: 'pro',
+  screenShake: true,
+  reducedMotion: false,
+  touchControls: 'auto',
+  touchLayout: 'right',
+  touchScale: 1,
+  touchOpacity: 0.82,
+});
+
+function freshState() {
+  return {
+    career: null,
+    records: { wins: 0, losses: 0, styleBest: 0 },
+    settings: { ...DEFAULT_SETTINGS },
+  };
+}
+
+function readState() {
+  const defaults = freshState();
+  try {
+    const raw = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!raw || typeof raw !== 'object') return defaults;
+    const career = raw.career && typeof raw.career.teamId === 'string' && Array.isArray(raw.career.ladder)
+      ? raw.career
+      : null;
+    const settings = { ...defaults.settings, ...(raw.settings || {}) };
+    if (!['low', 'medium', 'high'].includes(settings.quality)) settings.quality = DEFAULT_SETTINGS.quality;
+    if (!['easy', 'pro', 'legend'].includes(settings.difficulty)) settings.difficulty = DEFAULT_SETTINGS.difficulty;
+    if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = 'auto';
+    if (!['left', 'right'].includes(settings.touchLayout)) settings.touchLayout = 'right';
+    const records = { ...defaults.records, ...(raw.records || {}) };
+    return { career, records, settings };
+  } catch (error) {
+    console.warn('[Blitzball-X] Could not read local save; starting fresh.', error);
+    return defaults;
+  }
+}
+
+function cleanPlayerName(name) {
+  return String(name || 'Rookie').replace(/[<>]/g, '').trim().slice(0, 18) || 'Rookie';
+}
 
 export class BlitzballApp {
   constructor() {
     this.container = document.getElementById('app') || document.body;
-    this.canvas = document.createElement('canvas');
-    // .game-canvas is what the stylesheet keys off for absolute fill and
-    // touch-action: none (no scroll/pinch while swimming).
-    this.canvas.className = 'game-canvas';
-    this.container.appendChild(this.canvas);
-
-    // Core Managers
-    this.saveManager = new SaveManager();
+    document.getElementById('boot')?.remove();
+    this.state = readState();
+    this.teams = TEAMS;
     this.audio = new SoundEngine();
-    
-    // 3D Rendering & Scene
-    this.renderer = new GameRenderer(this.canvas);
+    this.input = new InputManager();
+    this.input.onPause = () => this.togglePause();
+
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.scene.background = new THREE.Color(0x020c17);
+    this.camera = new THREE.PerspectiveCamera(64, window.innerWidth / window.innerHeight, 0.1, 120);
+    this.camera.position.set(0, 8, 22);
+    this.camera.lookAt(0, 0, 0);
     this.environment = new SpherePoolEnvironment(this.scene);
 
-    // UI, Touch Controls & QTE Controller
-    this.hud = new FFXHUD(this.container);
-    this.touch = new FFXTouchController(this.canvas);
-    this.qteController = new TechcopyQTEController(this.container, this.audio);
-    this.leagueView = new LeagueViewUI(this.container);
-    this.scoutView = new ScoutViewUI(this.container);
-    this.techView = new TechViewUI(this.container);
+    this.matchWrap = document.createElement('div');
+    this.matchWrap.className = 'match-wrap';
+    this.matchWrap.style.display = 'none';
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'game-canvas';
+    this.matchWrap.appendChild(this.canvas);
+    this.container.appendChild(this.matchWrap);
 
-    // Active Game & AI Handles
-    this.league = null;
-    this.scout = null;
-    this.match = null;
-    this.aiEngine = null;
-    this.savedState = null;
-
-    this.lastTime = performance.now();
-    this.isRunning = false;
-
-    this.init();
-  }
-
-  /**
-   * Initializes application state and loads local/cloud save payload
-   */
-  async init() {
-    this.scene.background = new THREE.Color(0x0284c7);
-    this.camera.position.set(0, 18, 22);
-    this.camera.lookAt(0, 0, 0);
-
-    // 1. Load persisted game state (or default state)
-    this.savedState = await this.saveManager.load();
-
-    // 2. Instantiate League & Scout Managers with saved nodes
-    this.league = new LeagueManager(this.savedState.league);
-    this.scout = new ScoutManager(this.savedState.scout);
-
-    // 3. Initialize default match (Besaid Aurochs vs. Luca Goers)
-    this.startNewMatch('besaid_aurochs', 'luca_goers');
-
-    // 4. Bind UI top-bar triggers for League, Scout, and Tech View overlays
-    this.bindGlobalMenuTriggers();
-
-    // 5. Start audio ambience & render loop
-    this.audio.startSpherePoolAmbience();
-    this.isRunning = true;
-    requestAnimationFrame(this.gameLoop.bind(this));
-  }
-
-  /**
-   * Initializes a new FFX Match session and binds Tactical AI + Techcopy hooks
-   */
-  startNewMatch(homeTeamId, awayTeamId) {
-    const homeTeam = TEAMS[homeTeamId] || TEAMS.besaid_aurochs;
-    const awayTeam = TEAMS[awayTeamId] || TEAMS.luca_goers;
-
-    this.match = new FFXMatch(homeTeam, awayTeam);
-
-    // Instantiate Tactical AI for the away team (e.g. Luca Goers)
-    this.aiEngine = new TacticalAIEngine(awayTeam);
-
-    // Bind Techcopy Execution Hook
-    this.match.onTechniqueExecuted = (executor, tech) => {
-      if (executor.teamId !== 'besaid_aurochs' && this.match.techcopyEngine?.canCopyTech(executor, tech.id)) {
-        this.triggerTechcopyQTE(executor, tech);
-      }
-    };
-
-    this.audio.playRefWhistle();
-  }
-
-  /**
-   * Triggers the Techcopy QTE overlay and handles technique unlocking
-   */
-  triggerTechcopyQTE(executor, tech) {
-    this.qteController.triggerPrompt(
-      {
-        techName: tech.name || tech.id,
-        playerName: executor.name,
-        durationMs: 800
-      },
-      (result) => {
-        if (result.success) {
-          const playerToLearn = this.match.homeTeam.players.find(p => p.id === 'p_tidus') || this.match.homeTeam.players[0];
-          if (playerToLearn && !playerToLearn.techs.includes(tech.id)) {
-            playerToLearn.techs.push(tech.id);
-            this.touch.triggerHaptic('goal');
-            this.autoSaveProgress();
-          }
-        }
-      }
-    );
-  }
-
-  /**
-   * Binds UI overlay shortcuts for League Standings, Free Agent Scouting, and Technique Setup
-   */
-  bindGlobalMenuTriggers() {
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'l' || e.key === 'L') {
-        this.leagueView.open(this.league, () => this.handleNextScheduledMatch());
-      }
-      if (e.key === 's' || e.key === 'S') {
-        this.scoutView.open(this.scout, () => this.autoSaveProgress());
-      }
-      if (e.key === 't' || e.key === 'T') {
-        const homeTeam = TEAMS['besaid_aurochs'];
-        this.techView.open(homeTeam, () => this.autoSaveProgress());
-      }
+    this.renderer = new GameRenderer(this.canvas);
+    this.renderer.setQuality(this.state.settings.quality);
+    this.hud = new MatchHUD(this.matchWrap, this.audio);
+    this.touchControls = new TouchControls(this.matchWrap, this.input, this.state.settings, {
+      onPause: () => this.togglePause(),
     });
+    this.bench = new BenchPanel(this.matchWrap, {
+      onSub: () => {
+        this.audio.playWaterSplash(0.45);
+        this.hud.showTicker('CHANGE QUEUED · NEXT STOPPAGE', 1400);
+      },
+    });
+
+    this.match = null;
+    this.sceneView = null;
+    this.currentScreen = null;
+    this.currentScreenObject = null;
+    this.pauseOverlay = null;
+    this.settingsOverlay = null;
+    this.matchSequence = 0;
+    this.lastTime = performance.now();
+    this.isRunning = true;
+
+    this.onResize = () => {
+      this.camera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
+      this.camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', this.onResize, { passive: true });
+
+    this.audio.applyVolumes(this.state.settings);
+    this.audio.startSpherePoolAmbience();
+    this.applyQuality(this.state.settings.quality);
+    this.go('title');
+    requestAnimationFrame((time) => this.gameLoop(time));
   }
 
-  /**
-   * Main 60 FPS Game Render Loop
-   */
+  get screen() {
+    return this.currentScreen ? { name: this.currentScreen } : null;
+  }
+
+  touchEnabled() {
+    return !!this.touchControls?.enabledByMode;
+  }
+
+  save() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ ...this.state, updatedAt: Date.now() }));
+    } catch (error) {
+      console.warn('[Blitzball-X] Save unavailable in this browser session.', error);
+    }
+  }
+
+  applyQuality(quality = this.state.settings.quality) {
+    this.renderer.setQuality(quality);
+  }
+
+  resetAll() {
+    try { localStorage.removeItem(SAVE_KEY); } catch { /* private browsing may block storage */ }
+    this.state = freshState();
+    this.audio.applyVolumes(this.state.settings);
+    this.applyQuality(this.state.settings.quality);
+    this.go('title');
+  }
+
+  clearScreen() {
+    if (!this.currentScreenObject?.el) return;
+    const old = this.currentScreenObject;
+    old.el.classList.remove('in');
+    old.el.style.pointerEvents = 'none';
+    setTimeout(() => old.el.remove(), 280);
+    this.currentScreenObject = null;
+    this.currentScreen = null;
+  }
+
+  go(name, params = {}) {
+    if (this.match && name !== 'results') this.disposeMatch();
+    else if (this.match && name === 'results') this.match.paused = true;
+    this.matchWrap.style.display = 'none';
+    this.touchControls?.setMatchVisible(false);
+    this.pauseOverlay?.el?.remove();
+    this.pauseOverlay = null;
+    this.settingsOverlay?.remove();
+    this.settingsOverlay = null;
+    this.clearScreen();
+
+    const routes = {
+      title: () => TitleScreen(this),
+      teamselect: () => TeamSelectScreen(this, params),
+      career: () => CareerScreen(this),
+      squad: () => SquadScreen(this),
+      roster: () => RosterScreen(this, params),
+      howto: () => HowToScreen(this),
+      settings: () => SettingsScreen(this, params),
+      results: () => ResultsScreen(this, params),
+    };
+    const create = routes[name];
+    if (!create) {
+      console.warn(`[Blitzball-X] Unknown screen: ${name}`);
+      return this.go('title');
+    }
+    try {
+      const screen = create();
+      screen.el.classList.add('in');
+      this.container.appendChild(screen.el);
+      this.currentScreen = name;
+      this.currentScreenObject = screen;
+      if (name === 'settings') this.audio.applyVolumes(this.state.settings);
+      return screen;
+    } catch (error) {
+      console.error(`[Blitzball-X] Could not open ${name} screen.`, error);
+      if (name !== 'title') return this.go('title');
+      throw error;
+    }
+  }
+
+  startCareer(teamId, player = {}) {
+    if (!TEAM_BY_ID[teamId]) return;
+    const name = cleanPlayerName(player.name);
+    this.state.career = createCareer(teamId, this.state.settings.difficulty, { ...player, name });
+    this.save();
+    this.startMatch({ mode: 'career' });
+  }
+
+  startMatch(options = {}) {
+    this.disposeMatch();
+    let { home, away, userTeam = 0, mode = 'quick', seed: suppliedSeed } = options;
+    if (mode === 'career') {
+      const career = this.state.career;
+      const fixture = career && fixtureFor(career);
+      if (!fixture || !currentOpponent(career)) {
+        this.go('career');
+        return null;
+      }
+      home = fixture.home;
+      away = fixture.away;
+      userTeam = fixture.userTeam;
+    }
+    if (!home || !away) {
+      home = TEAMS[0];
+      away = TEAMS[1];
+    }
+
+    this.matchSequence++;
+    const seed = Number.isInteger(suppliedSeed)
+      ? suppliedSeed >>> 0
+      : (Date.now() ^ (this.matchSequence * 2654435761)) >>> 0;
+    const sim = new MatchSim({
+      home,
+      away,
+      difficulty: this.state.settings.difficulty,
+      seed,
+      userTeam,
+    });
+    this.sceneView = new MatchScene(this.scene, this.camera, this.environment, this.state.settings);
+    this.sceneView.attach(sim);
+    this.sceneView.update(sim, 0);
+    this.hud.attach(sim);
+    this.hud.showBanner('DIVE IN', 'WARM-UP LAPS · GET A FEEL FOR THE POOL', 1700);
+    this.touchControls.attach(sim, this.sceneView.gameCam);
+    this.bench.attach(sim);
+    this.match = {
+      sim,
+      mode,
+      userTeam,
+      renderer: this.sceneView,
+      hud: this.hud,
+      touchControls: this.touchControls,
+      bench: this.bench,
+      paused: false,
+      completeHandled: false,
+      settingsOverlay: null,
+    };
+    this.clearScreen();
+    this.matchWrap.style.display = 'block';
+    this.currentScreen = 'match';
+    this.currentScreenObject = null;
+    this.audio.unlock();
+    this.audio.playRefWhistle();
+    return this.match;
+  }
+
+  disposeMatch() {
+    if (!this.match && !this.sceneView) return;
+    this.pauseOverlay?.el?.remove();
+    this.pauseOverlay = null;
+    this.settingsOverlay?.remove();
+    this.settingsOverlay = null;
+    this.bench.dispose();
+    this.hud.detach();
+    this.touchControls.attach(null, null);
+    this.sceneView?.dispose();
+    this.sceneView = null;
+    this.match = null;
+    this.matchWrap.classList.remove('touch');
+    this.matchWrap.style.display = 'none';
+    this.input.flushOneShots();
+    this.input.touch.active = false;
+    this.input.touch.shootHeld = false;
+    this.input.touch.turbo = false;
+  }
+
+  togglePause() {
+    if (!this.match) return false;
+    if (this.settingsOverlay) {
+      this.closeSettingsOverlay();
+      return true;
+    }
+    if (this.match.paused) {
+      this.resumeMatch();
+      return true;
+    }
+    this.match.paused = true;
+    this.pauseOverlay = PauseOverlay(this, {
+      onResume: () => this.resumeMatch(),
+      onQuit: () => this.go('title'),
+      onRestart: () => this.startMatch({
+        home: this.match?.sim.teams[0],
+        away: this.match?.sim.teams[1],
+        userTeam: this.match?.userTeam,
+        mode: this.match?.mode,
+      }),
+    });
+    this.matchWrap.appendChild(this.pauseOverlay.el);
+    return true;
+  }
+
+  resumeMatch() {
+    this.pauseOverlay?.el?.remove();
+    this.pauseOverlay = null;
+    if (this.match) this.match.paused = false;
+    this.input.flushOneShots();
+  }
+
+  openSettingsOverlay() {
+    if (!this.match || this.settingsOverlay) return;
+    const screen = SettingsScreen(this, { onBack: () => this.closeSettingsOverlay() });
+    screen.el.classList.add('in', 'overlay-screen');
+    this.matchWrap.appendChild(screen.el);
+    this.settingsOverlay = screen.el;
+    this.match.settingsOverlay = screen.el;
+  }
+
+  closeSettingsOverlay() {
+    this.settingsOverlay?.remove();
+    this.settingsOverlay = null;
+    if (this.match) this.match.settingsOverlay = null;
+  }
+
+  handleMatchCompletion() {
+    if (!this.match || this.match.completeHandled) return;
+    this.match.completeHandled = true;
+    const { sim, mode, userTeam } = this.match;
+    let careerResult = '';
+    if (userTeam !== null) {
+      const won = sim.winner === userTeam;
+      const style = sim.teamPlayers(userTeam).reduce((total, p) => total + p.stats.style, 0);
+      this.state.records[won ? 'wins' : 'losses']++;
+      this.state.records.styleBest = Math.max(this.state.records.styleBest || 0, style);
+      if (mode === 'career' && this.state.career) {
+        const margin = sim.score[userTeam] - sim.score[1 - userTeam];
+        recordResult(this.state.career, { won, score: [...sim.score], style, margin });
+        const injuries = rollInjuries(this.state.career, sim, userTeam);
+        const progress = awardPlayerProgress(this.state.career, { won, margin, style });
+        careerResult = `+${progress.earned} XP · ${won ? 'REP EARNED' : 'LESSON LEARNED'}`;
+        if (progress.unlocked.length) careerResult += ` · UNLOCKED ${progress.unlocked.join(', ')}`;
+        if (injuries.length) careerResult += ` · ${injuries.length} SWIMMER${injuries.length === 1 ? '' : 'S'} BANGED UP`;
+      }
+      this.save();
+    }
+    this.audio.playRefWhistle();
+    this.go('results', { sim, mode, userTeam, careerResult });
+  }
+
   gameLoop(now) {
     if (!this.isRunning) return;
-
-    const delta = Math.min((now - this.lastTime) / 1000, 0.1);
+    const dt = Math.max(0, Math.min((now - this.lastTime) / 1000, 0.1));
     this.lastTime = now;
+    this.environment.update(dt);
 
-    if (this.match) {
-      // 1. Update AI Tactical Formations
-      if (this.aiEngine) {
-        this.aiEngine.updateTactics(this.match);
+    if (this.match && this.currentScreen === 'match') {
+      const { sim } = this.match;
+      if (!this.match.paused) {
+        const drag = this.input.consumeLook();
+        this.sceneView.gameCam.orbit(drag.x, drag.y);
+        this.input.touch.camYaw = this.sceneView.gameCam.pYaw + this.sceneView.gameCam.orbitYaw;
+        this.input.setKeeperContext(sim.inCage, sim.userTeam === null ? 1 : sim.attackDir(sim.userTeam));
+        const sampled = this.input.poll();
+        if (!this.match.paused) {
+          sim.setUserInput(sampled);
+          sim.step(dt);
+        }
+        this.input.flushOneShots();
+      } else {
+        this.input.consumeLook();
+        this.pauseOverlay?.onNav(this.input.menuPoll());
       }
-
-      // 2. Process 3D Swimming Controls during Free Swim (Skip if QTE active)
-      if (!this.qteController.isActive && this.match.state === MATCH_STATES.FREE_SWIM) {
-        // Player (Besaid Aurochs) Swimming
-        if (this.match.ballCarrier && this.match.ballCarrier.teamId === 'besaid_aurochs') {
-          const swimDir = this.touch.getSwimDirection();
-          this.match.ballCarrier.position.x += swimDir.x * 4.0 * delta;
-          this.match.ballCarrier.position.z += swimDir.z * 4.0 * delta;
-        }
-
-        // Opponent AI Swimming & Field Positioning
-        if (this.aiEngine && this.match.awayTeam) {
-          this.match.awayTeam.players.forEach(aiPlayer => {
-            if (!aiPlayer.position) return;
-            const dir = this.aiEngine.calculatePlayerMovement(aiPlayer, this.match);
-            const speed = aiPlayer.spd || 30;
-            const moveFactor = (speed / 30) * 3.5 * delta;
-            
-            aiPlayer.position.x += dir.x * moveFactor;
-            aiPlayer.position.z += dir.z * moveFactor;
-          });
-        }
-      }
-
-      // 3. Step Match Engine State Machine
-      if (!this.qteController.isActive) {
-        const previousState = this.match.state;
-        this.match.step(delta);
-
-        // Trigger Encounter Menu or AI Decision Step
-        if (this.match.state === MATCH_STATES.ENCOUNTER_MENU && previousState !== MATCH_STATES.ENCOUNTER_MENU) {
-          this.touch.triggerHaptic('encounter');
-          
-          if (this.match.ballCarrier && this.match.ballCarrier.teamId !== 'besaid_aurochs' && this.aiEngine) {
-            // AI Ball Carrier Decision
-            const keeper = this.match.homeTeam.players.find(p => p.pos === 'GK') || this.match.homeTeam.players[this.match.homeTeam.players.length - 1];
-            const distToGoal = Math.abs(this.match.ballCarrier.position.z - 18);
-            
-            const aiChoice = this.aiEngine.selectEncounterAction(
-              this.match.ballCarrier,
-              this.match.nearbyDefenders,
-              keeper,
-              distToGoal
-            );
-            
-            this.match.executeEncounterAction(aiChoice.action, aiChoice);
-          } else {
-            // Player Menu Modal
-            this.hud.showEncounterMenu(
-              this.match.ballCarrier,
-              this.match.nearbyDefenders,
-              (action, payload) => this.match.executeEncounterAction(action, payload)
-            );
-          }
-        }
-
-        // Detect Match Completion & Trigger Auto-Save Pipeline
-        if (this.match.state === MATCH_STATES.MATCH_OVER && previousState !== MATCH_STATES.MATCH_OVER) {
-          this.handleMatchCompletion();
-        }
-      }
-
-      // 4. Draw Mini-Map Radar
-      this.hud.drawRadar(this.match);
-    }
-
-    // 5. Update 3D Water Volume & Render
-    this.environment.update(delta);
-    this.renderer.render(this.scene, this.camera, delta);
-
-    requestAnimationFrame(this.gameLoop.bind(this));
-  }
-
-  /**
-   * Handles post-match updates: records scores, decays contracts, awards Gil, and auto-saves
-   */
-  async handleMatchCompletion() {
-    this.audio.playRefWhistle();
-    this.touch.triggerHaptic('goal');
-
-    // 1. Record match result into League / Tournament manager
-    this.league.recordMatchResult(
-      this.match.homeTeam.id,
-      this.match.awayTeam.id,
-      this.match.homeScore,
-      this.match.awayScore
-    );
-
-    // 2. Simulate AI match results for other teams in Spira
-    this.league.simulateAIMatches();
-
-    // 3. Award victory Gil & XP
-    if (this.match.homeScore > this.match.awayScore) {
-      this.scout.gil += 1000;
+      this.sceneView.update(sim, this.match.paused ? 0 : dt);
+      this.hud.update(sim);
+      this.touchControls.update(sim);
+      if (sim.state === 'over') this.handleMatchCompletion();
     } else {
-      this.scout.gil += 300;
+      this.currentScreenObject?.onNav?.(this.input.menuPoll());
     }
 
-    // 4. Decay player contracts by 1 game
-    const expiredAgents = this.scout.decayMatchContracts('besaid_aurochs');
-    if (expiredAgents.length > 0) {
-      console.log(`[Contracts Expired] Released: ${expiredAgents.join(', ')}`);
-    }
-
-    // 5. Persist auto-save payload to local & cloud endpoints
-    await this.autoSaveProgress();
-
-    // 6. Display Pre-Match Technique Assignment before advancing to next scheduled match
-    const homeTeam = TEAMS['besaid_aurochs'];
-    this.techView.open(homeTeam, () => {
-      this.leagueView.open(this.league, () => this.handleNextScheduledMatch());
-    });
+    this.renderer.render(this.scene, this.camera, dt);
+    requestAnimationFrame((time) => this.gameLoop(time));
   }
 
-  /**
-   * Progresses tournament/league to the next round and launches the match
-   */
-  handleNextScheduledMatch() {
-    this.league.currentRound++;
-    this.startNewMatch('besaid_aurochs', 'al_bhed_psyches');
-  }
-
-  /**
-   * Serializes active state modules and writes to local & cloud storage
-   */
-  async autoSaveProgress() {
-    const payload = {
-      ...this.savedState,
-      league: this.saveManager.serializeLeague(this.league),
-      scout: this.saveManager.serializeScout(this.scout),
-      updatedAt: Date.now()
-    };
-
-    const success = await this.saveManager.save(payload);
-    if (success) {
-      console.log('[AutoSave] Progress successfully synced to local & cloud storage.');
-    }
+  destroy() {
+    this.isRunning = false;
+    this.disposeMatch();
+    this.touchControls.destroy();
+    this.input.destroy();
+    this.renderer.destroy();
+    window.removeEventListener('resize', this.onResize);
   }
 }
 

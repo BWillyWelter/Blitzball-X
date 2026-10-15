@@ -247,6 +247,23 @@ export class FXSystem {
     this.trail.geometry.attributes.color.needsUpdate = true;
   }
 
+  dispose() {
+    for (const ring of this.rings) {
+      this.scene.remove(ring.mesh);
+      ring.mesh.geometry?.dispose?.();
+      ring.mesh.material?.dispose?.();
+    }
+    this.rings.length = 0;
+    this.scene.remove(this.points, this.trail);
+    this.geo.dispose();
+    this.points.material.dispose();
+    this.trail.geometry.dispose();
+    this.trail.material.dispose();
+    this.ringGeo.dispose();
+    this.particles.length = 0;
+    this.trailHistory.length = 0;
+  }
+
   update(dt) {
     const ps = this.particles;
     let n = 0;
