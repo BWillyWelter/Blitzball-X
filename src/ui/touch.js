@@ -57,6 +57,12 @@ export class TouchControls {
     this.gameCamera = null;
     this.enabledByMode = false;
     this.pointer = { move: null, look: null, strike: null };
+    // Depth buttons currently held, in press order: the pad has one depth axis, so releasing DIVE
+    // has to fall back to a RISE that is still held rather than snapping the swimmer to neutral.
+    this.depthHolds = [];
+    // A window blur wipes InputManager's held state but knows nothing about this controller's own
+    // pointer ownership, so without this the pad stays "pressed" and ignores the next tap.
+    this.input.onTouchReset = () => this.clearTouchInput();
     this.el = document.createElement('div');
     this.el.className = 'touch-ui';
     this.el.innerHTML = `
@@ -108,8 +114,12 @@ export class TouchControls {
     this.enabledByMode = mode === 'on' || (mode === 'auto' && this.isCoarsePointer());
     if (this.gameCamera) this.gameCamera.manual = this.enabledByMode;
     this.el.dataset.layout = this.settings.touchLayout === 'left' ? 'left' : 'right';
-    this.el.style.setProperty('--touch-scale', String(clamp(Number(this.settings.touchScale) || 1, 0.8, 1.3)));
-    this.el.style.setProperty('--touch-opacity', String(clamp(Number(this.settings.touchOpacity) || 0.82, 0.4, 1)));
+    // Test for a usable number rather than truthiness: `0 || 0.82` read a deliberately-minimum
+    // opacity as "unset" and quietly used the default instead of clamping it.
+    const scale = Number(this.settings.touchScale);
+    const opacity = Number(this.settings.touchOpacity);
+    this.el.style.setProperty('--touch-scale', String(clamp(Number.isFinite(scale) ? scale : 1, 0.8, 1.3)));
+    this.el.style.setProperty('--touch-opacity', String(clamp(Number.isFinite(opacity) ? opacity : 0.82, 0.4, 1)));
     this.syncVisibility();
   }
 
@@ -137,6 +147,7 @@ export class TouchControls {
     });
     touch.edges.clear();
     this.pointer = { move: null, look: null, strike: null };
+    this.depthHolds = [];
     this.moveAnchorX = this.moveAnchorY = undefined;
     this.lastLook = this.strikeOrigin = null;
     this.stick?.classList.remove('engaged');
@@ -171,7 +182,7 @@ export class TouchControls {
 
     this.el.querySelectorAll('[data-depth]').forEach((button) => {
       this.bindHold(button, (down) => {
-        this.input.touch.moveY = down ? Number(button.dataset.depth) : 0;
+        this.setDepth(Number(button.dataset.depth), down);
         button.classList.toggle('down', down);
       });
     });
@@ -184,8 +195,10 @@ export class TouchControls {
     this.strike.addEventListener('pointerdown', (event) => this.startStrike(event));
     this.strike.addEventListener('pointermove', (event) => this.moveStrike(event));
     this.strike.addEventListener('pointerup', (event) => this.endStrike(event));
-    this.strike.addEventListener('pointercancel', (event) => this.endStrike(event));
-    this.strike.addEventListener('lostpointercapture', (event) => this.endStrike(event));
+    // A cancelled gesture (browser takeover, palm rejection, lost capture) must never be read as a
+    // lift-off: release the pad silently instead of firing a shot nobody asked for.
+    this.strike.addEventListener('pointercancel', (event) => this.cancelStrike(event));
+    this.strike.addEventListener('lostpointercapture', (event) => this.cancelStrike(event));
 
     this.el.querySelector('.touch-pause').addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -220,6 +233,17 @@ export class TouchControls {
     element.addEventListener('pointerup', release);
     element.addEventListener('pointercancel', release);
     element.addEventListener('lostpointercapture', release);
+  }
+
+  /**
+   * Depth is one axis driven by two buttons: remember which are held and publish the most recent
+   * one, so pressing the opposite button takes over immediately and releasing it hands the axis
+   * back to the button still under a finger (rather than dropping the swimmer to neutral).
+   */
+  setDepth(depth, down) {
+    this.depthHolds = this.depthHolds.filter((d) => d !== depth);
+    if (down) this.depthHolds.push(depth);
+    this.input.touch.moveY = this.depthHolds.length ? this.depthHolds[this.depthHolds.length - 1] : 0;
   }
 
   setAction(action, down) {
@@ -337,22 +361,40 @@ export class TouchControls {
       this.input.touch.keeperAim = { z: clamp(x, -1, 1), height: clamp(y, -1, 1) };
       return;
     }
+    // Same camera-relative rotation as the movement stick (see InputManager.poll): a swipe up is
+    // "forward", a swipe right is camera-right, and both stay true as the camera turns. The two
+    // axes are rotated together — flipping only one of them aimed the shot behind the shooter.
     const yaw = Number.isFinite(this.input.touch.camYaw) ? this.input.touch.camYaw : 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    this.input.touch.aimX = clamp(cos * x - sin * y, -1, 1);
-    this.input.touch.aimZ = clamp(-sin * x - cos * y, -1, 1);
+    this.input.touch.aimX = clamp(cos * x + sin * y, -1, 1);
+    this.input.touch.aimZ = clamp(-sin * x + cos * y, -1, 1);
   }
 
   endStrike(event) {
     if (this.pointer.strike !== event.pointerId) return;
+    const inCage = !!this.sim?.inCage;
+    this.releaseStrike();
+    if (inCage) this.input.touch.edges.add('shoot');
+    else this.input.touch.edges.add('shootRelease');
+  }
+
+  /** Drop the strike gesture without publishing an edge (cancelled or lost pointer). */
+  cancelStrike(event) {
+    if (this.pointer.strike !== event.pointerId) return;
+    this.releaseStrike();
+    // Drop the keeper aim with it: a cancelled dive must not be handed to the next one.
+    this.input.touch.keeperAim = null;
+  }
+
+  // The swipe aim is deliberately NOT cleared here: the lift is what fires, and the shot (or the
+  // keeper dive) reads the aim published on that same frame.
+  releaseStrike() {
     this.pointer.strike = null;
     this.strikeOrigin = null;
     this.strike.classList.remove('down');
     this.strikeDot.style.transform = 'translate(-50%, -50%)';
     this.input.touch.shootHeld = false;
-    if (this.sim?.inCage) this.input.touch.edges.add('shoot');
-    else this.input.touch.edges.add('shootRelease');
   }
 
   update(sim = this.sim) {

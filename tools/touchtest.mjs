@@ -87,14 +87,16 @@ const ui = await page.evaluate(() => {
     viewport: window.innerWidth,
     vertical: document.querySelectorAll('.touch-ui .touch-vertical .touch-btn').length,
     pauseBtn: !!document.querySelector('.touch-ui .touch-pause'),
+    cageBtn: !!document.querySelector('.touch-ui .touch-cage'),
     manualCam: window.app.match.renderer.gameCam.manual === true,
-    hint: document.querySelector('.hint')?.textContent || '',
+    hintDisplay: document.querySelector('.hint') ? getComputedStyle(document.querySelector('.hint')).display : 'missing',
+    lookHint: document.querySelector('.touch-ui .touch-look-hint')?.textContent || '',
   };
 });
 ok('overlay present during match', ui.overlay);
 ok(
-  'two zones + strike pad + 5 action buttons + depth + tactics + pause rendered',
-  ui.move && ui.look && ui.strike && ui.buttons === 7 && ui.actions === 10 && ui.vertical === 2 && ui.pauseBtn,
+  'two zones + strike pad + 5 action buttons + depth + GK + pause rendered',
+  ui.move && ui.look && ui.strike && ui.buttons === 7 && ui.actions === 5 && ui.vertical === 2 && ui.pauseBtn && ui.cageBtn,
   `buttons=${ui.buttons} actions=${ui.actions}`,
 );
 ok(
@@ -106,7 +108,13 @@ ok('the old arc / defense / stick-zone DOM is gone', ui.oldRing === false);
 ok('the strike pad is labelled SHOOT', ui.strikeLabel === 'SHOOT', ui.strikeLabel);
 ok('left half moves, right half looks', ui.leftHalf === ui.viewport / 2 && ui.rightHalf === ui.viewport / 2, `${ui.leftHalf}/${ui.rightHalf} of ${ui.viewport}`);
 ok('touch mode takes the camera off auto-follow', ui.manualCam === true);
-ok('hint switched to touch wording', /LEFT half/.test(ui.hint), ui.hint.slice(0, 56));
+// The keyboard hint is retired in touch mode (it lists WASD keys nothing on the phone can press)
+// and the pad publishes its own wording instead.
+ok(
+  'the keyboard hint steps aside for the touch wording',
+  ui.hintDisplay === 'none' && /RIGHT HALF/.test(ui.lookHint),
+  `hint=${ui.hintDisplay} look=${JSON.stringify(ui.lookHint)}`,
+);
 
 // ------------------------------------------------------------------- stick
 // The stick is read relative to the camera, so the same thumb push must resolve to a different
@@ -182,11 +190,15 @@ const stick = await page.evaluate(() => {
       seen = sim.state;
     }
   }
-  const nub = document.querySelector('.touch-ui .touch-stick-nub').style.transform;
   // The ring must sit under the thumb: it is absolutely positioned inside the zone, so its
-  // viewport centre should land on the touch point (the "joystick placement" fix).
+  // viewport centre should land on the touch point (the "joystick placement" fix). The nub is
+  // measured as an offset from the ring's centre, so the check does not depend on how the
+  // transform is spelled (the ring offsets use calc() and pixel units).
   const sr = document.querySelector('.touch-ui .touch-stick').getBoundingClientRect();
   const centre = { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 };
+  const nr = document.querySelector('.touch-ui .touch-stick-nub').getBoundingClientRect();
+  const nubOffset = { x: nr.left + nr.width / 2 - centre.x, y: nr.top + nr.height / 2 - centre.y };
+  const nub = { x: nubOffset.x, y: nubOffset.y, length: Math.hypot(nubOffset.x, nubOffset.y) };
   pe('pointerup', cx, cy - 70);
   const after = app.input.poll();
   const lookLeak = app.input.touch.lookX || app.input.touch.lookY;
@@ -196,9 +208,13 @@ ok('stick up+right at yaw 0 reads +x / +z', stick.atZero.x > 0.5 && stick.atZero
 ok('the same push with the camera turned reads +x / -z', stick.atNinety.x > 0.5 && stick.atNinety.z < -0.5, `(${stick.atNinety.x.toFixed(2)}, ${stick.atNinety.z.toFixed(2)})`);
 ok('stick moves the swimmer', stick.moved > 0.5, `${stick.moved.toFixed(2)} m  state=${stick.seen}`);
 ok('holding "forward" travels along the camera forward (+x here)', stick.dx > 0.2, `dx=${stick.dx.toFixed(2)}  state=${stick.seen}`);
-const nubNums = (stick.nub.match(/-?\d+(\.\d+)?/g) || []).map(Number);
-const nubLen = Math.hypot(nubNums[2] || 0, nubNums[3] || 0);
-ok('stick nub follows the thumb (clamped to rim)', nubLen > 50 && nubLen < 60, `offset ${nubLen.toFixed(1)}px`);
+// The last pointer move was a straight-up hold of 70px, i.e. past the 58px rim: the nub must follow
+// it and stop at the rim.
+ok(
+  'stick nub follows the thumb, clamped to the rim',
+  stick.nub.length > 50 && stick.nub.length < 62 && stick.nub.y < -40 && Math.abs(stick.nub.x) < 6,
+  `offset (${stick.nub.x.toFixed(0)}, ${stick.nub.y.toFixed(0)}) = ${stick.nub.length.toFixed(1)}px`,
+);
 ok('stick release returns to neutral', Math.abs(stick.released.x) < 1e-6 && Math.abs(stick.released.z) < 1e-6);
 ok('stick inactive after release', stick.active === false);
 ok('a stick touch never drives the camera', !stick.lookLeak, `look=${stick.lookLeak}`);
@@ -404,8 +420,12 @@ const buttons = await page.evaluate(() => {
   const sx = sr.left + sr.width / 2;
   const sy = sr.top + sr.height / 2;
   const swipe = (type, dx, dy, id = 3) => strike.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: sx + dx, clientY: sy + dy, bubbles: true, cancelable: true, isPrimary: true }));
-  const shootOnce = (dx, dy) => {
+  const shootOnce = (dx, dy, close = false) => {
     const p = fresh(sim.outfield(0)[0]);
+    // `close` puts the shooter on the goal line: the shot's spread grows with distance (see
+    // fireShot), so a cross-pool shot's ring offset is spread-dominated and says nothing about the
+    // swipe, while from 2.5 m the steer is the signal.
+    if (close) p.pos.set(sim.goalPos(p.team).x - 2.5, 0, 0);
     for (const q of sim.players) {
       if (q === p) continue;
       q.stun = 999;
@@ -447,6 +467,10 @@ const buttons = await page.evaluate(() => {
   out.shootLeft = shootOnce(-70, 0); // swipe left
   ensureLive();
   out.shootUp = shootOnce(0, -70); // swipe straight away from the camera
+  ensureLive();
+  out.closeRight = shootOnce(70, 0, true); // same right swipe, taken from the goal line
+  ensureLive();
+  out.closeLeft = shootOnce(-70, 0, true);
 
   // TURBO burns the meter while held and swimming somewhere (a stationary swimmer cannot turbo)
   ensureLive();
@@ -491,12 +515,25 @@ ok('hold+swipe+lift lands in the PERFECT window', buttons.shoot.quality === 1, `
 ok('a right swipe aims the shot to that side', buttons.shoot.aimed.x > 0.9 && Math.abs(buttons.shoot.aimed.z) < 0.1, JSON.stringify(buttons.shoot.aimed));
 ok('a left swipe aims the shot the other way', buttons.shootLeft.aimed.x < -0.9, JSON.stringify(buttons.shootLeft.aimed));
 ok('a swipe away from the camera aims forward', buttons.shootUp.aimed.z > 0.9 && Math.abs(buttons.shootUp.aimed.x) < 0.1, JSON.stringify(buttons.shootUp.aimed));
-// Lateral aim takes the swipe's sign into the shot's ring target. A straight-away swipe means "no
-// steer", so that shot falls back to the keeper-derived side and must NOT be pinned to zero.
+// Lateral aim takes the swipe's sign into the shot's ring target: swiping right sends the ball to
+// one side of the mouth, swiping left to the other, measured from the goal line where the steer
+// beats the spread (the numbers above, from 15 m out, are spread-dominated and read nothing).
 ok(
-  'the swipe direction actually bends the shot in the sim',
-  buttons.shoot.aimZ > 0.1 && buttons.shootLeft.aimZ < -0.1 && Math.abs(buttons.shootUp.aimZ) < Math.abs(buttons.shoot.aimZ),
-  `right=${buttons.shoot.aimZ.toFixed(2)} left=${buttons.shootLeft.aimZ.toFixed(2)} up=${buttons.shootUp.aimZ.toFixed(2)}`,
+  'a right swipe bends the shot to that side of the mouth',
+  buttons.closeRight.aimZ > 0.5,
+  `aimZ=${buttons.closeRight.aimZ.toFixed(2)}`,
+);
+ok(
+  'a left swipe bends the shot to the other side',
+  buttons.closeLeft.aimZ < -0.5,
+  `aimZ=${buttons.closeLeft.aimZ.toFixed(2)}`,
+);
+// A straight-away swipe means "no steer": the ring falls back to the keeper-derived side, which is
+// a small offset either way — never the pinned-zero of a dropped aim.
+ok(
+  'a swipe straight away leaves the ring to the keeper read, not to the swipe',
+  Math.abs(buttons.shootUp.aimZ) < Math.abs(buttons.closeRight.aimZ),
+  `up=${buttons.shootUp.aimZ.toFixed(2)} right=${buttons.closeRight.aimZ.toFixed(2)}`,
 );
 ok('TURBO engages while held + moving', buttons.turbo === true, buttons.turboDebug);
 ok('TURBO releases when let go', buttons.turboOff === true);
@@ -536,8 +573,10 @@ const gb = await page.evaluate(() => {
     unlitLabel: strike.querySelector('.touch-strike-label').textContent,
   };
 });
-ok('the strike pad glows for the GAME BREAKER but keeps its label', gb.lit === true && gb.litLabel === 'SHOOT', gb.litLabel);
-ok('the strike pad dims back down when spent (label still SHOOT)', gb.unlit === true && gb.unlitLabel === 'SHOOT', gb.unlitLabel);
+// While the meter is full the pad both lights up and names the move it now performs (the same
+// input triggers the Gamebreaker, and the pad is the only place a thumb can learn that).
+ok('the strike pad glows and names the GAME BREAKER while the meter is full', gb.lit === true && gb.litLabel === 'GAMEBREAKER', gb.litLabel);
+ok('the strike pad dims back to SHOOT when spent', gb.unlit === true && gb.unlitLabel === 'SHOOT', gb.unlitLabel);
 
 // ------------------------------------------------- permanent buttons + layout
 const adaptive = await page.evaluate(() => {
@@ -625,9 +664,14 @@ const measureOverlay = () => {
 const geom = await page.evaluate(() => {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  // Every `.touch-btn` is named here, including the unlabelled depth buttons: defaulting them to
+  // 'strike' made `boxes.find(... 'strike')` return RISE, which silently broke the three checks
+  // below it (they then measured a 54px corner button instead of the strike pad).
+  const label = (el) => el.dataset.action
+    || (el.classList.contains('touch-strike') ? 'strike' : el.classList.contains('vert') ? `depth${el.dataset.depth}` : 'unlabelled');
   const boxes = [...document.querySelectorAll('.touch-ui .touch-btn, .touch-ui .touch-strike')].map((b) => {
     const r = b.getBoundingClientRect();
-    return { action: b.dataset.action || 'strike', x: r.left, y: r.top, w: r.width, h: r.height };
+    return { action: label(b), x: r.left, y: r.top, w: r.width, h: r.height };
   });
   const overlaps = [];
   const outside = [];
@@ -743,8 +787,11 @@ const preset = await page.evaluate(() => {
   const scale = document.querySelector('.overlay-screen .set-row[data-key="touchScale"] input');
   const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   const before = pad().dataset.layout;
+  const savedOpacity = String(app.state.settings.touchOpacity);
   click(picks[1]); // LEFT-HAND
   const mirrored = pad().dataset.layout;
+  // The pad mirrors the settings the app has saved, whatever they are (the harness forced a
+  // different opacity earlier in the run, and the overlay must not keep that stale value).
   const opacity = pad().style.getPropertyValue('--touch-opacity');
   scale.value = '1.2';
   scale.dispatchEvent(new Event('input', { bubbles: true }));
@@ -762,6 +809,7 @@ const preset = await page.evaluate(() => {
     overlayClosed: !document.querySelector('.overlay-screen'),
     matchKept: !!app.match && app.match.paused && !!document.querySelector('.touch-ui'),
     saved: app.state.settings,
+    savedOpacity,
   };
 });
 ok(
@@ -772,8 +820,8 @@ ok(
 ok('BACK from in-match settings returns to the paused match', preset.matchKept === true);
 ok(
   'pause → settings sliders re-scale the live pad',
-  preset.scaled === '1.2' && preset.opacity === '1' && preset.saved.touchScale === 1.2 && preset.saved.touchLayout === 'right',
-  `scale=${preset.scaled} opacity=${preset.opacity} saved=${JSON.stringify(preset.saved.touchScale)}`,
+  preset.scaled === '1.2' && preset.opacity === preset.savedOpacity && preset.saved.touchScale === 1.2 && preset.saved.touchLayout === 'right',
+  `scale=${preset.scaled} opacity=${preset.opacity} (saved ${preset.savedOpacity}) scale-saved=${JSON.stringify(preset.saved.touchScale)}`,
 );
 // Put the size back so the screenshots further down use the tuned default.
 await page.evaluate(() => {
@@ -798,27 +846,337 @@ const ownership = await page.evaluate(() => {
   };
   const pe = (el, type, x = 0, y = 0, id = 0) => el.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true, isPrimary: true }));
 
-  // Safe reset helper: prefer tc.reset() but fall back to clearing known input state if reset() is absent.
-  const safeReset = () => {
-    try {
-      if (tc && typeof tc.reset === 'function') {
-        tc.reset();
-        return;
-      }
-      // fallback: clear input one-shots, edges and pending maps/sets to approximate the original reset
-      if (input && typeof input.flushOneShots === 'function') input.flushOneShots();
-      if (input && input.touch && input.touch.edges && typeof input.touch.edges.clear === 'function') input.touch.edges.clear();
-      if (input && input.pending && typeof input.pending.clear === 'function') input.pending.clear();
-      // also clear shoot/turbo flags if present
-      if (input && input.touch) {
-        input.touch.shootHeld = false;
-        input.touch.turbo = false;
-      }
-    } catch (e) {
-      // swallow test-side fallback errors to avoid hard crash
-      try { console.error('safeReset fallback error', e && e.stack ? e.stack : e); } catch (__) {}
+  // Reset between scenarios through the controller's own lifecycle reset: it drops held buttons,
+  // latched edges, pointer ownership and the stick's visuals — the same path the app takes when a
+  // match tears down or the window loses focus.
+  const reset = () => {
+    tc.clearTouchInput();
+    input.flushOneShots();
+  };
+
+  reset();
+
+  // Turbo is a hold and the strike pad owns its own pointer id: a release from a DIFFERENT finger
+  // (a stray pointerup) must cancel neither of them.
+  fire('turbo', 'pointerdown', 101);
+  const deadShootButton = !document.querySelector('.touch-ui [data-action="shoot"]') && !input.touch.shootHeld;
+  pe(strike, 'pointerdown', 100, 100, 103);
+  pe(strike, 'pointerup', 100, 100, 999); // someone else's pointer: ignored
+  const unrelatedReleaseIgnored = input.touch.shootHeld && input.touch.turbo;
+  pe(strike, 'pointerup', 100, 100, 103);
+  const independentRelease = !input.touch.shootHeld && input.touch.turbo;
+
+  // RISE / DIVE are one depth axis: the most recent press takes over, and letting go of it hands
+  // the axis back to whatever is still held instead of dropping the swimmer to neutral.
+  const depthBtn = (depth) => document.querySelector(`.touch-ui .touch-btn[data-depth="${depth}"]`);
+  const rise = depthBtn(1);
+  const dive = depthBtn(-1);
+  for (const el of [rise, dive]) el.setPointerCapture = () => {};
+  reset();
+  pe(rise, 'pointerdown', 104);
+  const riseHeld = input.touch.moveY;
+  pe(dive, 'pointerdown', 105);
+  const opposingDepth = input.touch.moveY;
+  pe(dive, 'pointerup', 105);
+  const remainingDepth = input.touch.moveY;
+  pe(rise, 'pointerup', 104);
+  const depthReleased = input.touch.moveY;
+
+  // A cancelled strike gesture is not a shot: the pad releases without publishing an edge.
+  reset();
+  pe(strike, 'pointerdown', 100, 100, 107);
+  input.poll();
+  pe(strike, 'pointercancel', 100, 100, 107);
+  const cancellation = !input.touch.shootHeld && input.touch.edges.size === 0 && !input.poll().shootReleased;
+
+  // GK takes the cage edge, the same one the keyboard's KeyV produces.
+  reset();
+  const cageButton = document.querySelector('.touch-ui .touch-cage');
+  cageButton.setPointerCapture = () => {};
+  cageButton.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 106, pointerType: 'touch', bubbles: true, cancelable: true }));
+  const cage = input.poll().cage === true;
+
+  // Zone ownership: one finger on the move zone and another on the look zone must not cross.
+  reset();
+  pe(moveZone, 'pointerdown', 60, 200, 110);
+  pe(moveZone, 'pointermove', 60, 140, 110);
+  pe(lookZone, 'pointerdown', 700, 200, 111);
+  pe(lookZone, 'pointermove', 780, 200, 111);
+  const splitPoll = input.poll();
+  const splitLook = input.consumeLook();
+  const splitConsent = input.touch.active === true
+    && Math.abs(splitPoll.moveX) + Math.abs(splitPoll.moveZ) > 0.9
+    && splitLook.x > 70;
+  pe(moveZone, 'pointerup', 60, 140, 110);
+  pe(lookZone, 'pointerup', 780, 200, 111);
+  const bothReleased = !input.touch.active && !input.touch.lookX && !input.touch.lookY;
+
+  // Tab-switch safety: a blur drops held actions AND the pad's own pressed / pointer state, so the
+  // next tap after coming back is not swallowed by a button that still thinks a finger is on it.
+  fire('turbo', 'pointerdown', 108);
+  window.dispatchEvent(new Event('blur'));
+  const blur = !input.touch.turbo
+    && !document.querySelector('.touch-ui .down')
+    && tc.pointer.move === null && tc.pointer.look === null && tc.pointer.strike === null;
+
+  // Every action button still delivers its own edge.
+  const actionEdges = [];
+  for (const [action, field] of [['tackle', 'trick'], ['hit', 'hit'], ['breach', 'breach'], ['pass', 'pass']]) {
+    reset();
+    fire(action, 'pointerdown', 120);
+    const polled = { ...input.poll() };
+    actionEdges.push(polled[field] === true);
+    fire(action, 'pointerup', 120);
+  }
+
+  // The pad's pause button runs the same callback as ESC, and leaves no latched action behind.
+  reset();
+  const pauseButton = document.querySelector('.touch-ui .touch-pause');
+  const tapPause = () => pauseButton.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 109, pointerType: 'touch', bubbles: true, cancelable: true }));
+  window.app.match.paused = true; // the harness owns the clock in these deterministic sections
+  tapPause();
+  const pauseResumes = window.app.match.paused === false;
+  tapPause();
+  const pauseLatches = window.app.match.paused === true;
+  window.app.resumeMatch();
+  const pause = input.pending.size === 0;
+
+  return {
+    deadShootButton,
+    unrelatedReleaseIgnored,
+    independentRelease,
+    riseHeld: riseHeld === 1,
+    opposingDepth: opposingDepth === -1,
+    remainingDepth: remainingDepth === 1,
+    depthReleased: depthReleased === 0,
+    cancellation,
+    cage,
+    splitConsent,
+    bothReleased,
+    blur,
+    pause: pause && pauseResumes && pauseLatches,
+    explicitActions: actionEdges.every(Boolean),
+  };
+});
+for (const [name, passed] of Object.entries(ownership)) ok(`rebuilt touch lifecycle: ${name}`, passed);
+
+// ----------------------------------------------------- manual keeper control surface
+// The pad has to become the keeper's own instrument: GK hands control to your keeper, the strike
+// pad relabels to DIVE and its swipe aims the dive instead of a shot, and a cancelled gesture never
+// becomes a delayed dive. The dive physics themselves are covered deterministically by the node
+// suite (tests/sim.test.mjs, tests/mechanics.test.mjs) — what is checked here is the touch plumbing
+// into them, which only exists in the browser.
+const keeper = await page.evaluate(() => {
+  const app = window.app;
+  const m = app.match;
+  const sim = m.sim;
+  const input = app.input;
+  const tc = m.touchControls;
+  m.paused = true;
+  // The cage is only offered while the play is at your own end, so set that state up directly.
+  sim.state = 'live';
+  sim.keeperSwitchCd = 0;
+  sim.ball.holder = null;
+  sim.ball.pos.copy(sim.ownGoalPos(sim.userTeam));
+  input.flushOneShots();
+  const cageButton = document.querySelector('.touch-ui .touch-cage');
+  cageButton.setPointerCapture = () => {};
+  const tapCage = () => cageButton.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 130, pointerType: 'touch', bubbles: true, cancelable: true }));
+  const stepInput = (n = 1) => {
+    for (let i = 0; i < n; i++) {
+      sim.setUserInput(input.poll());
+      sim.step(1 / 60);
+      input.flushOneShots();
     }
   };
 
-  safeReset();
+  tapCage();
+  stepInput();
+  const enteredViaButton = sim.inCage === true && sim.controlled.isKeeper === true;
+  tc.update(sim);
+  const inCageClass = document.querySelector('.touch-ui').classList.contains('in-cage');
+  const diveLabel = tc.strikeLabel.textContent === 'DIVE';
+
+  const strike = tc.strike;
+  strike.setPointerCapture = () => {};
+  const swipe = (type, x, y, id = 141) => strike.dispatchEvent(new PointerEvent(type, {
+    pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true, isPrimary: true,
+  }));
+  const gk = sim.controlled;
+  gk.state = 'idle';
+  gk.stun = 0;
+  gk.cd.dive = 0;
+  // Flick across-and-up: -x is one way along the goalmouth, +y is the high half of it. The aim is
+  // held by the pad until the dive fires (the release IS the dive), so it is read after the lift.
+  swipe('pointerdown', 600, 260);
+  swipe('pointermove', 545, 205);
+  const heldAim = { ...(input.touch.keeperAim || {}) };
+  swipe('pointerup', 545, 205);
+  const releasedAim = { ...(input.poll().keeperAim || {}) };
+  stepInput();
+  const aimLocked = gk.diveDir < -0.7 && gk.diveHeight > 0.7;
+  const aimDebug = `dive dir=${gk.diveDir.toFixed(2)} height=${gk.diveHeight.toFixed(2)} pad=${JSON.stringify(heldAim)} released=${JSON.stringify(releasedAim)}`;
+
+  // A cancelled gesture must never become a delayed dive.
   input.flushOneShots();
+  swipe('pointerdown', 600, 260, 142);
+  swipe('pointercancel', 620, 240, 142);
+  const cancelSafe = !input.touch.shootHeld && input.touch.edges.size === 0;
+
+  sim.keeperSwitchCd = 0;
+  tapCage();
+  stepInput();
+  tc.update(sim);
+  const leftCage = sim.inCage === false;
+  const restored = tc.strikeLabel.textContent === 'SHOOT'
+    && !document.querySelector('.touch-ui').classList.contains('in-cage');
+
+  return { enteredViaButton, inCageClass, diveLabel, aimLocked, aimDebug, cancelSafe, leftCage, restored };
+});
+for (const [name, passed] of Object.entries(keeper)) {
+  if (name === 'aimDebug') continue;
+  ok(`keeper control surface: ${name}`, passed, name === 'aimLocked' ? keeper.aimDebug : '');
+}
+
+// ----------------------------------------------------- full match on touch
+// Hand the clock back to the app loop for the real thing: un-pause, then re-base its clock so the
+// first resumed frame cannot treat the whole deterministic block as one giant dt.
+await page.evaluate(() => {
+  const app = window.app;
+  app.match.paused = false;
+  app.lastTime = performance.now();
+});
+const finish = await page.evaluate(() => {
+  const app = window.app;
+  const m = app.match;
+  let n = 0;
+  while (m.sim.state !== 'over' && n++ < 60 * 60 * 30) {
+    const inp = app.input.poll();
+    m.sim.setUserInput(inp);
+    m.sim.step(1 / 60);
+  }
+  m.renderer.update(0.05);
+  m.hud.update();
+  app.renderer.render(app.scene, app.camera, 0.05);
+  return { state: m.sim.state, score: m.sim.score, t: Math.round(m.sim.time), shots: m.sim.stats.shots, saves: m.sim.stats.saves };
+});
+ok('full touch-controlled match finishes', finish.state === 'over', `${finish.score.join('-')} in ${finish.t}s, ${finish.shots} shots / ${finish.saves} saves`);
+
+// ----------------------------------------------------------------- teardown
+await page.evaluate(() => window.app.go('title'));
+await new Promise((r) => setTimeout(r, 300));
+const afterQuit = await page.evaluate(() => ({
+  touch: !!document.querySelector('.touch-ui'),
+  hidden: getComputedStyle(document.querySelector('.match-wrap')).display === 'none',
+  reset: window.app.input.touch.active === false && window.app.input.touch.moveY === 0,
+}));
+ok('overlay goes away on quit', !afterQuit.touch);
+ok('the match surface is hidden again on quit', afterQuit.hidden);
+ok('touch state is cleared with the match', afterQuit.reset);
+
+// Regression: a match torn down while the in-match SETTINGS overlay is open (quit to menu, or the
+// final whistle while settings are up) used to leave a stale overlay reference behind, so the NEXT
+// match's pause menu swallowed its first ESC — it "closed" the detached element and returned
+// instead of resuming. Both teardown paths now clear the references.
+const staleOverlay = await page.evaluate(() => {
+  const app = window.app;
+  const open = () => {
+    app.startMatch({ home: app.teams[0], away: app.teams[1], userTeam: 0, mode: 'quick' });
+  };
+  open();
+  app.togglePause();
+  app.openSettingsOverlay();
+  app.go('title'); // quit with the settings overlay still open
+  open();
+  const pausedByFirst = app.input.onPause() === true && app.match.paused === true;
+  const resumedBySecond = app.input.onPause() === true && app.match.paused === false;
+  const overlayCleared = app.settingsOverlay === null && app.pauseOverlay === null;
+  app.go('title');
+  return { pausedByFirst, resumedBySecond, overlayCleared };
+});
+ok('a match torn down with settings open leaves no stale overlay', staleOverlay.overlayCleared === true);
+ok('the next match pause menu still closes on its first ESC', staleOverlay.pausedByFirst && staleOverlay.resumedBySecond, JSON.stringify(staleOverlay));
+
+// ---------------------------------------------------- settings: touch layout
+const settings = await page.evaluate(() => {
+  window.app.go('settings', { back: 'title' });
+  const keys = [...document.querySelectorAll('.set-row')].map((r) => r.dataset.key);
+  const sc = document.querySelector('.set-row[data-key="touchScale"] input');
+  const op = document.querySelector('.set-row[data-key="touchOpacity"] input');
+  const picks = [...document.querySelectorAll('.set-row[data-key="touchLayout"] .pick-btn')];
+  const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  click(picks[1]); // LEFT-HAND preset
+  const layoutSaved = window.app.state.settings.touchLayout;
+  const presetOn = picks[1].classList.contains('on') && !picks[0].classList.contains('on');
+  click(picks[0]); // back to RIGHT-HAND
+  const presetBack = window.app.state.settings.touchLayout === 'right' && picks[0].classList.contains('on');
+  set(sc, '1.2');
+  const scaleSaved = window.app.state.settings.touchScale;
+  const scalePct = document.querySelector('.set-row[data-key="touchScale"] .set-val').textContent;
+  set(op, '0.5');
+  const opacityPct = document.querySelector('.set-row[data-key="touchOpacity"] .set-val').textContent;
+  set(sc, '1'); set(op, '1');
+  window.app.go('title');
+  return {
+    hasRows: ['touchControls', 'touchLayout', 'touchScale', 'touchOpacity'].every((k) => keys.includes(k)),
+    scaleRange: `${sc.min}-${sc.max}`,
+    opacityRange: `${op.min}-${op.max}`,
+    presetCount: picks.length,
+    presetOn,
+    presetBack,
+    layoutSaved,
+    scaleSaved,
+    scalePct,
+    opacityPct,
+  };
+});
+ok('settings exposes the touch pad rows', settings.hasRows, `scale=${settings.scaleRange} opacity=${settings.opacityRange}`);
+ok('settings offers both hand presets and latches the pick', settings.presetCount === 2 && settings.presetOn && settings.presetBack, `picks=${settings.presetCount}`);
+ok('settings touch layout persists', settings.layoutSaved === 'left');
+ok('settings touch sliders persist with correct labels', settings.scaleSaved === 1.2 && settings.scalePct === '80%' && settings.opacityPct === '17%', `${settings.scalePct} / ${settings.opacityPct}`);
+
+// ------------------------------------------------------------------ portrait
+// Portrait is a supported orientation, not an error state: the pad stays up and usable. The old
+// rotate-device modal was retired by design (see the portrait block in src/styles.css), so what is
+// checked here is that nothing covers the pad on a phone held upright.
+await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+await page.evaluate(() => {
+  const app = window.app;
+  app.startMatch({ home: app.teams[1], away: app.teams[4], userTeam: 0, mode: 'quick' });
+  app.match.paused = true;
+  for (let i = 0; i < 240; i++) app.match.sim.step(1 / 60);
+  app.match.renderer.update(0.05);
+  app.match.hud.update();
+  app.renderer.render(app.scene, app.camera, 0.05);
+});
+await new Promise((r) => setTimeout(r, 400));
+const portrait = await page.evaluate(measureOverlay);
+ok('portrait: the pad stays visible and usable (< 36px nowhere)', portrait.tooSmall.length === 0, portrait.tooSmall.join(', '));
+ok('portrait: no control overlaps another', portrait.overlaps.length === 0, portrait.overlaps.join(', '));
+ok('portrait: every control stays on screen', portrait.outside.length === 0, portrait.outside.join(', '));
+await page.screenshot({ path: process.env.SHOT || '/tmp/touch-portrait.png' });
+
+// ---------------------------------------------------------------- landscape
+await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+await new Promise((r) => setTimeout(r, 500));
+await page.evaluate(() => {
+  const app = window.app;
+  const m = app.match;
+  for (let i = 0; i < 240; i++) m.sim.step(1 / 60);
+  m.renderer.update(0.05);
+  m.hud.update();
+  app.renderer.render(app.scene, app.camera, 0.05);
+  document.querySelector('.touch-stick').classList.add('engaged');
+  document.querySelector('.touch-stick-nub').style.transform = 'translate(-50%, -50%) translate(40px, -40px)';
+  document.querySelector('.touch-strike').classList.add('down');
+  document.querySelector('.touch-strike-dot').style.transform = 'translate(-50%, -50%) translate(24px, -18px)';
+});
+await new Promise((r) => setTimeout(r, 250));
+await page.screenshot({ path: process.env.SHOT2 || '/tmp/touch-landscape.png' });
+
+console.log(errors.length ? `\n${errors.length} page error(s):` : '\nno page errors');
+for (const e of errors.slice(0, 10)) console.log('  ', e.slice(0, 200));
+console.log(failures ? `\n${failures} check(s) FAILED` : '\nall touch checks passed');
+await browser.close();
+process.exit(errors.length || failures ? 1 : 0);

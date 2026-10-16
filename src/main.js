@@ -13,13 +13,13 @@ import { MatchSim } from './game/match.js';
 import { TEAMS, TEAM_BY_ID } from './data/teams.js';
 import {
   awardPlayerProgress,
-  careerTeam,
   createCareer,
   currentOpponent,
   fixtureFor,
   recordResult,
   rollInjuries,
 } from './game/career.js';
+import { FrameMonitor, PerfOverlay, perfEnabled } from './dev/perf.js';
 import { InputManager } from './ui/input.js';
 import { MatchHUD } from './ui/match-hud.js';
 import { TouchControls } from './ui/touch.js';
@@ -38,6 +38,15 @@ import {
 } from './ui/screens.js';
 
 const SAVE_KEY = 'blitzball_x_save_data_v1';
+
+/** Dev-tool flag convention shared with src/dev/* (“?perf”, “?tune”, “?bench”). */
+function hasFlag(name) {
+  try {
+    return new URLSearchParams(window.location.search).has(name);
+  } catch {
+    return false;
+  }
+}
 const DEFAULT_SETTINGS = Object.freeze({
   masterVolume: 0.8,
   quality: 'medium',
@@ -136,6 +145,19 @@ export class BlitzballApp {
       this.camera.updateProjectionMatrix();
     };
     window.addEventListener('resize', this.onResize, { passive: true });
+
+    // Frame instrumentation (src/dev/perf.js). Recording is always on — one timestamp and one
+    // ring-buffer write per frame — so the QA tools (tools/probe.mjs, tools/perfshot.mjs), a
+    // player's own device and the CI gates all read the same tail through window.__BB_PERF__.
+    // Only the on-screen readout is opt-in, via ?perf.
+    this.monitor = new FrameMonitor();
+    window.__BB_PERF__ = this.monitor;
+    this.perfOverlay = perfEnabled() ? new PerfOverlay(document.body) : null;
+    // Dev panels are dynamically imported: a normal load never fetches them, and tools/devtools.mjs
+    // fails loudly if either stops mounting.
+    this.tuningPanel = null;
+    if (hasFlag('tune')) import('./dev/tuning.js').then(({ startTuning }) => { this.tuningPanel = startTuning(this); });
+    if (hasFlag('bench')) import('./dev/animbench.js').then(({ startAnimBench }) => startAnimBench());
 
     this.audio.applyVolumes(this.state.settings);
     this.audio.startSpherePoolAmbience();
@@ -397,7 +419,9 @@ export class BlitzballApp {
         const sampled = this.input.poll();
         if (!this.match.paused) {
           sim.setUserInput(sampled);
+          const simStart = performance.now();
           sim.step(dt);
+          this.monitor.sample('sim', performance.now() - simStart);
         }
         this.input.flushOneShots();
       } else {
@@ -412,12 +436,25 @@ export class BlitzballApp {
       this.currentScreenObject?.onNav?.(this.input.menuPoll());
     }
 
+    const renderStart = performance.now();
     this.renderer.render(this.scene, this.camera, dt);
+    this.monitor.sample('render', performance.now() - renderStart);
+    // What the frame actually asked the GPU to do, read back for the overlay and the perf gate.
+    const info = this.renderer.renderer.info;
+    this.monitor.counters({
+      calls: info.render.calls,
+      triangles: info.render.triangles,
+      programs: info.programs ? info.programs.length : 0,
+    });
+    this.monitor.frame(now);
+    this.perfOverlay?.update(this.monitor.summary());
     requestAnimationFrame((time) => this.gameLoop(time));
   }
 
   destroy() {
     this.isRunning = false;
+    this.perfOverlay?.dispose();
+    this.tuningPanel?.dispose?.();
     this.disposeMatch();
     this.touchControls.destroy();
     this.input.destroy();
