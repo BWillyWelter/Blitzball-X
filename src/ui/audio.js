@@ -12,6 +12,8 @@ export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.masterGain = null;
+    this.musicGain = null;
+    this.sfxGain = null;
     this.ambienceGain = null;
     this.isAmbiencePlaying = false;
 
@@ -26,8 +28,16 @@ export class SoundEngine {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
+        // All audio is routed through channel buses before the master bus so each group can be
+        // mixed independently without duplicating volume logic in every synth effect.
         this.masterGain = this.ctx.createGain();
+        this.musicGain = this.ctx.createGain();
+        this.sfxGain = this.ctx.createGain();
         this.masterGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        this.musicGain.gain.setValueAtTime(1, this.ctx.currentTime);
+        this.sfxGain.gain.setValueAtTime(1, this.ctx.currentTime);
+        this.musicGain.connect(this.masterGain);
+        this.sfxGain.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
       }
     }
@@ -108,7 +118,7 @@ export class SoundEngine {
       osc1.connect(filter);
       osc2.connect(filter);
       filter.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(this.sfxGain || this.masterGain);
 
       osc1.start(now);
       osc2.start(now);
@@ -151,7 +161,7 @@ export class SoundEngine {
     osc1.connect(filter);
     osc2.connect(filter);
     filter.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain || this.masterGain);
 
     osc1.start(now);
     osc2.start(now);
@@ -189,7 +199,7 @@ export class SoundEngine {
 
       noiseSource.connect(filter);
       filter.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(this.sfxGain || this.masterGain);
 
       noiseSource.start(now);
     }
@@ -206,7 +216,7 @@ export class SoundEngine {
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
     subOsc.connect(subGain);
-    subGain.connect(this.masterGain);
+    subGain.connect(this.sfxGain || this.masterGain);
 
     subOsc.start(now);
     subOsc.stop(now + 0.25);
@@ -246,7 +256,7 @@ export class SoundEngine {
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain || this.masterGain);
 
     lfo.start(now);
     osc1.start(now);
@@ -275,7 +285,7 @@ export class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
 
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain || this.masterGain);
 
     osc.start(now);
     osc.stop(now + 0.08);
@@ -310,7 +320,7 @@ export class SoundEngine {
 
       source.connect(filter);
       filter.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(this.sfxGain || this.masterGain);
 
       source.start(now);
     }
@@ -339,7 +349,7 @@ export class SoundEngine {
 
       source.connect(filter);
       filter.connect(this.ambienceGain);
-      this.ambienceGain.connect(this.masterGain);
+      this.ambienceGain.connect(this.musicGain || this.masterGain);
 
       source.start();
       this.isAmbiencePlaying = true;
@@ -352,9 +362,20 @@ export class SoundEngine {
 
   applyVolumes(settings = this.settings) {
     if (settings) this.settings = settings;
-    const raw = Number(this.settings?.masterVolume ?? this.settings?.soundVolume ?? 0.8);
-    const volume = Math.max(0, Math.min(1, Number.isFinite(raw) ? raw : 0.8));
-    if (this.masterGain && this.ctx) this.masterGain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.04);
+    const values = this.settings || {};
+    const normalized = (value, fallback) => {
+      const number = Number(value);
+      return Math.max(0, Math.min(1, Number.isFinite(number) ? number : fallback));
+    };
+    const master = normalized(values.masterVolume ?? values.soundVolume, 0.8);
+    const music = normalized(values.musicVolume, 1);
+    const sfx = normalized(values.sfxVolume, 1);
+    const ramp = (gain, volume) => {
+      if (gain && this.ctx) gain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.04);
+    };
+    ramp(this.masterGain, master);
+    ramp(this.musicGain, music);
+    ramp(this.sfxGain, sfx);
   }
 
   playUiTone(frequency = 620, volume = 0.045) {
@@ -369,7 +390,7 @@ export class SoundEngine {
     gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain || this.masterGain);
     osc.start(now);
     osc.stop(now + 0.1);
   }

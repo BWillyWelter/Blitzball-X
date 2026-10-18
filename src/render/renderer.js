@@ -7,10 +7,20 @@ import * as THREE from 'three';
  */
 const GRAPHICS = {
   MIN_DPR: 1.0,
+  MANUAL_MIN_DPR: 0.25,
   MAX_DPR_CAP: 2.0,
   LOW_PERF_THRESHOLD_FPS: 45,
   DPR_STEP: 0.25
 };
+
+// These are render-buffer heights, not OS display modes. The renderer keeps the viewport's
+// aspect ratio and scales its internal WebGL buffer to the selected target.
+const RESOLUTION_PRESETS = Object.freeze({
+  auto: null,
+  '720p': 720,
+  '1080p': 1080,
+  '1440p': 1440,
+});
 
 /**
  * Thin WebGL presentation layer for BlitzballApp.
@@ -38,6 +48,7 @@ export class GameRenderer {
       alpha: false
     });
 
+    this.resolution = 'auto';
     this.renderer.setPixelRatio(this.currentDPR);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
@@ -73,10 +84,34 @@ export class GameRenderer {
   setQuality(level = 'high') {
     this.quality = ['low', 'medium', 'high'].includes(level) ? level : 'high';
     this.maxDPR = this.quality === 'low' ? 1 : this.quality === 'medium' ? 1.4 : GRAPHICS.MAX_DPR_CAP;
-    this.currentDPR = Math.max(GRAPHICS.MIN_DPR, Math.min(window.devicePixelRatio || 1, this.maxDPR));
-    this.renderer.setPixelRatio(this.currentDPR);
     this.renderer.shadowMap.enabled = this.quality !== 'low';
+    this.applyResolution();
+  }
+
+  /** Pick the WebGL buffer scale while leaving the visible canvas fitted to the browser viewport. */
+  targetDPR() {
+    const viewportDPR = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const targetHeight = RESOLUTION_PRESETS[this.resolution];
+    const requested = targetHeight
+      ? targetHeight / Math.max(1, window.innerHeight)
+      : viewportDPR;
+    const limit = targetHeight
+      ? GRAPHICS.MAX_DPR_CAP
+      : Math.min(viewportDPR, this.maxDPR);
+    const minimum = targetHeight ? GRAPHICS.MANUAL_MIN_DPR : GRAPHICS.MIN_DPR;
+    return Math.max(minimum, Math.min(requested, limit));
+  }
+
+  applyResolution() {
+    this.currentDPR = this.targetDPR();
+    this.renderer.setPixelRatio(this.currentDPR);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  setResolution(preset = 'auto') {
+    this.resolution = Object.hasOwn(RESOLUTION_PRESETS, preset) ? preset : 'auto';
+    this.fpsHistory.length = 0;
+    this.applyResolution();
   }
 
   /**
@@ -95,12 +130,15 @@ export class GameRenderer {
 
     const avgFPS = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
 
+    const minimumDPR = this.resolution === 'auto'
+      ? GRAPHICS.MIN_DPR
+      : GRAPHICS.MANUAL_MIN_DPR;
     if (
       avgFPS < GRAPHICS.LOW_PERF_THRESHOLD_FPS &&
-      this.currentDPR > GRAPHICS.MIN_DPR
+      this.currentDPR > minimumDPR
     ) {
       this.currentDPR = Math.max(
-        GRAPHICS.MIN_DPR,
+        minimumDPR,
         this.currentDPR - GRAPHICS.DPR_STEP
       );
       this.renderer.setPixelRatio(this.currentDPR);
@@ -124,7 +162,8 @@ export class GameRenderer {
   }
 
   onWindowResize() {
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    // Recompute fixed-height presets after viewport/orientation/fullscreen changes.
+    this.applyResolution();
   }
 
   /**

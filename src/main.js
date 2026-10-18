@@ -1,6 +1,7 @@
 /** Blitzball-X browser entry point: modern MatchSim, 3D presentation, menus, HUD, and touch. */
 
 import * as THREE from 'three';
+import { Capacitor } from '@capacitor/core';
 import '@fontsource/bangers/latin-400.css';
 import '@fontsource/barlow-condensed/latin-400.css';
 import '@fontsource/barlow-condensed/latin-700.css';
@@ -48,8 +49,13 @@ function hasFlag(name) {
   }
 }
 const DEFAULT_SETTINGS = Object.freeze({
+  // The channel gains default to 1 so existing saves keep the old overall loudness.
   masterVolume: 0.8,
+  musicVolume: 1,
+  sfxVolume: 1,
   quality: 'medium',
+  resolution: 'auto',
+  fullscreen: false,
   difficulty: 'pro',
   screenShake: true,
   reducedMotion: false,
@@ -77,9 +83,18 @@ function readState() {
       : null;
     const settings = { ...defaults.settings, ...(raw.settings || {}) };
     if (!['low', 'medium', 'high'].includes(settings.quality)) settings.quality = DEFAULT_SETTINGS.quality;
+    if (!['auto', '720p', '1080p', '1440p'].includes(settings.resolution)) settings.resolution = DEFAULT_SETTINGS.resolution;
     if (!['easy', 'pro', 'legend'].includes(settings.difficulty)) settings.difficulty = DEFAULT_SETTINGS.difficulty;
-    if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = 'auto';
-    if (!['left', 'right'].includes(settings.touchLayout)) settings.touchLayout = 'right';
+    if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = DEFAULT_SETTINGS.touchControls;
+    if (!['left', 'right'].includes(settings.touchLayout)) settings.touchLayout = DEFAULT_SETTINGS.touchLayout;
+    for (const key of ['masterVolume', 'musicVolume', 'sfxVolume']) {
+      const value = Number(settings[key]);
+      settings[key] = Number.isFinite(value)
+        ? Math.max(0, Math.min(1, value))
+        : DEFAULT_SETTINGS[key];
+    }
+    // Fullscreen is permission-gated and is never restored without a fresh user gesture.
+    settings.fullscreen = false;
     const records = { ...defaults.records, ...(raw.records || {}) };
     return { career, records, settings };
   } catch (error) {
@@ -97,6 +112,8 @@ export class BlitzballApp {
     this.container = document.getElementById('app') || document.body;
     document.getElementById('boot')?.remove();
     this.state = readState();
+    this.onFullscreenChange = () => this.handleFullscreenChange();
+    document.addEventListener('fullscreenchange', this.onFullscreenChange);
     this.teams = TEAMS;
     this.audio = new SoundEngine();
     this.input = new InputManager();
@@ -182,12 +199,102 @@ export class BlitzballApp {
     }
   }
 
+  /** Apply the graphics profile and render-buffer target from the saved settings model. */
   applyQuality(quality = this.state.settings.quality) {
     this.renderer.setQuality(quality);
+    this.renderer.setResolution(this.state.settings.resolution);
+  }
+
+  /** Keep the settings model and visible selector in sync with browser-initiated exits too. */
+  handleFullscreenChange() {
+    const fullscreen = !!document.fullscreenElement;
+    if (this.state?.settings) {
+      this.state.settings.fullscreen = fullscreen;
+      const selector = this.container.querySelector('.set-row[data-key="fullscreen"] select');
+      if (selector) selector.value = fullscreen ? 'true' : 'false';
+      this.save();
+    }
+  }
+
+  /** Fullscreen is a browser permission, so this must be called directly from a user gesture. */
+  async setFullscreen(enabled) {
+    const root = document.documentElement;
+    try {
+      if (enabled) {
+        if (document.fullscreenElement) return true;
+        if (!document.fullscreenEnabled || typeof root.requestFullscreen !== 'function') return false;
+        await root.requestFullscreen();
+      } else if (document.fullscreenElement) {
+        if (typeof document.exitFullscreen !== 'function') return false;
+        await document.exitFullscreen();
+      }
+      return !!document.fullscreenElement === !!enabled;
+    } catch (error) {
+      console.warn('[Blitzball-X] The browser denied the fullscreen request.', error);
+      return false;
+    }
+  }
+
+  /**
+   * A web page cannot force-close a tab. Native Capacitor builds use the App plugin; browsers get
+   * a best-effort window.close() followed by a clear, non-blocking explanation if it stays open.
+   */
+  async requestQuit() {
+    if (Capacitor.isNativePlatform()) {
+      // iOS apps should be left with the system Home gesture rather than terminated by code.
+      if (Capacitor.getPlatform() === 'ios') {
+        this.showNotice('Use your device’s Home gesture or app switcher to leave Blitzball-X.');
+        return;
+      }
+      try {
+        const { App } = await import('@capacitor/app');
+        await App.exitApp();
+        return;
+      } catch (error) {
+        console.warn('[Blitzball-X] Native exit was unavailable.', error);
+        this.showNotice('Use your device’s Home button or app switcher to leave Blitzball-X.');
+        return;
+      }
+    }
+
+    if (import.meta.env.DEV) {
+      console.info('[Blitzball-X] Browser development builds cannot close their own tab.');
+    }
+    try { window.close(); } catch { /* Browser policy may reject closing a user-opened tab. */ }
+    window.setTimeout(() => {
+      if (!window.closed) this.showNotice('Close this browser tab or window to exit Blitzball-X.');
+    }, 80);
+  }
+
+  showNotice(message) {
+    this.container.querySelector('.app-notice')?.remove();
+    const notice = document.createElement('div');
+    notice.className = 'app-notice';
+    notice.setAttribute('role', 'status');
+    notice.textContent = message;
+    this.container.appendChild(notice);
+    requestAnimationFrame(() => notice.classList.add('show'));
+    window.setTimeout(() => {
+      notice.classList.remove('show');
+      window.setTimeout(() => notice.remove(), 250);
+    }, 4200);
+  }
+
+  releasePointerLock() {
+    if (document.pointerLockElement && typeof document.exitPointerLock === 'function') {
+      document.exitPointerLock();
+    }
+  }
+
+  returnToTitleFromPause() {
+    if (this.match) this.match.paused = false;
+    this.releasePointerLock();
+    this.go('title');
   }
 
   resetAll() {
     try { localStorage.removeItem(SAVE_KEY); } catch { /* private browsing may block storage */ }
+    if (document.fullscreenElement) this.setFullscreen(false);
     this.state = freshState();
     this.audio.applyVolumes(this.state.settings);
     this.applyQuality(this.state.settings.quality);
@@ -313,6 +420,7 @@ export class BlitzballApp {
 
   disposeMatch() {
     if (!this.match && !this.sceneView) return;
+    this.releasePointerLock();
     this.pauseOverlay?.el?.remove();
     this.pauseOverlay = null;
     this.settingsOverlay?.remove();
@@ -342,9 +450,11 @@ export class BlitzballApp {
       return true;
     }
     this.match.paused = true;
+    this.releasePointerLock();
+    this.input.flushOneShots();
     this.pauseOverlay = PauseOverlay(this, {
       onResume: () => this.resumeMatch(),
-      onQuit: () => this.go('title'),
+      onQuit: () => this.returnToTitleFromPause(),
       onRestart: () => this.startMatch({
         home: this.match?.sim.teams[0],
         away: this.match?.sim.teams[1],
@@ -407,7 +517,9 @@ export class BlitzballApp {
     if (!this.isRunning) return;
     const dt = Math.max(0, Math.min((now - this.lastTime) / 1000, 0.1));
     this.lastTime = now;
-    this.environment.update(dt);
+    // Match simulation time is stopped while paused. Keep rendering the overlay, but do not advance
+    // the shared water environment or any match presentation clocks behind it.
+    this.environment.update(this.match?.paused ? 0 : dt);
 
     if (this.match && this.currentScreen === 'match') {
       const { sim } = this.match;
@@ -460,6 +572,7 @@ export class BlitzballApp {
     this.input.destroy();
     this.renderer.destroy();
     window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('fullscreenchange', this.onFullscreenChange);
   }
 }
 

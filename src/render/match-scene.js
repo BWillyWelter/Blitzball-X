@@ -164,7 +164,7 @@ export class MatchScene {
     }
     const lastTeam = Number.isInteger(ball.lastTeam) ? ball.lastTeam : sim.possession;
     const trailColor = sim.teams[lastTeam]?.primary || '#ffd23f';
-    this.fx.updateTrail(ball.pos, !!ball.flight && speed > 2.5, trailColor, dt || 1 / 60);
+    this.fx.updateTrail(ball.pos, !!ball.flight && speed > 2.5, trailColor, dt);
     this.fx.update(dt);
   }
 
