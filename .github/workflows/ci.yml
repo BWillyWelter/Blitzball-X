@@ -63,12 +63,15 @@ jobs:
           npm run qa:probe -- http://127.0.0.1:4173/
           npm run qa:merge -- http://127.0.0.1:4173/
           npm run qa:devtools -- http://127.0.0.1:4173/
-      # Perf gate. The counters are deterministic for this seeded match state — measured
-      # 662-665 draw calls / ~140.5k triangles at quality 'high' — so they are held at a
-      # tight budget. sim ms/step is host-dependent (0.35-0.49 ms here), so its budget is
-      # deliberately loose: it catches order-of-magnitude regressions, not runner noise.
+      # Perf gate. The counters are deterministic for this seeded match state — re-measured at
+      # 863 draw calls / ~128.6k triangles with the heavy ('high') preset actually applied, the
+      # exact same numbers on repeat runs — so they are held at a tight budget. The old 700 call
+      # ceiling was measured against the pre-rewrite arena: the count is now dominated by the
+      # sphere pool plus the 14 articulated swimmers, each drawing ~52 parts and casting its own
+      # shadows. sim ms/step is host-dependent (0.8-1.2 ms here), so its budget is deliberately
+      # loose: it catches order-of-magnitude regressions, not runner noise.
       - name: Perf budget (draw calls / triangles / sim cost)
-        run: npm run qa:perf -- http://127.0.0.1:4173/ --max-calls 700 --max-triangles 150000 --max-sim-ms 1.5
+        run: npm run qa:perf -- http://127.0.0.1:4173/ --max-calls 900 --max-triangles 150000 --max-sim-ms 1.5
 
   lighthouse:
     runs-on: ubuntu-latest

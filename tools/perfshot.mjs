@@ -42,7 +42,10 @@ await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile
 await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
 await page.evaluate(() => {
   window.app.audio.unlock = () => {};
+  // The heavy preset, actually applied: writing the setting alone never reaches the renderer, so
+  // the gate would otherwise measure whatever quality the app booted with.
   window.app.state.settings.quality = 'high';
+  window.app.applyQuality('high');
   window.app.startMatch({ home: window.app.teams[0], away: window.app.teams[3], userTeam: 0, mode: 'quick', seed: 2468 });
   window.app.match.paused = true;
 });
@@ -56,18 +59,20 @@ const res = await page.evaluate(() => {
   const simStart = performance.now();
   for (let i = 0; i < 600; i++) m.sim.step(1 / 60);
   const simMs = (performance.now() - simStart) / 600;
-  const gpu = m.renderer.renderer;
+  // The scene view updates the world; the app's GameRenderer owns the canvas and the WebGL context.
+  const draw = () => window.app.renderer.render(window.app.scene, window.app.camera, 1 / 60);
+  const gpu = window.app.renderer.renderer;
   gpu.info.autoReset = false;
   const gl = gpu.getContext();
   // Finish GPU work so timing includes rendering, not just queued commands.
-  for (let i = 0; i < 3; i++) { m.renderer.update(1 / 60); m.renderer.render(); gl.finish(); }
+  for (let i = 0; i < 3; i++) { m.renderer.update(1 / 60); draw(); gl.finish(); }
   const samples = [];
   for (let i = 0; i < 12; i++) {
     gpu.info.reset();
     const t0 = performance.now();
     m.renderer.update(1 / 60);
     m.hud.update();
-    m.renderer.render();
+    draw();
     gl.finish();
     samples.push(performance.now() - t0);
   }

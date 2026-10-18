@@ -2,8 +2,9 @@
  * Runtime probe: repeated matches, GPU context churn, JS heap, frame timing, console output.
  * Usage: node tools/probe.mjs [url]
  *
- * Exits non-zero when a match fails to hand its WebGL context back at teardown (a leak that
- * eventually costs you the context of the match you are actually playing) or when the page threw.
+ * Exits non-zero when a match grows the WebGL context count (the app builds one renderer for its
+ * lifetime, so a context per match is a leak that eventually costs you the context of the match you
+ * are actually playing), when the frame monitor is not wired in, or when the page threw.
  * Frame time and heap are reported for eyeballing only — they depend on the host, not the game.
  *
  * The frame tail (p50/p99/max + hitch count) comes from the game's own ./src/dev/perf.js monitor,
@@ -68,17 +69,28 @@ for (let r = 0; r < ROUNDS; r++) {
   // a match start is exactly where the first-frame compile lands.
   await page.evaluate(() => window.__BB_PERF__.reset());
   const frames = await page.evaluate(() => {
-    const m = window.app.match;
+    // `match.renderer` is the scene view (camera, players, ball); the WebGL frame is drawn by the
+    // app's GameRenderer, which owns the canvas.
+    const app = window.app;
     const n = 12;
     const t = performance.now();
-    for (let i = 0; i < n; i++) m.renderer.render();
+    for (let i = 0; i < n; i++) app.renderer.render(app.scene, app.camera, 1 / 60);
     return (performance.now() - t) / n;
   });
   const ctxs = await page.evaluate(() => ({ ...window.__ctx }));
-  // Let the real loop run for a moment before reading the tail: a distribution over frames the
-  // app produced at its own rAF cadence is the point, and probing mid-burst would sample nearly
-  // nothing (the evaluate blocks the loop).
-  await page.evaluate(() => new Promise((r) => setTimeout(r, 700)));
+  // Let the real loop produce frames before reading the tail: a distribution over frames the app
+  // produced at its own rAF cadence is the point, and probing mid-burst would sample nearly nothing
+  // (the evaluate blocks the loop). Wait for frames rather than for a fixed delay — on a
+  // software-GL host one frame can take a second, and `reset()` drops the first frame's interval,
+  // so a fixed 700 ms window read zero frames on a slow runner.
+  await page.evaluate(() => new Promise((resolve) => {
+    const t0 = performance.now();
+    const tick = () => {
+      if (window.__BB_PERF__.summary().frames >= 3 || performance.now() - t0 > 8000) resolve();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
   const tail = await page.evaluate(() => {
     const s = window.__BB_PERF__.summary();
     return { frames: s.frames, p50: s.frame.p50, p99: s.frame.p99, max: s.frame.max, hitches: s.hitches, programs: s.counters.programs };
@@ -90,7 +102,8 @@ for (let r = 0; r < ROUNDS; r++) {
   await new Promise((res) => setTimeout(res, 250));
 }
 
-// Quit the last match too, so every context this run created has had its dispose() run.
+// Quit the last match too, so the final read reflects the app back on the menu (the renderer, and
+// with it the one context, stays alive — that is the design being checked).
 await page.evaluate(() => window.app.go('title'));
 await new Promise((res) => setTimeout(res, 400));
 const final = await page.evaluate(() => ({ ...window.__ctx }));
@@ -107,21 +120,24 @@ console.log(`console messages (${uniq.length}):`);
 for (const m of uniq.slice(0, 25)) console.log('  ', m.slice(0, 220));
 await browser.close();
 
-// A finished match must hand its WebGL context back: three's renderer.dispose() does not, so a
-// forgotten forceContextLoss() leaks one live context per match straight into the next one.
 const pageErrors = uniq.filter((m) => m.startsWith('pageerror'));
 // The overlay/monitor page API must exist on a normal load (the overlay itself is opt-in via
 // ?perf): a silent regression there would leave CI printing zeroes instead of numbers.
-if (!samples.length || samples.some((s) => !Number.isFinite(s.frames) || s.frames <= 0)) {
+const monitorBroken = !samples.length || samples.some((s) => !Number.isFinite(s.frames) || s.frames <= 0);
+if (monitorBroken) {
   console.log('\nFAIL: window.__BB_PERF__ reported no frames — the frame monitor is not wired in.');
 }
-if (live > 0) {
-  console.log(`\nFAIL: ${live} of ${final.created} WebGL context(s) were never released — `
-    + 'MatchRenderer.dispose() must call renderer.forceContextLoss().');
+// A match must not bring its own WebGL context with it. The app builds one renderer (and so one
+// context) for its lifetime and only tears the match scene down between matches, so the invariant
+// is that context count never grows as matches come and go — a context per match is the leak this
+// guards, and three's renderer.dispose() would not release one on its own.
+const leaked = samples.some((s) => s.created > samples[0].created);
+if (leaked) {
+  console.log(`\nFAIL: ${final.created} WebGL context(s) for ${samples.length} matches — a match `
+    + 'created its own context instead of reusing the renderer\'s.');
 }
 for (const e of pageErrors) console.log(`\nFAIL: ${e.slice(0, 300)}`);
-const monitorBroken = !samples.length || samples.some((s) => !Number.isFinite(s.frames) || s.frames <= 0);
-if (!live && !pageErrors.length && !monitorBroken) {
-  console.log(`\nPASS: all ${final.created} matches released their WebGL context, no page errors`);
+if (!leaked && !pageErrors.length && !monitorBroken) {
+  console.log(`\nPASS: ${samples.length} matches on one reused WebGL context, no page errors`);
 }
-process.exit(live > 0 || pageErrors.length || monitorBroken ? 1 : 0);
+process.exit(leaked || pageErrors.length || monitorBroken ? 1 : 0);

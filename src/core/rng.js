@@ -22,4 +22,23 @@ export class RNG {
   chance(p) {
     return this.next() < p;
   }
+
+  /**
+   * Float in [0, 1). Alias of next() — the encounter/variance modules
+   * address the stream through this name.
+   */
+  nextFloat() {
+    return this.next();
+  }
+}
+
+/**
+ * Factory used by the match, league and server replay modules.
+ * Returns the shared deterministic stream with the float alias the
+ * encounter/variance math expects (`nextFloat()` === `next()`).
+ * @param {number} seed
+ * @returns {RNG}
+ */
+export function createSeedableRNG(seed) {
+  return new RNG(seed);
 }

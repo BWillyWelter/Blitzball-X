@@ -16,7 +16,7 @@ import { extname, join, normalize } from 'node:path';
 import lighthouse from 'lighthouse';
 import { launch } from 'chrome-launcher';
 import chromium from '@sparticuz/chromium';
-import { ensureChromiumLibs, GPU_ARGS } from './lib/browser.mjs';
+import { ensureChromiumLibs, ensureFonts, GPU_ARGS } from './lib/browser.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -83,7 +83,12 @@ const chromeFlags = process.env.CHROME_PATH
   ? ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage']
   : [...chromium.args, ...GPU_ARGS];
 if (!process.env.CHROME_PATH) {
+  // Same bootstrap every other browser tool uses: the bundled Chromium needs the al2023 libs on
+  // LD_LIBRARY_PATH *and* a font config to rasterise with. Without ensureFonts() a fontless host
+  // cannot paint a single glyph, so NO_FCP makes every category unmeasurable — the bundled fonts
+  // are shipped for exactly this.
   ensureChromiumLibs();
+  ensureFonts();
   chromium.setGraphicsMode = true;
 }
 const chrome = await launch({ chromePath, chromeFlags });
@@ -163,9 +168,19 @@ const bad = Object.values(report.audits)
 if (!bad.length) console.log('  (none)');
 for (const a of bad.slice(0, 24)) {
   console.log(`  ${a.score === 0 ? 'x' : '~'} ${a.id}  ${a.displayValue || ''}`);
-  const items = a.details?.items?.slice(0, 3) || [];
+  // `details.items` is an array for most audits but an object keyed by item id for a few, so
+  // normalise before slicing — `?.slice` alone threw on the object-shaped ones.
+  const itemsRaw = a.details?.items;
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw.slice(0, 3)
+    : itemsRaw
+      ? Object.values(itemsRaw).slice(0, 3)
+      : [];
   for (const it of items) {
-    const line = it.url || it.node?.selector || it.source?.value || '';
+    const line =
+      typeof it === 'string'
+        ? it
+        : (it?.url || it?.node?.selector || it?.source?.value || '');
     if (line) console.log(`      ${String(line).slice(0, 140)}`);
   }
 }

@@ -622,8 +622,10 @@ export class InputManager {
     output.trick = !!trick;
     output.hit = !!hit;
     output.breach = !!breach;
-    if (breach && touch.keeperAim) this.pendingKeeperAim = { ...touch.keeperAim };
-    output.keeperAim = (breach || this.pending.has('breach')) ? this.pendingKeeperAim : null;
+    if ((breach || shootPressed) && touch.keeperAim) this.pendingKeeperAim = { ...touch.keeperAim };
+    output.keeperAim = (breach || shootPressed || this.pending.has('breach') || this.pending.has('shootPressed'))
+      ? this.pendingKeeperAim
+      : null;
     output.switchPlayer = !!switchPlayer;
     output.gamebreaker = !!gamebreaker;
     output.cage = !!cage;
@@ -668,6 +670,12 @@ export class InputManager {
     this.pendingPlaycall = 0;
     this.pendingJukeDir = null;
     this.pendingKeeperAim = null;
+    // MatchSim consumes these on its first step. Clear the shared sampled struct as well, so a
+    // queued action cannot repeat forever or leak out of a warm-up / pause transition.
+    for (const action of ONE_SHOT) this.input[action] = false;
+    this.input.playcall = 0;
+    this.input.jukeDir = null;
+    this.input.keeperAim = null;
   }
 
   setKeeperContext(active, dir = 1) {

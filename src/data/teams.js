@@ -14,7 +14,6 @@
  *  cat  catching (save reach and save chance)
  *  blk  blocking (shot stopping)
  */
-
 export const ARCHETYPES = {
   FINISHER: 'Finisher',
   SNIPER: 'Sniper',
@@ -23,7 +22,6 @@ export const ARCHETYPES = {
   GUARDIAN: 'Guardian',
   ALLROUND: 'All-Around',
 };
-
 const P = (id, name, nick, archetype, role, num, skin, hair, stats, sig, move, captain = false) => ({
   id,
   name,
@@ -38,12 +36,10 @@ const P = (id, name, nick, archetype, role, num, skin, hair, stats, sig, move, c
   move, // signature MOVE key — what the TRICK button plays for this swimmer (game/moves.js)
   captain,
 });
-
 // Reserve swimmers are built from a compact tuple so the rosters stay readable:
 // [id, name, nick, archetype, num, skin, hair, {stats}, signature, move]
 const R = (team, tuple) =>
   P(`${team}_${tuple[0]}`, tuple[1], tuple[2], tuple[3], tuple[4], tuple[5], tuple[6], tuple[7], tuple[8], tuple[9], tuple[10]);
-
 export const TEAMS = [
   {
     id: 'dockside_kraken',
@@ -238,9 +234,7 @@ export const TEAMS = [
     ],
   },
 ];
-
 export const TEAM_BY_ID = Object.fromEntries(TEAMS.map((t) => [t.id, t]));
-
 /** Overall rating for a swimmer. Weights sum to 1, so the result stays on the 40–99 scale. */
 export function playerOverall(p) {
   if (p.role === 'GK') {
@@ -250,13 +244,11 @@ export function playerOverall(p) {
     p.spd * 0.14 + p.sht * 0.16 + p.hnd * 0.15 + p.pas * 0.1 + p.tkl * 0.13 + p.pow * 0.12 + p.end * 0.1 + p.gb * 0.1,
   );
 }
-
 /** Strength of the seven swimmers who take the pool: keeper + shooters + fielders. */
 export function teamOverall(team) {
   const seven = starters(team);
   return Math.round(seven.reduce((s, p) => s + playerOverall(p), 0) / seven.length);
 }
-
 /**
  * A coach-named starting seven, when the crew has one. Career mode picks its own seven out of the
  * eleven, so the sim has to be able to read a lineup instead of assuming "first keeper, first two
@@ -276,7 +268,6 @@ export function lineupOf(team) {
   if (picked.slice(3).some((p) => p.role !== 'FD')) return null;
   return picked;
 }
-
 /**
  * The seven swimmers who start a match — slot order matters: the sim creates players by index,
  * slot 0 is the keeper, slots 1-2 the shooters (index 1 is the captain), slots 3-6 the fielders.
@@ -289,7 +280,6 @@ export function starters(team) {
   const fielders = team.roster.filter((p) => p.role === 'FD').slice(0, 4);
   return keeper ? [keeper, ...shooters, ...fielders] : [...shooters, ...fielders];
 }
-
 /**
  * The four swimmers on the touch wall: everyone in the 11 who does not start. A crew can name
  * any of them as a replacement for a same-role starter, so match fitness and injury both have
@@ -301,4 +291,3 @@ export function benchOf(team) {
     .filter((p) => !starting.has(p.id))
     .sort((a, b) => playerOverall(b) - playerOverall(a));
 }
-

@@ -1,0 +1,30 @@
+{
+  "assetPath": "assets",
+  "ios": {
+    "icon": {
+      "sources": [
+        "assets/icon-only.png"
+      ]
+    },
+    "splash": {
+      "sources": [
+        "assets/splash.png",
+        "assets/splash-dark.png"
+      ]
+    }
+  },
+  "android": {
+    "icon": {
+      "sources": [
+        "assets/icon-foreground.png"
+      ],
+      "background": "#0284c7"
+    },
+    "splash": {
+      "sources": [
+        "assets/splash.png",
+        "assets/splash-dark.png"
+      ]
+    }
+  }
+}
