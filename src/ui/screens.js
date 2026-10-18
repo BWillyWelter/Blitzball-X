@@ -46,7 +46,7 @@ function teamCard(team, opts = {}) {
 }
 
 function menuList(items) {
-  return `<ul class="menu">${items.map((it, i) => `<li class="menu-item ${i === 0 ? 'sel' : ''}" data-action="${it.action}" ${it.disabled ? 'data-disabled="1"' : ''}><span class="mi-label">${it.label}</span>${it.sub ? `<span class="mi-sub">${it.sub}</span>` : ''}</li>`).join('')}</ul>`;
+  return `<div class="menu" role="group">${items.map((it, i) => `<button type="button" class="menu-item ${i === 0 ? 'sel' : ''}" data-action="${it.action}" ${it.disabled ? 'data-disabled="1" disabled aria-disabled="true"' : ''} aria-current="${i === 0 ? 'true' : 'false'}"><span class="mi-label">${it.label}</span>${it.sub ? `<span class="mi-sub">${it.sub}</span>` : ''}</button>`).join('')}</div>`;
 }
 
 function wireMenu(root, onSelect, app) {
@@ -55,16 +55,21 @@ function wireMenu(root, onSelect, app) {
   if (idx < 0) idx = 0;
   const setSel = (n) => {
     items[idx]?.classList.remove('sel');
+    items[idx]?.setAttribute('aria-current', 'false');
     idx = (n + items.length) % items.length;
     items[idx].classList.add('sel');
+    items[idx].setAttribute('aria-current', 'true');
+    items[idx].focus({ preventScroll: true });
     app.audio.uiMove();
   };
   items.forEach((el, i) => {
     el.addEventListener('mouseenter', () => {
       if (i !== idx) {
         items[idx]?.classList.remove('sel');
+        items[idx]?.setAttribute('aria-current', 'false');
         idx = i;
         el.classList.add('sel');
+        el.setAttribute('aria-current', 'true');
       }
     });
     el.addEventListener('click', () => {
@@ -109,21 +114,23 @@ export function TitleScreen(app) {
       </div>
       <div class="title-menu">
         ${menuList([
-          { action: 'quick', label: 'PICK UP MATCH', sub: 'Quick match vs CPU' },
+          { action: 'play', label: 'PLAY', sub: 'Quick match · choose your crew' },
           { action: 'career', label: hasCareer ? 'CONTINUE RUNNING THE POOLS' : 'RUN THE POOLS', sub: hasCareer ? `${careerTitle(app.state.career)} · ${app.state.career.wins}W ${app.state.career.losses}L` : 'Career ladder · 7 crews' },
           { action: 'versus', label: 'WATCH', sub: 'CPU vs CPU exhibition' },
           { action: 'howto', label: 'HOW TO PLAY' },
           { action: 'settings', label: 'SETTINGS' },
+          { action: 'quit', label: 'QUIT', sub: 'Exit Blitzball-X' },
         ])}
       </div>
       <div class="title-foot"><span>${app.state.records.wins}W – ${app.state.records.losses}L</span><span>BEST STYLE ${app.state.records.styleBest}</span><span>v${version}</span></div>
     </section>`);
   const menu = wireMenu(el, (action) => {
-    if (action === 'quick') app.go('teamselect', { mode: 'quick' });
+    if (action === 'play') app.go('teamselect', { mode: 'quick' });
     else if (action === 'career') app.go(hasCareer ? 'career' : 'teamselect', { mode: 'career' });
     else if (action === 'versus') app.go('teamselect', { mode: 'versus' });
     else if (action === 'howto') app.go('howto');
     else if (action === 'settings') app.go('settings');
+    else if (action === 'quit') app.requestQuit();
   }, app);
   return { el, onNav: (n) => menu.nav(n) };
 }
@@ -555,10 +562,18 @@ export function SettingsScreen(app, params = {}) {
   };
   const el = h(`
     <section class="screen settings">
-      <header class="screen-head"><h1>SETTINGS</h1><div class="head-sub">Saved automatically</div></header>
+      <header class="screen-head"><h1>SETTINGS</h1><div class="head-sub">Changes save automatically · BACK returns to the previous menu</div></header>
       <div class="set-list">
+        <div class="set-group">VIDEO / GRAPHICS</div>
+        ${row('resolution', 'RENDER RESOLUTION', 'select', [['auto', 'AUTO · MATCH DISPLAY'], ['720p', '720P · PERFORMANCE'], ['1080p', '1080P · BALANCED'], ['1440p', '1440P · HIGH DETAIL']])}
+        ${row('fullscreen', 'DISPLAY MODE', 'select', [[false, 'WINDOWED'], [true, 'FULLSCREEN']])}
+        ${row('quality', 'QUALITY PRESET', 'select', [['low', 'LOW · PERFORMANCE'], ['medium', 'MEDIUM'], ['high', 'HIGH · DETAIL']])}
+        <div class="set-note">Render resolution sets the internal WebGL buffer height and preserves your screen’s aspect ratio; it does not change your operating system’s display resolution. Fullscreen is available only where the browser permits it.</div>
+        <div class="set-group">AUDIO</div>
         ${row('masterVolume', 'MASTER VOLUME', 'range')}
-        ${row('quality', 'GRAPHICS QUALITY', 'select', [['low', 'LOW · PERFORMANCE'], ['medium', 'MEDIUM'], ['high', 'HIGH · DETAIL']])}
+        ${row('musicVolume', 'MUSIC / AMBIENCE', 'range')}
+        ${row('sfxVolume', 'SOUND EFFECTS', 'range')}
+        <div class="set-group">GAMEPLAY</div>
         ${row('difficulty', 'DEFAULT DIFFICULTY', 'select', Object.entries(DIFFICULTY).map(([k, v]) => [k, v.label]))}
         ${row('screenShake', 'SCREEN SHAKE', 'toggle')}
         ${row('reducedMotion', 'REDUCED MOTION', 'toggle')}
@@ -587,28 +602,46 @@ export function SettingsScreen(app, params = {}) {
       return;
     }
     const input = r.querySelector('input,select');
-    input.addEventListener('input', () => {
+    const updateSetting = async () => {
+      if (key === 'fullscreen') {
+        const requested = input.value === 'true';
+        const applied = await app.setFullscreen(requested);
+        s.fullscreen = !!document.fullscreenElement;
+        input.value = s.fullscreen ? 'true' : 'false';
+        if (!applied) app.showNotice?.('Fullscreen is unavailable or was blocked by the browser.');
+        app.save();
+        return;
+      }
+
       if (input.type === 'range') {
         s[key] = parseFloat(input.value);
         const min = parseFloat(r.dataset.min || '0');
         const max = parseFloat(r.dataset.max || '1');
         r.querySelector('.set-val').textContent = `${Math.round(((s[key] - min) / (max - min)) * 100)}%`;
-        app.audio.applyVolumes(s);
-        app.audio.uiMove();
+        if (['masterVolume', 'musicVolume', 'sfxVolume'].includes(key)) {
+          app.audio.applyVolumes(s);
+          app.audio.uiMove();
+        }
       } else if (input.type === 'checkbox') {
         s[key] = input.checked;
         if (key === 'screenShake' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.shakeEnabled = input.checked;
         if (key === 'reducedMotion' && app.match?.renderer?.gameCam) app.match.renderer.gameCam.reducedMotion = input.checked;
-      } else if (input.type === 'select-one' || input.tagName === 'SELECT') s[key] = input.value;
-      else s[key] = input.value;
-      if (key === 'quality') app.applyQuality?.(s.quality);
+      } else if (input.tagName === 'SELECT') {
+        s[key] = input.value;
+      }
+
+      if (key === 'quality' || key === 'resolution') app.applyQuality?.(s.quality);
       // Layout changes are felt immediately, even from the in-match settings overlay.
       if (key.startsWith('touch')) app.match?.touchControls?.applySettings(s);
       app.save();
-    });
+    };
+    input.addEventListener(input.type === 'range' ? 'input' : 'change', updateSetting);
   });
   // `onBack` lets the in-match overlay close itself instead of navigating away from a live match.
-  const back = () => (params.onBack ? params.onBack() : app.go(params.back || 'title'));
+  const back = () => {
+    app.save();
+    return params.onBack ? params.onBack() : app.go(params.back || 'title');
+  };
   el.querySelector('.back-btn').addEventListener('click', back);
   el.querySelector('.reset-btn').addEventListener('click', () => {
     if (confirm('Delete all saved data (career, records, settings)?')) app.resetAll();
@@ -671,7 +704,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
           { action: 'controls', label: 'CONTROLS' },
           { action: 'settings', label: 'SETTINGS' },
           ...(onRestart ? [{ action: 'restart', label: 'RESTART MATCH' }] : []),
-          { action: 'quit', label: 'QUIT TO MENU' },
+          { action: 'quit', label: 'MAIN MENU' },
         ])}
         <div class="pause-controls hidden">
           <div><b>WASD</b> swim · <b>SHIFT</b> turbo · <b>J/SPACE</b> shoot (hold, release on PERFECT) · <b>K</b> pass (<b>+SHIFT</b> lob for a volley)</div>

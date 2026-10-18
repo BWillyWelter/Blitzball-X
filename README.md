@@ -50,6 +50,8 @@
 └──────────────────┘   └───────────────────┘   └───────────────────┘   └───────────────────┘   └───────────────────┘
 ```
 
+Menu routing, settings persistence, audio buses, and pause lifecycle are documented in [docs/MENUS.md](docs/MENUS.md).
+
 ---
 
 ## 📁 Project Directory Structure
