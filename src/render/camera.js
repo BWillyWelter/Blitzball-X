@@ -13,6 +13,9 @@ import { ARENA } from '../data/constants.js';
 export class GameCamera {
   constructor(camera, opts = {}) {
     this.cam = camera;
+    // Which seat this boom belongs to. Split-screen duels give each player their own camera;
+    // a single-seat match just uses seat 0.
+    this.seatIndex = Number.isInteger(opts.seatIndex) ? opts.seatIndex : 0;
     this.pos = new THREE.Vector3(0, 9, 22);
     this.look = new THREE.Vector3(0, 0.8, 0);
     this.shake = 0;
@@ -91,6 +94,17 @@ export class GameCamera {
     this.focus = focus;
   }
 
+  /** The seat this camera rides, and the swimmer that seat pilots. */
+  seatOf(sim) {
+    return (sim.seats && sim.seats[this.seatIndex]) || null;
+  }
+
+  pilotOf(sim) {
+    const seat = this.seatOf(sim);
+    if (seat) return seat.controlled;
+    return this.seatIndex === 0 ? sim.controlled : null;
+  }
+
   update(sim, dt) {
     // Shake decay runs once per frame; both the replay and follow paths share it via apply().
     if (this.shake > 0) {
@@ -99,14 +113,15 @@ export class GameCamera {
       this.shakeVec.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s * 0.5);
     } else this.shakeVec.set(0, 0, 0);
 
-    const cage = sim.inCage && sim.controlled?.isKeeper;
+    const pilot = this.pilotOf(sim);
+    const cage = !!this.seatOf(sim)?.inCage && !!pilot?.isKeeper;
     if (cage && sim.state === 'live') {
       this.replayTimer = 0;
       this.replay = null;
     }
     if (this.replayTimer > 0) {
       this.replayTimer -= dt;
-      const f = this.replay && sim.players.includes(this.replay) ? this.replay : sim.controlled;
+      const f = this.replay && sim.players.includes(this.replay) ? this.replay : pilot;
       if (f && this.replayTimer > 0) {
         // Low chase dolly sweeping in behind the scorer as they wheel toward their own goal.
         const dir = sim.attackDir(f.team);
@@ -123,7 +138,7 @@ export class GameCamera {
       this.replayTimer = 0;
     }
 
-    const p = sim.controlled;
+    const p = pilot;
     if (!p) {
       // No pilot (spectator matches): a simple wide follow of the ball and the pack.
       const ball = sim.ball.pos;

@@ -4,6 +4,7 @@ import { EventBus } from '../core/events.js';
 import { ARENA, RULES, MOVE, DIFFICULTY, PHYS } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { createPlayer, createBall, emptyInput, copyInput } from './entities.js';
+import { Seat } from './seat.js';
 import { starters, benchOf, playerOverall } from '../data/teams.js';
 import * as shooting from './shooting.js';
 import * as ballMod from './ball.js';
@@ -49,15 +50,28 @@ export { TRICKS } from './combat.js';
 
 
 export class MatchSim {
-  constructor({ home, away, difficulty = 'pro', seed = 1, userTeam = 0 }) {
+  constructor({ home, away, difficulty = 'pro', seed = 1, userTeam = 0, seats = null, rules = null, mode = 'exhibition' }) {
     this.rng = new RNG(seed);
     this.seed = seed;
+    this.mode = mode;
     this.events = new EventBus();
-    this.rules = { ...RULES };
+    // The rule snapshot: the base rules plus whatever the mode overrides. `ruleOverrides` is
+    // kept so a live tuning edit (the ?tune panel) can re-read the base rules without losing
+    // the mode's changes.
+    this.ruleOverrides = rules && typeof rules === 'object' ? { ...rules } : {};
+    this.rules = { ...RULES, ...this.ruleOverrides };
     this.difficulty = DIFFICULTY[difficulty] || DIFFICULTY.pro;
     this.difficultyKey = difficulty;
     this.teams = [home, away];
-    this.userTeam = userTeam; // 0 | 1 | null
+    // Seats. One per human player: a seat owns a team, an input struct, the swimmer it pilots
+    // and whether that swimmer is in the cage. `userTeam` is the legacy single-seat shorthand
+    // and is still accepted, so every existing caller keeps working.
+    this.seats = [];
+    if (Array.isArray(seats)) {
+      seats.forEach((team, i) => this.seats.push(new Seat(i, team)));
+    } else {
+      this.seats.push(new Seat(0, userTeam));
+    }
     this.players = [];
     for (let t = 0; t < 2; t++) {
       starters(this.teams[t]).forEach((data, slot) => this.players.push(createPlayer(data, t, slot)));
@@ -70,7 +84,7 @@ export class MatchSim {
     for (let t = 0; t < 2; t++) {
       benchOf(this.teams[t]).forEach((data) => this.benches[t].push(createPlayer(data, t, -1)));
     }
-    this.subsLeft = [RULES.subsPerTeam, RULES.subsPerTeam];
+    this.subsLeft = [this.rules.subsPerTeam, this.rules.subsPerTeam];
     this.subPending = []; // { team, out, incoming } waiting out their entry animation
     this.subWindow = 0; // seconds the bench panel stays open at the current stoppage
     this.cards = [[], []]; // per-team disciplinary record, for the recap
@@ -85,7 +99,6 @@ export class MatchSim {
     // Playbook: indices into OFFENSE_PLAYS / DEFENSE_PLAYS. Index 0 of each is the neutral default.
     this.offPlay = [0, 0];
     this.defPlay = [0, 0];
-    this.userPlayTimer = 0; // cooldown between user play calls
     this.gbDriveShield = false; // true while a Gamebreaker drive is live (untackleable)
     // Dedicated RNG for CPU play calls: keeps play chatter out of the main gameplay stream
     // (so tests/balance that assume base-game rolls stay stable) while staying per-sim seeded.
@@ -98,7 +111,6 @@ export class MatchSim {
     // glued to the carrier's feet until they shoot/pass/slide-tackle (glue dribbling), the shot
     // aim is steered with movement input, and teammates can be called to ask for the ball.
     this.aimZ = 0; // user shot aim offset in the goal mouth (-1 left … +1 right)
-    this.callPassTimer = 0; // >0 right after a support AI flags "I'm open!"
     this.flow = [false, false]; // per-team FLOW state (Blue Lock): ~10s of empowered play
     this.flowTimer = [0, 0];
     this.mustClear = false; // unused in Blitzball; kept for HUD compatibility
@@ -114,11 +126,10 @@ export class MatchSim {
     this.pendingPossession = 0;
     this.pendingGameOver = null;
     this.winner = null;
-    this.controlled = null;
-    // Taking the cage: true while the player is piloting their own keeper.
-    this.inCage = false;
-    this.keeperSwitchCd = 0;
-    this.userInput = emptyInput();
+    // Goals scored (not points): the "first to N" objectives count goals, because a top-ring
+    // goal is worth three points and a low-ring goal one — a point target would read as a
+    // different number of goals on each side of the same match.
+    this.goals = [0, 0];
     this.slowmo = 0;
     this.timeScale = 1;
     this.freeze = 0; // impact hitstop: real seconds the whole sim is held still
@@ -144,7 +155,7 @@ export class MatchSim {
     this.stateTimer = this.rules.warmupDuration;
     this.placeFormation(this.kickoffTeam, 'kickoff', { noBall: true });
     // You always pilot one swimmer — including through the warm-up and tip-off presentation.
-    if (this.userTeam !== null) this.autoSelectControlled();
+    for (const seat of this.seats) this.autoSelectControlled(seat);
     this.events.emit('warmup', { home: this.teams[0], away: this.teams[1] });
   }
 
@@ -159,7 +170,128 @@ export class MatchSim {
    * changing the shot clock mid-match would expect.
    */
   syncTuning() {
-    this.rules = { ...RULES };
+    this.rules = { ...RULES, ...this.ruleOverrides };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Seats
+  // ---------------------------------------------------------------------------
+
+  /** The team a seat pilots (0 | 1 | null). Legacy single-seat shorthand. */
+  get userTeam() {
+    return this.seats[0] ? this.seats[0].team : null;
+  }
+
+  set userTeam(team) {
+    if (this.seats[0]) this.seats[0].team = team ?? null;
+  }
+
+  /** The swimmer seat 0 pilots. */
+  get controlled() {
+    return this.seats[0] ? this.seats[0].controlled : null;
+  }
+
+  set controlled(p) {
+    if (!this.seats[0]) return;
+    this.claimSeat(this.seats[0], p);
+  }
+
+  /** True while seat 0's swimmer is piloting the keeper. */
+  get inCage() {
+    return !!(this.seats[0] && this.seats[0].inCage);
+  }
+
+  set inCage(on) {
+    if (this.seats[0]) this.seats[0].inCage = !!on;
+  }
+
+  /** The live input struct of seat 0. */
+  get userInput() {
+    return this.seats[0] ? this.seats[0].input : emptyInput();
+  }
+
+  set userInput(input) {
+    if (this.seats[0]) this.seats[0].input = input;
+  }
+
+  /** Seat 0's "I'm open!" call timer. */
+  get callPassTimer() {
+    return this.seats[0] ? this.seats[0].callPassTimer : 0;
+  }
+
+  set callPassTimer(value) {
+    if (this.seats[0]) this.seats[0].callPassTimer = value;
+  }
+
+  /** Seat 0's cage-switch cooldown. */
+  get keeperSwitchCd() {
+    return this.seats[0] ? this.seats[0].keeperSwitchCd : 0;
+  }
+
+  set keeperSwitchCd(value) {
+    if (this.seats[0]) this.seats[0].keeperSwitchCd = value;
+  }
+
+  /** Seat 0's playbook-call cooldown. */
+  get userPlayTimer() {
+    return this.seats[0] ? this.seats[0].userPlayTimer : 0;
+  }
+
+  set userPlayTimer(value) {
+    if (this.seats[0]) this.seats[0].userPlayTimer = value;
+  }
+
+  /** Hand `p` to `seat`, releasing whatever that seat was piloting. */
+  claimSeat(seat, p) {
+    if (!seat) return;
+    const prev = seat.controlled;
+    if (prev && prev !== p) {
+      prev.controlled = false;
+      prev.seatIndex = null;
+    }
+    seat.controlled = p || null;
+    if (p) {
+      p.controlled = true;
+      p.seatIndex = seat.index;
+    }
+  }
+
+  /** Let go of a seat's pilot entirely. */
+  releaseSeat(seat) {
+    if (!seat) return;
+    const p = seat.controlled;
+    if (p) {
+      p.controlled = false;
+      p.seatIndex = null;
+    }
+    seat.controlled = null;
+  }
+
+  /** The seat currently piloting `p`, or null when the AI has him. */
+  seatOf(p) {
+    if (!p) return null;
+    return this.seats.find((s) => s.controlled === p) || null;
+  }
+
+  /** Is this swimmer under a human's control? */
+  isUser(p) {
+    if (!p) return false;
+    return this.seats.some((s) => s.controlled === p);
+  }
+
+  /** Does a human seat pilot this team? */
+  isSeatTeam(team) {
+    return this.seats.some((s) => s.team === team);
+  }
+
+  /** Every seat that pilots this team. */
+  seatsForTeam(team) {
+    return this.seats.filter((s) => s.team === team);
+  }
+
+  /** The seat a player belongs to, by team — used by the bench and the HUD. */
+  seatForTeam(team) {
+    return this.seats.find((s) => s.team === team) || null;
   }
 
   // ---------------------------------------------------------------------------
@@ -201,10 +333,6 @@ export class MatchSim {
 
   opponentsOf(p) {
     return this.players.filter((q) => q.team !== p.team);
-  }
-
-  isUser(p) {
-    return this.userTeam !== null && p.team === this.userTeam && p === this.controlled;
   }
 
   forwardOf(p) {
@@ -260,7 +388,7 @@ export class MatchSim {
       }
       p.ai = { ...p.ai, cutting: false, cutTimer: 0, target: null, lungedFor: null };
     }
-    this.callPassTimer = 0; // stale "I'm open" flags must not survive a possession reset
+    for (const seat of this.seats) seat.callPassTimer = 0; // stale "I'm open" flags must not survive a possession reset
     // Stoppage = the coaches' moment: run any changes the player queued during live play, then let
     // the CPU rotate its tired swimmers before the ball is put back in.
     this.flushSubs();
@@ -269,7 +397,7 @@ export class MatchSim {
     if (reason !== 'foul') this.placeFormation(team, reason);
     this.stats.possessions++;
     this.events.emit('reset', { team, reason });
-    if (this.userTeam !== null) this.autoSelectControlled();
+    for (const seat of this.seats) this.autoSelectControlled(seat);
   }
 
   // ---------------------------------------------------------------------------
@@ -281,8 +409,9 @@ export class MatchSim {
   stepWarmup(dt) {
     this.stateTimer -= dt;
     for (const p of this.players) {
-      if (this.userTeam !== null && p === this.controlled) {
-        copyInput(p.input, this.userInput);
+      const seat = this.seatOf(p);
+      if (seat) {
+        copyInput(p.input, seat.input);
         p.input.turbo = false;
         p.input.shootPressed = false;
         p.input.pass = false;
@@ -364,9 +493,10 @@ export class MatchSim {
     const cap1 = this.outfield(1)[0];
     for (const p of this.players) {
       if (p === cap0 || p === cap1) {
-        if (this.userTeam !== null && p === this.controlled) {
-          copyInput(p.input, this.userInput);
-          p.input.turbo = p.turbo > 30 && this.userInput.turbo;
+        const seat = this.seatOf(p);
+        if (seat) {
+          copyInput(p.input, seat.input);
+          p.input.turbo = p.turbo > 30 && seat.input.turbo;
         } else {
           const d = Vec3.dirXZ(p.pos, this.ball.pos);
           p.input.moveX = d.x;
@@ -389,7 +519,7 @@ export class MatchSim {
       this.shotClock = this.possessionClock;
       this.state = 'live';
       this.tipoffPhase = null;
-      if (this.userTeam !== null) this.autoSelectControlled();
+      for (const seat of this.seats) this.autoSelectControlled(seat);
       this.events.emit('live', { possession: this.possession, half: this.half, tipoff: true });
     } else if (this.stateTimer <= 0) {
       // Stalled race: the ref awards the ball to the designated kickoff team's captain.
@@ -398,7 +528,7 @@ export class MatchSim {
       this.giveBall(cap);
       this.state = 'live';
       this.tipoffPhase = null;
-      if (this.userTeam !== null) this.autoSelectControlled();
+      for (const seat of this.seats) this.autoSelectControlled(seat);
       this.events.emit('live', { possession: this.possession, half: this.half, tipoff: true });
     }
   }
@@ -439,23 +569,20 @@ export class MatchSim {
     }
   }
 
-  autoSelectControlled() {
+  autoSelectControlled(seat = this.seats[0]) {
+    if (!seat || seat.team === null) return;
     // Inside the cage the player owns the keeper: never yank control back to an outfielder
     // mid-duel, or taking the cage would be a coin flip every time the ball moved.
-    const gk = this.keeperOf(this.userTeam);
-    if (gk && this.inCage && gk.controlled && gk.state !== 'fallen') {
+    const gk = this.keeperOf(seat.team);
+    if (gk && seat.inCage && gk.controlled && gk.state !== 'fallen') {
       // The cage owns the pilot role, but a substitution nulls `controlled` before calling us —
       // repair the reference rather than returning and leaving the cage with nobody on screen.
-      if (this.controlled !== gk) {
-        if (this.controlled) this.controlled.controlled = false;
-        this.controlled = gk;
-        gk.controlled = true;
-      }
+      if (seat.controlled !== gk) this.claimSeat(seat, gk);
       return;
     }
-    const mine = this.outfield(this.userTeam);
+    const mine = this.outfield(seat.team);
     let pick;
-    if (this.ball.holder && this.ball.holder.team === this.userTeam && !this.ball.holder.isKeeper) pick = this.ball.holder;
+    if (this.ball.holder && this.ball.holder.team === seat.team && !this.ball.holder.isKeeper) pick = this.ball.holder;
     else {
       // nearest outfield to the ball
       let bd = Infinity;
@@ -469,25 +596,23 @@ export class MatchSim {
     }
     mine.forEach((p) => (p.controlled = false));
     if (gk) gk.controlled = false;
-    this.inCage = false;
-    this.controlled = pick;
-    pick.controlled = true;
+    seat.inCage = false;
+    this.claimSeat(seat, pick);
   }
 
-  switchControlled() {
-    if (this.userTeam === null) return;
+  switchControlled(p = null) {
+    const seat = p ? this.seatOf(p) : this.seats[0];
+    if (!seat || seat.team === null) return;
     // In the cage, the switch button hands you back to the nearest outfield swimmer — that is
     // how you leave the keeper (and how the touch pad's SWAP gets you out of the box).
-    if (this.inCage) return this.leaveCage();
+    if (seat.inCage) return this.leaveCage(seat);
     // Rematch-style: you can switch off the ball-carrier too — you always pilot exactly one
     // swimmer, and off-ball carriers get reliable support AI.
-    const mine = this.outfield(this.userTeam).filter((p) => p !== this.controlled);
+    const mine = this.outfield(seat.team).filter((q) => q !== seat.controlled);
     mine.sort((a, b) => a.pos.distanceToXZ(this.ball.pos) - b.pos.distanceToXZ(this.ball.pos));
     if (mine.length) {
-      if (this.controlled) this.controlled.controlled = false;
-      this.controlled = mine[0];
-      mine[0].controlled = true;
-      this.events.emit('switch', { player: this.controlled });
+      this.claimSeat(seat, mine[0]);
+      this.events.emit('switch', { player: seat.controlled });
     }
   }
 
@@ -498,16 +623,15 @@ export class MatchSim {
   /**
  * Is the cage open right now? Only once the play is actually at your end — standing in your own
  * half with the ball at the other goal would just be a way to stop playing.
- */
-cageAvailable() {
-    if (this.userTeam === null || this.inCage || this.keeperSwitchCd > 0) return false;
+ */  cageAvailable(seat = this.seats[0]) {
+    if (!seat || seat.team === null || seat.inCage || seat.keeperSwitchCd > 0) return false;
     if (this.state !== 'live') return false;
-    const gk = this.keeperOf(this.userTeam);
+    const gk = this.keeperOf(seat.team);
     if (!gk || gk.state === 'fallen' || gk.sentOff) return false;
     // Roughly your own half: open once the ball is at your end, shut while it is still theirs.
     // (The halfway line is ~15 m from your own goal on this pitch, so anything much above that
     // would leave the cage open for most of the match and make it a way to stop playing.)
-    return this.ball.pos.distanceToXZ(this.ownGoalPos(this.userTeam)) <= 19;
+    return this.ball.pos.distanceToXZ(this.ownGoalPos(seat.team)) <= 19;
   }
 
   /**
@@ -516,26 +640,24 @@ cageAvailable() {
    * keeper is slower to turn, and if you are caught out of position the goal is on you. In
    * exchange you own the shot: a dive is yours to time.
    */
-  takeCage() {
-    if (!this.cageAvailable()) return false;
-    const gk = this.keeperOf(this.userTeam);
-    if (this.controlled) this.controlled.controlled = false;
-    for (const p of this.outfield(this.userTeam)) p.controlled = false;
-    gk.controlled = true;
-    this.controlled = gk;
-    this.inCage = true;
-    this.keeperSwitchCd = this.rules.keeperSwitchCooldown;
+  takeCage(seat = this.seats[0]) {
+    if (!this.cageAvailable(seat)) return false;
+    const gk = this.keeperOf(seat.team);
+    for (const p of this.outfield(seat.team)) p.controlled = false;
+    this.claimSeat(seat, gk);
+    seat.inCage = true;
+    seat.keeperSwitchCd = this.rules.keeperSwitchCooldown;
     this.events.emit('cage', { keeper: gk, on: true });
     return true;
   }
 
   /** Hand control back to the nearest outfield swimmer. */
-  leaveCage() {
-    if (!this.inCage) return false;
-    const gk = this.keeperOf(this.userTeam);
+  leaveCage(seat = this.seats[0]) {
+    if (!seat || !seat.inCage) return false;
+    const gk = this.keeperOf(seat.team);
     if (gk) gk.controlled = false;
-    this.inCage = false;
-    const mine = this.outfield(this.userTeam);
+    seat.inCage = false;
+    const mine = this.outfield(seat.team);
     let pick = null;
     let bd = Infinity;
     for (const p of mine) {
@@ -546,9 +668,8 @@ cageAvailable() {
       }
     }
     if (!pick) return false;
-    this.controlled = pick;
-    pick.controlled = true;
-    this.keeperSwitchCd = this.rules.keeperSwitchCooldown;
+    this.claimSeat(seat, pick);
+    seat.keeperSwitchCd = this.rules.keeperSwitchCooldown;
     this.events.emit('cage', { keeper: gk, on: false, player: pick });
     return true;
   }
@@ -569,7 +690,7 @@ cageAvailable() {
     // Preserve CPU lateral pace; manual input is bounded at its public interface.
     p.diveDir = Math.abs(dz) < 0.2 ? 0 : dz;
     p.diveHeight = Math.abs(dh) < 0.2 ? 0 : dh;
-    p.diveManual = this.inCage && this.isUser(p);
+    p.diveManual = this.seatOf(p)?.inCage === true;
     p.diveOriginY = ARENA.goalY + p.y;
     p.diveOriginZ = p.pos.z;
     p.diveCommit = MOVE.keeperDiveCommit;
@@ -594,12 +715,21 @@ cageAvailable() {
 
   /** If a teammate is flagged "I'm open", hand them the next pass. */
   callPassTarget(p) {
-    if (this.callPassTimer <= 0 || this.userTeam === null || p.team !== this.userTeam) return null;
+    // The call belongs to the crew, not to whichever swimmer the seat happens to be piloting: a
+    // seat can swap mid-possession, and the carrier still has to find the man who called.
+    const seat = this.seatForTeam(p.team);
+    if (!seat || seat.callPassTimer <= 0) return null;
     return this.teammatesOf(p).find((q) => !q.isKeeper && q.callingForPass) || null;
   }
 
   setUserInput(input) {
     this.userInput = input;
+  }
+
+  /** Wire a seat's live input struct (a local duel calls this with index 1). */
+  setSeatInput(index, input) {
+    const seat = this.seats[index];
+    if (seat && input) seat.input = input;
   }
 
   // ---------------------------------------------------------------------------
@@ -632,7 +762,7 @@ cageAvailable() {
     if (out.state === 'shoot' || out.state === 'trick' || out.state === 'gbdrive') return false;
     if (out.state === 'fallen' || out.state === 'stumble' || out.state === 'reel') return false;
     if (out.airborne) return false;
-    if (out === this.controlled) return false;
+    if (this.isUser(out)) return false;
     return true;
   }
 
@@ -647,7 +777,20 @@ cageAvailable() {
     const needKeeper = out && out.isKeeper;
     const pool = bench.filter((b) => (needKeeper ? b.isKeeper : !b.isKeeper));
     if (!pool.length) return null;
-    pool.sort((a, b) => overallOf(b.data) - overallOf(a.data));
+    // Role-aware sorting: keepers stay goal, shooters stay forward, fielders cover middle
+    const isKeeperNeed = needKeeper && !out.isKeeper;
+    const isShooterNeed = !needKeeper && out.isShooter;
+    pool.sort((a, b) => {
+      const aKeeper = a.isKeeper; const bKeeper = b.isKeeper;
+      const aShooter = a.isShooter; const bShooter = b.isShooter;
+      // Priority: exact role match, then keeper, then shooter, then fielder
+      if (isKeeperNeed && aKeeper && !bKeeper) return -1;
+      if (isKeeperNeed && !aKeeper && bKeeper) return 1;
+      if (isShooterNeed && aShooter && !bShooter) return -1;
+      if (isShooterNeed && !aShooter && bShooter) return 1;
+      // Within same role class, sort by overall rating
+      return overallOf(b.data) - overallOf(a.data);
+    });
     return pool[0];
   }
 
@@ -702,9 +845,13 @@ cageAvailable() {
 
     // If the swap touched whoever the player was piloting (e.g. the AI took the slot over), hand
     // control back to something sensible immediately rather than leaving a dangling reference.
-    if (this.controlled === out || !this.players.includes(this.controlled)) {
+    const seat = this.seatOf(out);
+    if (seat) {
+      this.releaseSeat(seat);
+      this.autoSelectControlled(seat);
+    } else if (this.controlled === out || !this.players.includes(this.controlled)) {
       this.controlled = null;
-      if (this.userTeam !== null) this.autoSelectControlled();
+      for (const s of this.seats) this.autoSelectControlled(s);
     }
     this.events.emit('sub', { team, out, in: incoming, remaining: this.subsLeft[team] });
     this.stats.subs++;
@@ -754,10 +901,19 @@ cageAvailable() {
   /** Open the bench window at a stoppage so the player (or the CPU) can make changes. */
   openSubWindow(team = null) {
     if (this.state === 'live') return;
-    this.subWindow = RULES.subWindow;
+    this.subWindow = this.rules.subWindow;
     if (team !== null && this.canSub(team)) {
       this.events.emit('subwindow', { team });
     }
+  }
+
+  /** Open the bench window for every crew a human seat is piloting. */
+  openSubWindowForSeats() {
+    if (this.state === 'live') return;
+    const teams = [...new Set(this.seats.filter((s) => s.team !== null).map((s) => s.team))];
+    if (!teams.length) return;
+    this.openSubWindow(teams[0]);
+    for (const team of teams.slice(1)) this.events.emit('subwindow', { team });
   }
 
   // ---------------------------------------------------------------------------
@@ -820,19 +976,18 @@ cageAvailable() {
         this.events.emit('possession', { team: p.team, player: p });
       }
     }
-    if (announce && this.userTeam !== null) {
-      if (p.team === this.userTeam && !p.isKeeper) {
-        // Taking the cage is a deliberate commitment: a teammate picking up a loose ball inside
-        // your own end must not silently hand the pilot role to an outfielder while `inCage`
-        // still points at the keeper (which left the touch pad stuck in DIVE mode with the wrong
-        // swimmer on screen). The keeper keeps the cage until the player leaves it.
-        if (!this.inCage) {
-          if (this.controlled) this.controlled.controlled = false;
-          this.controlled = p;
-          p.controlled = true;
+    if (announce) {
+      for (const seat of this.seats) {
+        if (seat.team === null) continue;
+        if (p.team === seat.team && !p.isKeeper) {
+          // Taking the cage is a deliberate commitment: a teammate picking up a loose ball inside
+          // your own end must not silently hand the pilot role to an outfielder while `inCage`
+          // still points at the keeper (which left the touch pad stuck in DIVE mode with the wrong
+          // swimmer on screen). The keeper keeps the cage until the player leaves it.
+          if (!seat.inCage) this.claimSeat(seat, p);
+        } else if (p.team !== seat.team) {
+          this.autoSelectControlled(seat);
         }
-      } else if (p.team !== this.userTeam) {
-        this.autoSelectControlled();
       }
     }
   }
@@ -856,9 +1011,11 @@ cageAvailable() {
       dt = rawDt * this.timeScale;
     } else this.timeScale = 1;
     this.time += dt;
-    if (this.userPlayTimer > 0) this.userPlayTimer -= dt;
-    if (this.keeperSwitchCd > 0) this.keeperSwitchCd -= dt;
-    if (this.callPassTimer > 0) this.callPassTimer -= dt;
+    for (const seat of this.seats) {
+      if (seat.userPlayTimer > 0) seat.userPlayTimer -= dt;
+      if (seat.keeperSwitchCd > 0) seat.keeperSwitchCd -= dt;
+      if (seat.callPassTimer > 0) seat.callPassTimer -= dt;
+    }
     // FLOW countdown ticks once per sim step (not once per player — that drained it 7x too fast).
     for (const t of [0, 1]) {
       if (!this.flow[t]) continue;
@@ -925,9 +1082,9 @@ cageAvailable() {
         // is stopped, so both coaches get to make their changes here.
         if (this.subWindow > 0) this.subWindow -= dt;
         if (this.stateTimer <= 0) {
-          this.half = 2;
+          this.half += 1;
           this.clock = this.rules.halfLength;
-          this.openSubWindow(this.userTeam);
+          this.openSubWindowForSeats();
           this.resetPossession(1 - this.kickoffTeam, 'halftime');
         }
         break;
@@ -963,7 +1120,8 @@ cageAvailable() {
 
     // 1. Inputs
     for (const p of this.players) {
-      if (this.userTeam !== null && p === this.controlled) copyInput(p.input, this.userInput);
+      const seat = this.seatOf(p);
+      if (seat) copyInput(p.input, seat.input);
       else updateAI(this, p, dt);
     }
     // 2. Actions
@@ -975,20 +1133,25 @@ cageAvailable() {
     // 4. Rules
     this.updateRules(dt);
     // Consume one-shot flags
-    const u = this.userInput;
-    u.shootPressed = false;
-    u.shootReleased = false;
-    u.pass = false;
-    u.trick = false;
-    u.hit = false;
-    u.breach = false;
-    u.switchPlayer = false;
-    u.gamebreaker = false;
-    u.cage = false;
+    for (const seat of this.seats) {
+      const u = seat.input;
+      u.shootPressed = false;
+      u.shootReleased = false;
+      u.pass = false;
+      u.trick = false;
+      u.hit = false;
+      u.breach = false;
+      u.switchPlayer = false;
+      u.gamebreaker = false;
+      u.cage = false;
+    }
   }
 
   endOfHalf() {
-    if (this.half === 1) {
+    // `rules.halves` decides how many periods the match has. One-period modes (Trials, Blitz
+    // variants) simply finish at the first whistle instead of heading to the break.
+    const totalHalves = Math.max(1, this.rules.halves || 2);
+    if (this.half < totalHalves) {
       this.state = 'dead';
       this.stateTimer = 1.2;
       this.pendingHalftime = true;
@@ -998,8 +1161,13 @@ cageAvailable() {
     }
     // Full time
     if (this.score[0] !== this.score[1]) {
-      this.events.emit('horn', { half: 2 });
+      this.events.emit('horn', { half: this.half });
       return this.finishGame(this.score[0] > this.score[1] ? 0 : 1);
+    }
+    // A single-period mode (a drill, a blitz variant) has no overtime to play: level is level.
+    if (totalHalves <= 1) {
+      this.events.emit('horn', { half: this.half });
+      return this.finishGame(null);
     }
     // Overtime: golden goal
     this.overtime = true;
@@ -1017,16 +1185,17 @@ cageAvailable() {
 
   processInput(p) {
     const inp = p.input;
-    if (inp.switchPlayer && this.isUser(p)) this.switchControlled();
+    const seat = this.seatOf(p);
+    if (inp.switchPlayer && seat) this.switchControlled(p);
     // Taking the cage is its own button, not a mode: one press in, one press out (the SWAP
     // button leaves it), so it can be a mid-play read rather than a commitment.
-    if (inp.cage && this.isUser(p)) {
-      if (this.inCage) this.leaveCage();
-      else this.takeCage();
+    if (inp.cage && seat) {
+      if (seat.inCage) this.leaveCage(seat);
+      else this.takeCage(seat);
       inp.cage = false;
     }
     // Position with movement/depth; the dive locks both axes until its lunge ends.
-    if (this.inCage && this.isUser(p) && p.isKeeper) {
+    if (seat && seat.inCage && p.isKeeper) {
       if (inp.breach || inp.shootPressed || inp.trick) {
         this.keeperDive(p, inp.keeperAim || {
           z: Number.isFinite(inp.moveZ) ? clamp(inp.moveZ, -1, 1) : 0,
@@ -1045,10 +1214,10 @@ cageAvailable() {
     }
     // Playbook: digits 1-3 call offense plays, 7-9 defense plays (user team only, small cooldown
     // so key mashing can't machine-gun commentary banners).
-    if (inp.playcall && this.isUser(p) && this.userPlayTimer <= 0 && (this.state === 'live' || this.state === 'gamebreaker')) {
+    if (inp.playcall && seat && seat.userPlayTimer <= 0 && (this.state === 'live' || this.state === 'gamebreaker')) {
       const offense = inp.playcall < 5;
-      const play = this.callPlay(offense ? 'offense' : 'defense', offense ? inp.playcall - 1 : inp.playcall - 7);
-      if (play) this.userPlayTimer = 0.4;
+      const play = this.callPlay(offense ? 'offense' : 'defense', offense ? inp.playcall - 1 : inp.playcall - 7, seat.team);
+      if (play) seat.userPlayTimer = 0.4;
     }
     inp.playcall = 0;
     if (p.state === 'fallen' || p.state === 'stumble' || p.state === 'reel' || p.state === 'commit' || p.stun > 0) return;
@@ -1090,7 +1259,9 @@ cageAvailable() {
         const best = [...this.teammatesOf(p)].filter((q) => q !== this.ball.holder && !q.isKeeper && q.state !== 'fallen').sort((a, b) => a.pos.distanceToXZ(p.pos) - b.pos.distanceToXZ(p.pos))[0];
         if (best) {
           for (const q of this.outfield(p.team)) q.callingForPass = q === best;
-          this.callPassTimer = 1.2;
+          const caller = this.seatForTeam(p.team);
+          if (caller) caller.callPassTimer = 1.2;
+          else if (p.team === this.userTeam) this.callPassTimer = 1.2;
           if (onOffense && !best.ai.cutting) {
             best.ai.cutting = true;
             best.ai.cutTimer = 1.6;

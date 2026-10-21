@@ -1,6 +1,8 @@
 import { TEAMS, TEAM_BY_ID, playerOverall, teamOverall, starters } from '../data/teams.js';
 import { moveFor } from '../game/moves.js';
 import { DIFFICULTY } from '../data/constants.js';
+import { DEFAULT_MODE, getMode } from '../game/modes.js';
+import { starMarkup } from '../game/trials.js';
 import {
   currentOpponent,
   careerTitle,
@@ -24,13 +26,13 @@ import { version } from '../../package.json';
  * Menus support mouse and keyboard/gamepad navigation.
  */
 
-const h = (html) => {
+export const h = (html) => {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
   return t.content.firstElementChild;
 };
 
-function teamCard(team, opts = {}) {
+export function teamCard(team, opts = {}) {
   const ovr = teamOverall(team);
   const stars = team.roster.slice(0, 3).map((p) => `<li><span class="nick">${p.nick}</span><span class="pname">${p.name}</span><span class="ovr">${playerOverall(p)}</span></li>`).join('');
   return `
@@ -45,11 +47,11 @@ function teamCard(team, opts = {}) {
     </div>`;
 }
 
-function menuList(items) {
+export function menuList(items) {
   return `<div class="menu" role="group">${items.map((it, i) => `<button type="button" class="menu-item ${i === 0 ? 'sel' : ''}" data-action="${it.action}" ${it.disabled ? 'data-disabled="1" disabled aria-disabled="true"' : ''} aria-current="${i === 0 ? 'true' : 'false'}"><span class="mi-label">${it.label}</span>${it.sub ? `<span class="mi-sub">${it.sub}</span>` : ''}</button>`).join('')}</div>`;
 }
 
-function wireMenu(root, onSelect, app) {
+export function wireMenu(root, onSelect, app) {
   const items = Array.from(root.querySelectorAll('.menu-item'));
   let idx = items.findIndex((i) => i.classList.contains('sel'));
   if (idx < 0) idx = 0;
@@ -114,9 +116,8 @@ export function TitleScreen(app) {
       </div>
       <div class="title-menu">
         ${menuList([
-          { action: 'play', label: 'PLAY', sub: 'Quick match · choose your crew' },
+          { action: 'play', label: 'PLAY', sub: 'Twelve modes · ranked ladder · gauntlet runs · online series' },
           { action: 'career', label: hasCareer ? 'CONTINUE RUNNING THE POOLS' : 'RUN THE POOLS', sub: hasCareer ? `${careerTitle(app.state.career)} · ${app.state.career.wins}W ${app.state.career.losses}L` : 'Career ladder · 7 crews' },
-          { action: 'versus', label: 'WATCH', sub: 'CPU vs CPU exhibition' },
           { action: 'howto', label: 'HOW TO PLAY' },
           { action: 'settings', label: 'SETTINGS' },
           { action: 'quit', label: 'QUIT', sub: 'Exit Blitzball-X' },
@@ -125,9 +126,8 @@ export function TitleScreen(app) {
       <div class="title-foot"><span>${app.state.records.wins}W – ${app.state.records.losses}L</span><span>BEST STYLE ${app.state.records.styleBest}</span><span>v${version}</span></div>
     </section>`);
   const menu = wireMenu(el, (action) => {
-    if (action === 'play') app.go('teamselect', { mode: 'quick' });
-    else if (action === 'career') app.go(hasCareer ? 'career' : 'teamselect', { mode: 'career' });
-    else if (action === 'versus') app.go('teamselect', { mode: 'versus' });
+    if (action === 'play') app.go('modes');
+    else if (action === 'career') app.go(hasCareer ? 'career' : 'teamselect', { modeId: 'career' });
     else if (action === 'howto') app.go('howto');
     else if (action === 'settings') app.go('settings');
     else if (action === 'quit') app.requestQuit();
@@ -140,24 +140,31 @@ export function TitleScreen(app) {
 // ---------------------------------------------------------------------------
 
 export function TeamSelectScreen(app, params) {
-  const mode = params.mode || 'quick';
-  let side = 0; // 0 = picking your team, 1 = picking opponent (quick/versus)
+  const modeId = params.modeId || (params.mode === 'career' ? 'career' : DEFAULT_MODE);
+  const mode = getMode(modeId);
+  const career = modeId === 'career';
+  const duel = mode.seats >= 2;
+  let side = 0; // 0 = left card (P1 / you), 1 = right card (P2 / CPU)
   let picks = [0, 1];
+  const headline = career ? 'PICK YOUR CREW' : duel ? 'PICK BOTH CREWS' : 'PICK YOUR CREW';
+  const sub = career
+    ? 'You run with them all the way to the top.'
+    : `${mode.label} · ${mode.tagline}`;
   const el = h(`
     <section class="screen teamselect">
-      <header class="screen-head"><h1>${mode === 'career' ? 'PICK YOUR CREW' : mode === 'versus' ? 'PICK THE MATCHUP' : 'PICK YOUR CREW'}</h1><div class="head-sub">${mode === 'career' ? 'You run with them all the way to the top.' : 'Left/Right to browse · Enter to lock in'}</div></header>
+      <header class="screen-head"><h1>${headline}</h1><div class="head-sub">${sub}</div></header>
       <div class="ts-body">
-        <div class="ts-side ts-left"><div class="ts-label">${mode === 'versus' ? 'HOME' : 'YOU'}</div><div class="ts-card"></div></div>
+        <div class="ts-side ts-left"><div class="ts-label">${duel ? 'PLAYER 1' : 'YOU'}</div><div class="ts-card"></div></div>
         <div class="ts-vs">VS</div>
-        <div class="ts-side ts-right"><div class="ts-label">${mode === 'career' ? 'FIRST OPPONENT' : 'CPU'}</div><div class="ts-card"></div></div>
+        <div class="ts-side ts-right"><div class="ts-label">${duel ? 'PLAYER 2' : career ? 'FIRST OPPONENT' : 'CPU'}</div><div class="ts-card"></div></div>
       </div>
-      ${mode === 'career' ? `<div class="player-build"><label>PLAYER NAME <input class="player-name" maxlength="18" value="Rookie" /></label><label>STYLE <select class="player-style"><option value="ALLROUND">ALL-AROUND</option><option value="FINISHER">FINISHER</option><option value="SNIPER">SNIPER</option><option value="HANDLER">HANDLER</option><option value="ENFORCER">ENFORCER</option></select></label><span>BUILD ONE SWIMMER · LEVEL UP · UNLOCK GEAR</span></div>` : ''}
+      ${career ? `<div class="player-build"><label>PLAYER NAME <input class="player-name" maxlength="18" value="Rookie" /></label><label>STYLE <select class="player-style"><option value="ALLROUND">ALL-AROUND</option><option value="FINISHER">FINISHER</option><option value="SNIPER">SNIPER</option><option value="HANDLER">HANDLER</option><option value="ENFORCER">ENFORCER</option></select></label><span>BUILD ONE SWIMMER · LEVEL UP · UNLOCK GEAR</span></div>` : ''}
       <div class="ts-grid">${TEAMS.map((t, i) => `<button class="ts-chip" data-i="${i}" style="--c1:${t.primary};--c3:${t.accent}">${t.abbr}</button>`).join('')}</div>
       <footer class="screen-foot">
-        <div class="foot-left"><span class="key">◀ ▶</span> browse <span class="key">▲ ▼</span> switch side <span class="key">ENTER</span> lock in <span class="key">ESC</span> back</div>
+        <div class="foot-left"><span class="key">◀ ▶</span> browse <span class="key">▲ ▼</span> switch side <span class="key">ENTER</span> ${duel ? 'start the duel' : 'lock in'} <span class="key">ESC</span> back</div>
         <div class="foot-right">
-          <label>DIFFICULTY <select class="diff-sel">${Object.entries(DIFFICULTY).map(([k, v]) => `<option value="${k}" ${app.state.settings.difficulty === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
-          <button class="btn primary start-btn">${mode === 'career' ? 'START THE RUN' : 'DIVE IN'}</button>
+          ${duel ? '<span class="ts-duel-note">NO DIFFICULTY · BOTH SIDES ARE HUMAN</span>' : `<label>DIFFICULTY <select class="diff-sel">${Object.entries(DIFFICULTY).map(([k, v]) => `<option value="${k}" ${app.state.settings.difficulty === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>`}
+          <button class="btn primary start-btn">${career ? 'START THE RUN' : duel ? 'START THE DUEL' : 'DIVE IN'}</button>
         </div>
       </footer>
     </section>`);
@@ -165,7 +172,7 @@ export function TeamSelectScreen(app, params) {
   const sides = [el.querySelector('.ts-left'), el.querySelector('.ts-right')];
   const chips = Array.from(el.querySelectorAll('.ts-chip'));
   const render = () => {
-    if (mode === 'career') {
+    if (career) {
       const oppLadder = TEAMS.filter((t) => t.id !== TEAMS[picks[0]].id).sort((a, b) => teamOverall(a) - teamOverall(b));
       picks[1] = TEAMS.indexOf(oppLadder[0]);
     }
@@ -196,22 +203,38 @@ export function TeamSelectScreen(app, params) {
   );
   sides.forEach((s, i) =>
     s.addEventListener('click', () => {
-      if (mode === 'career' && i === 1) return;
+      if (career && i === 1) return;
       side = i;
       render();
     }),
   );
+  const back = () => {
+    app.audio.uiBack();
+    app.go(career ? 'title' : 'modes');
+  };
   const start = () => {
     app.audio.uiConfirm();
-    app.state.settings.difficulty = el.querySelector('.diff-sel').value;
-    app.save();
+    const diffSel = el.querySelector('.diff-sel');
+    if (diffSel) {
+      app.state.settings.difficulty = diffSel.value;
+      app.save();
+    }
     const home = TEAMS[picks[0]];
     const away = TEAMS[picks[1]];
-    if (mode === 'career') app.startCareer(home.id, { name: el.querySelector('.player-name').value, archetype: el.querySelector('.player-style').value });
-    else app.startMatch({ home, away, userTeam: mode === 'versus' ? null : 0, mode });
+    if (career) {
+      app.startCareer(home.id, { name: el.querySelector('.player-name').value, archetype: el.querySelector('.player-style').value });
+      return;
+    }
+    app.startMatch({
+      home,
+      away,
+      modeId,
+      seats: duel ? [0, 1] : mode.seats <= 0 ? [] : [0],
+      rules: modeId === 'custom' ? app.state.customRules : null,
+    });
   };
   el.querySelector('.start-btn').addEventListener('click', start);
-  el.querySelector('.diff-sel').addEventListener('change', (e) => {
+  el.querySelector('.diff-sel')?.addEventListener('change', (e) => {
     app.state.settings.difficulty = e.target.value;
     app.save();
   });
@@ -221,16 +244,13 @@ export function TeamSelectScreen(app, params) {
     onNav(n) {
       if (n.left) cycle(-1);
       if (n.right) cycle(1);
-      if ((n.up || n.down) && mode !== 'career') {
+      if ((n.up || n.down) && !career) {
         side = 1 - side;
         app.audio.uiMove();
         render();
       }
       if (n.confirm) start();
-      if (n.back) {
-        app.audio.uiBack();
-        app.go('title');
-      }
+      if (n.back) back();
     },
   };
 }
@@ -472,8 +492,8 @@ export function HowToScreen(app) {
           <h2>SIGNATURE MOVES</h2>
           <ul>
             <li>Every swimmer owns a move — check the roster screen. With the ball, <b>L</b> plays it.</li>
-            <li>They are not interchangeable. A <b>SPIN</b> only beats a defender staring at you, a <b>BACK-FLIP FEINT</b> punishes one who has already committed, a <b>WAVE CREST</b> knocks anyone in front of you down, and a <b>DOLPHIN KICK</b> or <b>UNDERTOW</b> goes over/under the challenge entirely — you are untackleable while you're off the plane.</li>
-            <li><b>Every move costs you.</b> You land off balance, and the bigger commitments (JET STREAM, WAVE CREST, PIERCER) leave you wide open. Commit or hold your position — both are plays.</li>
+            <li>They are not interchangeable. <b>TEMPEST SPIN</b> only beats a defender staring at you, <b>GHOST FEINT</b> punishes one who has already committed, <b>TSUNAMI SLAM</b> knocks anyone in front of you down, and <b>TIDAL KICK</b> or <b>SINKER</b> goes over/under the challenge entirely — you are untackleable while you're off the plane.</li>
+            <li><b>Moves change the match.</b> A move that beats its man drops that defender's stats for a few seconds (TKL, SPD or HND), and some moves also boost your own swimmer. The bigger commitments (<b>DEEP SPIRAL</b>, <b>UNDERCURRENT</b>, <b>TSUNAMI SLAM</b>) leave you wide open if they miss.</li>
           </ul>
           <h2>STYLE &amp; FLOW</h2>
           <ul>
@@ -653,10 +673,50 @@ export function SettingsScreen(app, params = {}) {
 // Results
 // ---------------------------------------------------------------------------
 
+/** The series tally, drawn from the seat's point of view. */
+function seriesMarkup(series, mySeat = 0) {
+  if (!series) return '';
+  const wins = series.wins || [0, 0];
+  const mine = wins[mySeat] || 0;
+  const theirs = wins[1 - mySeat] || 0;
+  const over = !!series.over;
+  const conceded = series.forfeit !== null && series.forfeit !== undefined;
+  const label = over
+    ? (series.champion === mySeat ? 'SERIES WON' : 'SERIES LOST')
+    : `ROUND ${series.round || 1} COMPLETE`;
+  const note = conceded
+    ? (series.forfeit === mySeat ? 'YOU CONCEDED' : 'OPPONENT CONCEDED')
+    : over ? `BEST OF ${series.bestOf || 3}` : 'READY UP FOR THE NEXT ROUND';
+  return `<div class="res-series ${over ? (series.champion === mySeat ? 'won' : 'lost') : ''}">
+    <span class="rs-label">${label}</span>
+    <span class="rs-tally">${mine}<i>–</i>${theirs}</span>
+    <span class="rs-note">${note}</span>
+  </div>`;
+}
+
+/** How the run stands after a Gauntlet match. */
+function gauntletMarkup(gauntlet) {
+  if (!gauntlet) return '';
+  const progress = gauntlet.progress || {};
+  return `<div class="res-gauntlet ${progress.cleared ? 'won' : progress.over ? 'lost' : ''}">
+    <span class="rg-label">GAUNTLET</span>
+    <span class="rg-summary">${gauntlet.summary}</span>
+    <span class="rg-progress">${progress.stage || 0}/${progress.total || 3} RUNGS · ${progress.lives ?? 0} LIVES LEFT</span>
+  </div>`;
+}
+
 export function ResultsScreen(app, params) {
-  const { sim, mode, userTeam, careerResult } = params;
+  const { sim, mode, userTeam, careerResult, rankedResult = '', trial = null, duel = null, gauntlet = null, series = null, mySeat = 0 } = params;
   const [h0, a0] = sim.teams;
-  const won = userTeam === null ? null : sim.winner === userTeam;
+  const winnerTeam = Number.isInteger(sim.winner) ? sim.winner : 0;
+  const verdict = duel
+    ? duel.forfeitSeat === duel.me ? 'YOU CONCEDED'
+      : duel.forfeitSeat !== null && duel.forfeitSeat !== undefined ? 'OPPONENT CONCEDED'
+        : duel.online
+          ? duel.winnerSeat === duel.me ? 'YOU TAKE THE ROUND' : duel.winnerSeat < 0 ? 'DEAD HEAT' : 'YOU LOSE THE ROUND'
+          : duel.winnerSeat < 0 ? 'DEAD HEAT' : `PLAYER ${duel.winnerSeat + 1} TAKES IT`
+    : userTeam === null ? 'FULL TIME' : sim.winner === userTeam ? 'YOU RUN THE POOL' : 'RUN IT BACK';
+  const seriesOver = !!series?.over;
   const rows = (team) =>
     sim
       .teamPlayers(team)
@@ -664,36 +724,74 @@ export function ResultsScreen(app, params) {
       .join('');
   const mvp = [...sim.players].sort((a, b) => b.stats.style + b.stats.goals * 120 + b.stats.saves * 40 - (a.stats.style + a.stats.goals * 120 + a.stats.saves * 40))[0];
   const el = h(`
-    <section class="screen results" style="--c1:${sim.teams[sim.winner].primary};--c3:${sim.teams[sim.winner].accent}">
+    <section class="screen results" style="--c1:${sim.teams[winnerTeam].primary};--c3:${sim.teams[winnerTeam].accent}">
       <div class="res-head">
-        <div class="res-verdict">${won === null ? 'FULL TIME' : won ? 'YOU RUN THE POOL' : 'RUN IT BACK'}</div>
+        <div class="res-verdict">${verdict}</div>
         <div class="res-score"><span class="rs-team" style="--c1:${h0.primary}">${h0.abbr}</span><span class="rs-num">${sim.score[0]}</span><span class="rs-dash">–</span><span class="rs-num">${sim.score[1]}</span><span class="rs-team" style="--c1:${a0.primary}">${a0.abbr}</span></div>
-        <div class="res-sub">${sim.teams[sim.winner].city.toUpperCase()} ${sim.teams[sim.winner].name.toUpperCase()} WIN${sim.overtime ? ' IN OVERTIME' : ''} · MATCH MVP: ${mvp.data.nick} (${mvp.stats.goals} G · ${mvp.stats.style} STYLE)</div>
+        <div class="res-sub">${sim.teams[winnerTeam].city.toUpperCase()} ${sim.teams[winnerTeam].name.toUpperCase()} WIN${sim.overtime ? ' IN OVERTIME' : ''} · MATCH MVP: ${mvp.data.nick} (${mvp.stats.goals} G · ${mvp.stats.style} STYLE)</div>
         ${careerResult ? `<div class="res-career">${careerResult}</div>` : ''}
+        ${rankedResult ? `<div class="res-ranked">${rankedResult}</div>` : ''}
+        ${trial ? `<div class="res-trial">
+          <div class="rt-stars">${starMarkup(trial.stars)}</div>
+          <div class="rt-verdict">${trial.verdict}</div>
+          <div class="rt-score">${trial.score} PTS${trial.nextAt ? ` · ${Math.max(0, trial.nextAt - trial.score)} TO THE NEXT STAR` : ' · PERFECT SCORE'}</div>
+          <div class="rt-notes">${trial.notes.join(' · ')}</div>
+        </div>` : ''}
+        <span class="res-series-wrap">${seriesMarkup(series, mySeat)}</span>
+        ${gauntletMarkup(gauntlet)}
       </div>
       ${RecapPanel(sim)}
       <div class="res-tables">
         ${[0, 1].map((t) => `<table class="box" style="--c1:${sim.teams[t].primary};--c3:${sim.teams[t].accent}"><thead><tr><th class="r-name">${sim.teams[t].city.toUpperCase()} ${sim.teams[t].name.toUpperCase()}</th><th>G</th><th>SOG/SH</th><th>AST</th><th>TKL</th><th>HIT</th><th>BLK</th><th>SAV</th><th>WSH</th><th>STYLE</th></tr></thead><tbody>${rows(t)}</tbody></table>`).join('')}
       </div>
       ${menuList([
-        ...(mode === 'career' ? [{ action: 'career', label: 'BACK TO THE LADDER' }] : [{ action: 'rematch', label: 'RUN IT BACK', sub: 'Same matchup' }, { action: 'teamselect', label: 'NEW MATCHUP' }]),
+        ...(mode === 'career' ? [{ action: 'career', label: 'BACK TO THE LADDER' }] : []),
+        ...(mode === 'ladder' ? [{ action: 'ranked', label: 'BACK TO THE LADDER', sub: 'Your rating is saved' }] : []),
+        ...(duel?.online
+          ? [{ action: 'lobby', label: seriesOver ? 'BACK TO THE LOBBY' : 'NEXT ROUND', sub: seriesOver ? 'Ready up for a new series' : 'The set is still live' }]
+          : []),
+        ...(mode === 'gauntlet'
+          ? (gauntlet && !gauntlet.over
+            ? [{ action: 'gauntlet-next', label: 'NEXT RUNG', sub: gauntlet.summary }]
+            : [{ action: 'gauntlet', label: 'GAUNTLET HUB', sub: 'Start a new run' }])
+          : []),
+        ...(!duel?.online && mode !== 'gauntlet'
+          ? (duel || mode === 'ladder' || mode === 'watch' || mode === 'proving'
+            ? [{ action: 'modes', label: 'CHOOSE A MODE' }]
+            : [{ action: 'rematch', label: 'RUN IT BACK', sub: 'Same matchup' }, { action: 'teamselect', label: 'NEW MATCHUP' }])
+          : []),
         { action: 'title', label: 'MAIN MENU' },
       ])}
     </section>`);
   const menu = wireMenu(el, (action) => {
-    if (action === 'rematch') app.startMatch({ home: h0, away: a0, userTeam, mode });
-    else if (action === 'teamselect') app.go('teamselect', { mode });
+    if (action === 'rematch') app.startMatch({ home: h0, away: a0, modeId: mode });
+    else if (action === 'teamselect') app.go('teamselect', { modeId: mode });
     else if (action === 'career') app.go('career');
+    else if (action === 'ranked') app.go('ranked');
+    else if (action === 'lobby') app.go('lobby', { modeId: mode });
+    else if (action === 'gauntlet-next') app.startGauntletMatch();
+    else if (action === 'gauntlet') app.go('gauntlet');
+    else if (action === 'modes') app.go('modes');
     else app.go('title');
   }, app);
-  return { el, onNav: (n) => menu.nav(n) };
+  return {
+    el,
+    onNav: (n) => menu.nav(n),
+    // The server tallies the round while this screen is already up; repaint the series box when
+    // the message lands instead of making the player reload to see where the set stands.
+    onSeries(next) {
+      if (!next) return;
+      const wrap = el.querySelector('.res-series-wrap');
+      if (wrap) wrap.innerHTML = seriesMarkup(next, mySeat);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Pause overlay (rendered above the match)
 // ---------------------------------------------------------------------------
 
-export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
+export function PauseOverlay(app, { onResume, onQuit, onRestart, onForfeit = null }) {
   const el = h(`
     <div class="pause">
       <div class="pause-box">
@@ -704,6 +802,7 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
           { action: 'controls', label: 'CONTROLS' },
           { action: 'settings', label: 'SETTINGS' },
           ...(onRestart ? [{ action: 'restart', label: 'RESTART MATCH' }] : []),
+          ...(onForfeit ? [{ action: 'forfeit', label: 'FORFEIT SERIES', sub: 'Concede the set to the other pilot' }] : []),
           { action: 'quit', label: 'MAIN MENU' },
         ])}
         <div class="pause-controls hidden">
@@ -715,7 +814,10 @@ export function PauseOverlay(app, { onResume, onQuit, onRestart }) {
   const menu = wireMenu(el, (action) => {
     if (action === 'resume') onResume();
     else if (action === 'quit') onQuit();
-    else if (action === 'restart') onRestart();
+    else if (action === 'restart') onRestart?.();
+    else if (action === 'forfeit') {
+      if (confirm('Forfeit the series? It is awarded to the other pilot.')) onForfeit?.();
+    }
     else if (action === 'bench') app.match?.bench?.toggle();
     else if (action === 'controls') el.querySelector('.pause-controls').classList.toggle('hidden');
     else if (action === 'settings') app.openSettingsOverlay();

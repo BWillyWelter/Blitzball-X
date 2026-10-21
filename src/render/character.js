@@ -1243,8 +1243,7 @@ export class CharacterView {
 
     this.ring.visible =
       !!p.controlled &&
-      sim.userTeam !== null &&
-      sim.userTeam === p.team;
+      sim.isSeatTeam(p.team);
 
     if (this.ring.visible) {
       const pulse =

@@ -49,6 +49,11 @@ export const RULES = {
   halfLength: 150, // game seconds per half
   halves: 2,
   mercyLead: 12,
+  // Which touchdown-zone rings score. Index 0 = top (orange), 1 = blue, 2 = white. A ball
+  // through a ring outside this list rattles off the frame and stays live.
+  goalWindows: [0, 1, 2],
+  // "First to N goals wins" objective. 0 disables it and the match plays the clock out.
+  targetGoals: 0,
   possessionClock: 24, // shoot within this many seconds of gaining possession (bigger field)
   keeperHold: 4, // keeper must release within this
   goalPoints: 1, // a low ring (blue / white)

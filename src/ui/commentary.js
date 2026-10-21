@@ -180,12 +180,29 @@ const LINES = {
 
 const first = (p) => (p && p.data ? p.data.nick || p.data.name.split(' ')[0] : '');
 
+/**
+ * The announcer's own random source.
+ *
+ * It used to pick lines off `sim.rng`, which meant turning the commentary on changed the match:
+ * every extra line advanced the gameplay RNG and moved a tackle roll. It also made the two peers
+ * of an online duel depend on both menuing their audio identically. The voice now rolls its dice
+ * on a private stream seeded from the match seed, so commentary is presentation and nothing else.
+ */
+function voiceRng(seed) {
+  let state = (Number(seed) >>> 0) || 0x1a2b3c4d;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
 export class Commentary {
   constructor(sim, onLine) {
     this.sim = sim;
     this.onLine = onLine;
     this.last = -10;
     this.lastKey = '';
+    this.rand = voiceRng(sim.seed ?? 1);
     this.bind();
   }
 
@@ -194,7 +211,7 @@ export class Commentary {
     if (!pool) return;
     const now = this.sim.time;
     if (!force && now - this.last < 1.6 && priority < 2) return;
-    let line = pool[Math.floor(this.sim.rng.next() * pool.length)];
+    let line = pool[Math.floor(this.rand() * pool.length)];
     line = line
       .replace('{p}', first(ctx.p))
       .replace('{v}', first(ctx.v))
@@ -250,7 +267,7 @@ export class Commentary {
     ev.on('gamebreaker', ({ player }) => this.say('gamebreaker', { p: player }, true, 3));
     ev.on('miss', ({ player, type }) => {
       if (type === 'post') this.say('post', { p: player }, false, 1);
-      else if (type !== 'blocked' && sim.rng.chance(0.35)) this.say('miss', { p: player }, false, 1);
+      else if (type !== 'blocked' && this.rand() < 0.35) this.say('miss', { p: player }, false, 1);
     });
     ev.on('heating', ({ player, team }) => this.say('heating', { p: player, t: this.teamName(team) }, true, 2));
     ev.on('bighit', ({ player, victim }) => this.say('bighit', { p: player, v: victim }, false, 1));
@@ -274,7 +291,7 @@ export class Commentary {
     ev.on('trick', ({ player, name, move }) => {
       if (player.combo >= 3) this.say('combo', { p: player, c: player.combo }, false, 1);
       // `voice` is the spoken form of the signature move ("barrel roll", not "BARREL ROLL").
-      else if (sim.rng.chance(0.25)) this.say('trick', { p: player, tr: move?.voice || name.toLowerCase() }, false, 1);
+      else if (this.rand() < 0.25) this.say('trick', { p: player, tr: move?.voice || name.toLowerCase() }, false, 1);
     });
     ev.on('halftime', ({ score }) => this.say('halftime', { h: this.teamName(0), aw: this.teamName(1), s0: score[0], s1: score[1] }, true, 3));
     ev.on('overtime', () => this.say('overtime', {}, true, 3));

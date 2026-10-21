@@ -87,7 +87,7 @@ export function turnover(sim, team, reason) {
   sim.pendingPossession = 1 - team;
   sim.state = 'dead';
   sim.stateTimer = 1;
-  sim.openSubWindow(sim.userTeam);
+  sim.openSubWindowForSeats();
 
     if (sim.ball.holder) {
       sim.ball.holder.hasBall = false;
@@ -214,9 +214,10 @@ export function sendOffPlayer(sim, p) {
     // A forced replacement doesn't burn a substitution: the coach had no choice.
     p.subbedOff = true;
     p.state = 'sentoff';
-    if (sim.controlled === p) {
-      sim.controlled = null;
-      if (sim.userTeam !== null) sim.autoSelectControlled();
+    const seat = sim.seatOf(p);
+    if (seat) {
+      sim.releaseSeat(seat);
+      sim.autoSelectControlled(seat);
     }
     sim.events.emit('sub', { team: p.team, out: p, in: replacement, remaining: sim.subsLeft[p.team], forced: true });
   }
@@ -268,10 +269,7 @@ export function addStyle(sim, player, base, label, options = {}) {
     let meterGain =
       points * gamebreakerRate;
 
-    if (
-      sim.userTeam !== null &&
-      team !== sim.userTeam
-    ) {
+    if (!sim.isSeatTeam(team)) {
       meterGain *=
         sim.difficulty.aiGbRate;
     }
@@ -336,6 +334,7 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
       : ringPoints;
 
     sim.score[team] += points;
+    sim.goals[team] = (sim.goals[team] || 0) + 1;
     player.stats.goals += points;
 
     if (
@@ -484,7 +483,7 @@ export function scoreGoal(sim, player, flight, ownGoal = false) {
       : sim.rules.goalDeadTime;
 
     // A goal is the longest dead ball in the match — the natural place to spend a change.
-    sim.openSubWindow(sim.userTeam);
+    sim.openSubWindowForSeats();
 
     sim.setState(
       player,
@@ -501,7 +500,17 @@ export function checkGameOver(sim, deferReset = false) {
 
     let winner = null;
 
-    if (sim.overtime) {
+    // "First to N" objective: the moment a crew reaches the goal target the match is over,
+    // whatever the clock says. Checked before the clock-based rules so it always wins.
+    const target = sim.rules.targetGoals || 0;
+    if (target > 0) {
+      const homeGoals = sim.goals[0] || 0;
+      const awayGoals = sim.goals[1] || 0;
+      if (homeGoals >= target) winner = 0;
+      else if (awayGoals >= target) winner = 1;
+    }
+
+    if (winner === null && sim.overtime) {
       winner =
         homeScore > awayScore
           ? 0
@@ -509,6 +518,7 @@ export function checkGameOver(sim, deferReset = false) {
             ? 1
             : null;
     } else if (
+      winner === null &&
       sim.half === 2 &&
       Math.abs(
         homeScore - awayScore

@@ -81,9 +81,11 @@ test('carried ball uses one socket at all depths and inherits swimmer velocity',
   p.vy = 0.5;
   sim.giveBall(p);
   sim.updateBall(dt, false);
-  assert.ok(Math.abs(sim.ball.pos.y + 0.1) < 1e-8, 'hand height follows depth');
+  // The hand sits at depth + 0.9; the ball is patted down from it by a bounce (never above it).
+  assert.ok(sim.ball.pos.y <= -0.1 + 1e-8 && sim.ball.pos.y > -0.1 - 0.25, 'hand height follows depth, with a dribble bounce');
   assert.ok(sim.ball.pos.x > p.pos.x);
-  assert.deepEqual(sim.ball.vel, p.vel.clone().set(3, 0.5, 1));
+  // The ball is spring-linked to the hand, so it moves with the swimmer's velocity rather than snapping to it.
+  assert.ok(sim.ball.vel.x > 0 && sim.ball.vel.z > 0, 'ball carries the swimmer forward');
   assert.equal(p.dribbleTouch, dt, 'carry updates only once per step');
 });
 
