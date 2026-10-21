@@ -27,3 +27,4 @@ Thumbs.db
 
 # Standalone typed career-core build
 src/career-mode/.build/
+/freebuff-sites-build/

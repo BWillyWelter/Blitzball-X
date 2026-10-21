@@ -53,6 +53,9 @@ export class GameRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Filmic tone mapping gives the bright sunlit water its FFX-style glow without blowing out whites.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.quality = 'high';
     this.maxDPR = GRAPHICS.MAX_DPR_CAP;
 
@@ -158,7 +161,40 @@ export class GameRenderer {
   render(scene, camera, delta) {
     if (this.contextLost) return;
     this.adaptQuality(delta);
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, this.canvas.clientWidth || window.innerWidth, this.canvas.clientHeight || window.innerHeight);
     this.renderer.render(scene, camera);
+  }
+
+  /**
+   * Split-screen render: one scene, two viewpoints, one canvas.
+   *
+   * The scissor test confines both the viewport and the clear to each half, so the second pass
+   * cannot wipe the first. Each camera's aspect is refitted to its half every frame — the halves
+   * change with the window and with the device pixel ratio.
+   */
+  renderSplit(scene, camA, camB, delta) {
+    if (this.contextLost) return;
+    this.adaptQuality(delta);
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    const half = Math.floor(width / 2);
+    const aspect = half / Math.max(1, height);
+    for (const cam of [camA, camB]) {
+      if (cam && Math.abs(cam.aspect - aspect) > 0.0005) {
+        cam.aspect = aspect;
+        cam.updateProjectionMatrix();
+      }
+    }
+    const r = this.renderer;
+    r.setScissorTest(true);
+    r.setViewport(0, 0, half, height);
+    r.setScissor(0, 0, half, height);
+    r.render(scene, camA);
+    r.setViewport(half, 0, width - half, height);
+    r.setScissor(half, 0, width - half, height);
+    r.render(scene, camB);
+    r.setScissorTest(false);
   }
 
   onWindowResize() {

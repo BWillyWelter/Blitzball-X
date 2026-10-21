@@ -14,18 +14,42 @@ export class MatchScene {
     this.scene = scene;
     this.camera = camera;
     this.environment = environment;
-    this.gameCam = new GameCamera(camera, {
+    this.camOptions = {
       screenShake: settings.screenShake,
       reducedMotion: settings.reducedMotion,
-    });
+    };
+    this.gameCam = new GameCamera(camera, this.camOptions);
+    // Split-screen duel: the second seat gets its own boom on its own camera.
+    this.gameCams = [this.gameCam];
     this.fx = new FXSystem(scene, camera);
     this.sim = null;
     this.boundSim = null;
+    // True while a goal replay is driving the camera itself; the follow rig must stand down or it
+    // would overwrite the cinematic cut every frame.
+    this.replayActive = false;
     this.unsubscribers = [];
     this.playerViews = new Map();
     this.ballRoot = this.buildBall();
     this.ballSpin = 0;
     this.scene.add(this.ballRoot);
+  }
+
+  /** Give seat two its own camera. Called only for a two-seat local duel. */
+  enableSecondCamera(camera2) {
+    if (!camera2) return null;
+    if (this.gameCam2) return this.gameCam2;
+    this.gameCam2 = new GameCamera(camera2, { ...this.camOptions, seatIndex: 1 });
+    this.gameCams = [this.gameCam, this.gameCam2];
+    return this.gameCam2;
+  }
+
+  /** Every live camera, so effects and shake reach both halves of a duel. */
+  punch(amount) {
+    for (const cam of this.gameCams) cam.punch(amount);
+  }
+
+  setMode(mode, focus) {
+    for (const cam of this.gameCams) cam.setMode(mode, focus);
   }
 
   buildBall() {
@@ -85,17 +109,17 @@ export class MatchScene {
       this.fx.burst(pos, color, gb ? 54 : 32, gb ? 8 : 5.5, gb ? 0.3 : 0.22);
       this.fx.bubbles(pos, gb ? 40 : 22, gb ? 1.6 : 1.1);
       this.fx.shockwave(pos, color, gb ? 9 : 6, gb ? 0.9 : 0.65, { vertical: true });
-      this.gameCam.setMode(gb ? 'gamebreaker' : 'score', player);
-      this.gameCam.punch(gb ? 0.75 : 0.42);
+      this.setMode(gb ? 'gamebreaker' : 'score', player);
+      this.punch(gb ? 0.75 : 0.42);
       if (gb) this.fx.confetti(pos, [color, sim.teams[1 - team]?.primary || '#ff2ea6', '#ffd23f', '#5cf2ff'], 90);
-      if (points >= 3) this.gameCam.punch(0.16);
+      if (points >= 3) this.punch(0.16);
     });
     listen('bighit', ({ player, victim, impact }) => {
       const p = victim?.pos || player?.pos;
       if (!p) return;
       this.fx.burst(p, '#ff8a3d', Math.round(12 + (impact || 1) * 9), 3.8, 0.16);
       this.fx.bubbles(p, 14, 0.8);
-      this.gameCam.punch(0.5);
+      this.punch(0.5);
     });
     listen('tackle', ({ player, victim }) => {
       const p = victim?.pos || player?.pos;
@@ -106,8 +130,8 @@ export class MatchScene {
       if (p) this.fx.burst(p, sim.teams[keeper.team]?.accent || '#5cf2ff', 16, 3.2, 0.14);
     });
     listen('gamebreaker', ({ player }) => {
-      if (player) this.gameCam.setMode('gamebreaker', player);
-      this.gameCam.punch(0.65);
+      if (player) this.setMode('gamebreaker', player);
+      this.punch(0.65);
     });
     listen('shot', ({ player }) => {
       if (player) this.fx.bubbles(player.pos, 7, 0.55);
@@ -132,7 +156,10 @@ export class MatchScene {
     if (!sim) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.05, dt)) : 0;
 
-    this.gameCam.update(sim, dt);
+    if (!this.replayActive) {
+      this.gameCam.update(sim, dt);
+      if (this.gameCam2 && sim.seats && sim.seats.length > 1) this.gameCam2.update(sim, dt);
+    }
     const active = new Set();
     for (const player of sim.players) {
       active.add(player.id);
@@ -169,8 +196,10 @@ export class MatchScene {
   }
 
   setSettings(settings = {}) {
-    this.gameCam.shakeEnabled = settings.screenShake !== false;
-    this.gameCam.reducedMotion = !!settings.reducedMotion;
+    for (const cam of this.gameCams) {
+      cam.shakeEnabled = settings.screenShake !== false;
+      cam.reducedMotion = !!settings.reducedMotion;
+    }
   }
 
   dispose() {

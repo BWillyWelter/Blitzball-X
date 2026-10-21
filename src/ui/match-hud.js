@@ -30,6 +30,7 @@ export class MatchHUD {
           <span class="sb-title">FIRST HALF</span>
           <span class="sb-clock">2:30</span>
           <span class="sb-clear">SHOT 24</span>
+          <span class="sb-series" aria-live="polite"></span>
         </div>
         <div class="sb-team away">
           <span class="sb-name">AWAY</span><span class="sb-city">SPHERE POOL</span>
@@ -38,6 +39,7 @@ export class MatchHUD {
         </div>
       </div>
       <div class="pcard" aria-label="Controlled swimmer">
+        <span class="pcard-seat">P1</span>
         <div class="pcard-num">10</div>
         <div class="pcard-info">
           <div class="pcard-nick">ROOKIE</div>
@@ -50,10 +52,11 @@ export class MatchHUD {
         <canvas width="180" height="180"></canvas>
         <span class="radar-label">POOL RADAR</span>
       </div>
-      <div class="hint">WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE</div>
+      <div class="shoot-meter" aria-label="Shot charge meter"><div class="shoot-fill"></div><span class="shoot-label">SHOOT</span></div><div class="hint">WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE</div>
       <div class="popups" aria-live="polite"></div>
       <div class="banner" aria-live="assertive"><div class="banner-text"></div><div class="banner-sub"></div></div>
       <div class="ticker" role="status"><span class="ticker-mic">◉</span><span class="ticker-text"></span></div>
+    <div class="sflash" aria-hidden="true"></div>
     `;
     container.appendChild(this.root);
     this.scoreEls = [...this.root.querySelectorAll('.sb-score')];
@@ -68,23 +71,61 @@ export class MatchHUD {
     this.tickerEl = this.root.querySelector('.ticker');
     this.tickerText = this.root.querySelector('.ticker-text');
     this.cardEl = this.root.querySelector('.pcard');
-    this.cardNumber = this.root.querySelector('.pcard-num');
-    this.cardNick = this.root.querySelector('.pcard-nick');
-    this.cardName = this.root.querySelector('.pcard-name');
-    this.cardMove = this.root.querySelector('.pcard-move');
-    this.turboEl = this.root.querySelector('.turbo');
-    this.turboFill = this.root.querySelector('.turbo-fill');
-    this.turboLabel = this.root.querySelector('.turbo span');
+    // One card per human seat. The second is built on `attach` so a single-seat match never
+    // carries a dead element around.
+    this.cards = [this.cardRefs(this.cardEl)];
+    this.cardEl2 = null;
+    this.hintEl = this.root.querySelector('.hint');
     this.centerTitle = this.root.querySelector('.sb-title');
     this.centerClock = this.root.querySelector('.sb-clock');
     this.shotClock = this.root.querySelector('.sb-clear');
+    this.seriesEl = this.root.querySelector('.sb-series');
     this.lastScore = [0, 0];
+  }
+
+  /** Cache the child lookups for one player card. */
+  cardRefs(el) {
+    return {
+      el,
+      number: el.querySelector('.pcard-num'),
+      nick: el.querySelector('.pcard-nick'),
+      name: el.querySelector('.pcard-name'),
+      move: el.querySelector('.pcard-move'),
+      turbo: el.querySelector('.turbo'),
+      turboFill: el.querySelector('.turbo-fill'),
+      turboLabel: el.querySelector('.turbo span'),
+    };
+  }
+
+  /** Build the seat-two card when a local duel starts, and drop it otherwise. */
+  ensureCards(sim) {
+    const active = (sim?.seats || []).filter((s) => s.team !== null).length;
+    const duel = active > 1;
+    this.root.classList.toggle('dual', duel);
+    if (duel && !this.cardEl2) {
+      const clone = this.cardEl.cloneNode(true);
+      clone.classList.add('pcard-2');
+      clone.querySelector('.pcard-seat').textContent = 'P2';
+      this.root.appendChild(clone);
+      this.cardEl2 = clone;
+      this.cards = [this.cardRefs(this.cardEl), this.cardRefs(clone)];
+    } else if (!duel && this.cardEl2) {
+      this.cardEl2.remove();
+      this.cardEl2 = null;
+      this.cards = [this.cardRefs(this.cardEl)];
+    }
+    if (this.hintEl) {
+      this.hintEl.innerHTML = duel
+        ? 'P1 WASD · SHIFT BURST · J SHOOT · K PASS · L TACKLE · I HIT · U BREACH · Q SWAP · E GB · V CAGE<br>P2 ARROWS · RSHIFT BURST · NUM0 SHOOT · NUM1 PASS · NUM2 TRICK · NUM3 HIT · NUM5 BREACH · NUM4 SWAP · NUM6 GB · NUM9 CAGE'
+        : 'WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE';
+    }
   }
 
   attach(sim) {
     this.detach();
     this.sim = sim;
     if (!sim) return;
+    this.ensureCards(sim);
     const [home, away] = sim.teams;
     this.root.style.setProperty('--home', home.primary);
     this.root.style.setProperty('--away', away.primary);
@@ -98,7 +139,7 @@ export class MatchHUD {
     this.lastScore = [...sim.score];
     this.listen('score', (event) => this.onScore(event));
     this.listen('style', ({ label, player, points, big, team }) => {
-      if (!label || (player?.team !== sim.userTeam && sim.userTeam !== null)) return;
+      if (!label || (player && sim.seats.length && !sim.isSeatTeam(player.team))) return;
       this.popup(label, big ? 'big' : '', team);
       if (points >= 100) this.showTicker(`${player?.data?.nick || 'SWIMMER'} · ${label}`, 1600);
     });
@@ -119,28 +160,38 @@ export class MatchHUD {
     });
     this.listen('gameover', ({ winner }) => {
       this.audio?.playRefWhistle?.();
+      const seats = sim.seats.filter((s) => s.team !== null);
+      const pilot = seats.find((s) => s.team === winner);
+      if (pilot && seats.length > 1) {
+        this.showBanner(`P${pilot.index + 1} TAKES IT`, `${sim.teams[winner].abbr} · FINAL WHISTLE`, 2200);
+        return;
+      }
       this.showBanner(winner === sim.userTeam ? 'POOL’S YOURS' : 'FULL TIME', 'FINAL WHISTLE', 1800);
     });
     this.listen('gbready', ({ team }) => {
-      if (team === sim.userTeam) {
+      if (sim.isSeatTeam(team)) {
         this.audio?.playCrowdCheer?.(0.6);
         this.showBanner('GAMEBREAKER READY', 'HOLD SHOOT · RELEASE TO BREAK THROUGH', 2200);
       } else this.showTicker(`${sim.teams[team].abbr} GAMEBREAKER READY`, 1900);
     });
     this.listen('flowstart', ({ team }) => {
-      this.showBanner(team === sim.userTeam ? 'FLOW STATE' : 'THEY’RE IN FLOW', 'THE POOL IS MOVING THEIR WAY', 1700);
+      this.showBanner(sim.isSeatTeam(team) ? 'FLOW STATE' : 'THEY’RE IN FLOW', 'THE POOL IS MOVING THEIR WAY', 1700);
     });
     this.listen('bighit', ({ player, victim }) => {
       this.audio?.playWaterSplash?.(0.72);
       this.showTicker(`${player?.data?.nick || 'SWIMMER'} ROCKS ${victim?.data?.nick || 'THE CARRIER'}`, 1450);
+      this.root.classList.add('flashing');
+      setTimeout(() => this.root.classList.remove('flashing'), 75);
     });
     this.listen('tackle', () => this.audio?.playWaterSplash?.(0.38));
     this.listen('save', ({ keeper }) => {
       this.audio?.playWaterSplash?.(0.55);
       this.showTicker(`${keeper?.data?.nick || 'KEEPER'} SHUTS THE WINDOW`, 1350);
+      this.root.classList.add('flashing');
+      setTimeout(() => this.root.classList.remove('flashing'), 75);
     });
     this.listen('turnover', ({ team }) => {
-      if (team === sim.userTeam) this.showTicker('BALL BACK · PUSH THE BREAK', 1200);
+      if (sim.isSeatTeam(team)) this.showTicker('BALL BACK · PUSH THE BREAK', 1200);
     });
     this.update(sim);
   }
@@ -166,6 +217,41 @@ export class MatchHUD {
     // Force a reflow so a second score by the same side restarts the impact animation.
     void this.scoreEls[team]?.offsetWidth;
     this.scoreEls[team]?.classList.add('pulse');
+    this.root.classList.add('flashing');
+    setTimeout(() => this.root.classList.remove('flashing'), 75);
+  }
+
+  /**
+   * Show the online series scoreboard under the clock. A best-of-three round has to be readable at
+   * a glance — a player should never have to count rounds in their head mid-match.
+   */
+  setSeries(series, seat = 0) {
+    if (!this.seriesEl) return;
+    if (!series) {
+      this.seriesEl.textContent = '';
+      this.seriesEl.classList.remove('show', 'over');
+      return;
+    }
+    const wins = series.wins || [0, 0];
+    const mine = wins[seat] || 0;
+    const theirs = wins[1 - seat] || 0;
+    this.seriesEl.textContent = series.over
+      ? `SERIES ${mine}–${theirs}`
+      : `ROUND ${series.round || 1} · ${mine}–${theirs}`;
+    this.seriesEl.classList.add('show');
+    this.seriesEl.classList.toggle('over', !!series.over);
+  }
+
+  /**
+   * Stand the live HUD down while a goal replay owns the screen. The scoreboard stays (a broadcast
+   * replay always keeps the score); banners, ticker, popups, cards and the radar do not.
+   */
+  setReplay(on) {
+    this.root.classList.toggle('replaying', !!on);
+    if (on) {
+      this.bannerEl.classList.remove('show');
+      this.tickerEl.classList.remove('show');
+    }
   }
 
   showBanner(title, subtitle = '', duration = 1600, extraClass = '') {
@@ -218,20 +304,44 @@ export class MatchHUD {
     const possessionTime = Number.isFinite(sim.shotClock) ? sim.shotClock : sim.possessionClock;
     this.shotClock.textContent = `SHOT ${Math.max(0, Math.ceil(possessionTime || 0))}`;
     this.shotClock.classList.toggle('show', sim.state === 'live' && possessionTime <= 5);
-
-    const player = sim.controlled;
-    this.cardEl.hidden = !player || sim.userTeam === null;
-    if (player && sim.userTeam !== null) {
-      this.cardNumber.textContent = String(player.data.number ?? '—');
-      this.cardNick.textContent = player.data.nick || player.data.name || 'SWIMMER';
-      this.cardName.textContent = player.data.name || '';
-      this.cardMove.textContent = `${player.data.archetype || 'ALL-AROUND'} · ${player.role || player.data.role || 'FD'}`.toUpperCase();
-      this.cardEl.style.setProperty('--c1', sim.teams[player.team].primary);
-      const stamina = clamp(Number(player.stamina) || 0, 0, 100);
-      this.turboFill.style.width = `${stamina}%`;
-      this.turboLabel.textContent = `${player.gassed ? 'GASSED' : 'STAMINA'} ${Math.round(stamina)}%`;
-      this.turboEl.classList.toggle('low', stamina < 25);
+    // Skill display: show shot aim direction when user is controlling a carrier
+    const aimDir = sim.aimInputDir();
+    if (aimDir) {
+      this.root.querySelector('.hint').textContent = `WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS · aim: ${aimDir.x.toFixed(1)}x ${aimDir.z.toFixed(1)}z · L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE`;
     }
+
+    // Shooting meter: show charge progress when user is controlling a carrier and holding shoot
+    const controlled = sim.controlled;
+    if (controlled && !controlled.isKeeper && controlled.shot && !controlled.shot.released) {
+      const meter = this.root.querySelector('.shoot-meter');
+      const fill = this.root.querySelector('.shoot-fill');
+      // shotChargeTime is 0.75s per ACTION.shotChargeTime; charge goes 0→0.75 while shoot is held
+      const chargePct = Math.min(1, controlled.shot.charge / 0.75);
+      fill.style.width = `${chargePct * 100}%`;
+      meter.style.opacity = '1';
+    } else {
+      const meter = this.root.querySelector('.shoot-meter');
+      meter.style.opacity = '0';
+    }
+
+    // One pilot card per seat. A seat with nobody in the water hides its card instead of
+    // showing a stale swimmer.
+    this.cards.forEach((card, i) => {
+      const seat = sim.seats[i];
+      const player = seat ? seat.controlled : null;
+      card.el.hidden = !player;
+      if (!player || !seat || seat.team === null) return;
+      card.number.textContent = String(player.data.number ?? '—');
+      card.nick.textContent = player.data.nick || player.data.name || 'SWIMMER';
+      card.name.textContent = player.data.name || '';
+      card.move.textContent = `${player.data.archetype || 'ALL-AROUND'} · ${player.role || player.data.role || 'FD'}`.toUpperCase();
+      card.el.style.setProperty('--c1', sim.teams[player.team].primary);
+      const stamina = clamp(Number(player.stamina) || 0, 0, 100);
+      card.turboFill.style.width = `${stamina}%`;
+      card.turboLabel.textContent = `${player.gassed ? 'GASSED' : 'STAMINA'} ${Math.round(stamina)}%`;
+      card.turbo.classList.toggle('low', stamina < 25);
+      card.el.classList.toggle('in-cage', !!seat.inCage);
+    });
     this.drawRadar(sim);
   }
 

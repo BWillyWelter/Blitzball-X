@@ -81,6 +81,39 @@ function connectedGamepad() {
   ) || null;
 }
 
+/** Every connected pad, in browser order — a local duel can bind one seat per pad. */
+function connectedGamepads() {
+  if (!navigator.getGamepads) return [];
+  return Array.from(navigator.getGamepads() || []).filter((pad) => pad && pad.connected);
+}
+
+/**
+ * PLAYER TWO KEYBOARD — the numpad half of a shared keyboard.
+ *
+ * Arrows swim, PageUp/PageDown rise and dive, right shift bursts. The numpad is the action pad:
+ * 0 strike, 1 pass, 2 trick/tackle, 3 big hit, 4 switch, 5 breach, 6 gamebreaker, 9 cage,
+ * 7 and 8 cycle the offense and defense playbook.
+ */
+const P2_BINDINGS = {
+  left: ['ArrowLeft'],
+  right: ['ArrowRight'],
+  up: ['ArrowUp'],
+  down: ['ArrowDown'],
+  rise: ['PageUp'],
+  dive: ['PageDown'],
+  turbo: ['ShiftRight'],
+  shoot: ['Numpad0', 'NumpadEnter'],
+  pass: ['Numpad1'],
+  trick: ['Numpad2'],
+  hit: ['Numpad3'],
+  swap: ['Numpad4'],
+  breach: ['Numpad5'],
+  gamebreaker: ['Numpad6'],
+  cage: ['Numpad9'],
+  offense: ['Numpad7'],
+  defense: ['Numpad8'],
+};
+
 export class InputManager {
   constructor() {
     this.keys = new Set();
@@ -88,6 +121,17 @@ export class InputManager {
     this.released = new Set();
 
     this.input = emptyInput();
+
+    // LOCAL DUEL. A second seat means arrows belong to player two, so player one's movement
+    // stops listening to them. `dualSeat` turns that split on; `input2` is the second seat's
+    // struct, wired into the sim through `setSeatInput(1, …)`.
+    this.dualSeat = false;
+    this.input2 = emptyInput();
+    this.padPrev2 = Object.create(null);
+    this.pending2 = new Set();
+    this.pendingPlaycall2 = 0;
+    // Cycling playbook selectors for the second seat (Numpad7 / Numpad8).
+    this.playIndex2 = [0, 0];
 
     this.padPrev = Object.create(null);
     this.menuPadPrev = Object.create(null);
@@ -172,12 +216,15 @@ export class InputManager {
       this.pendingPlaycall = 0;
       this.pendingJukeDir = null;
       this.pendingKeeperAim = null;
+      this.pending2.clear();
+      this.pendingPlaycall2 = 0;
       Object.assign(this.touch, {
         moveX: 0, moveZ: 0, moveY: 0, active: false,
         turbo: false, shootHeld: false, jukeHeld: false, jukeDir: null, playcall: 0,
         aimX: 0, aimZ: 0, lookX: 0, lookY: 0, keeperAim: null,
       });
       Object.assign(this.input, emptyInput());
+      Object.assign(this.input2, emptyInput());
       this.touch.edges.clear();
       this.onTouchReset?.();
     };
@@ -221,6 +268,7 @@ export class InputManager {
     this.pressed.clear();
     this.released.clear();
     this.pending.clear();
+    this.pending2.clear();
     this.touch.edges.clear();
   }
 
@@ -302,7 +350,146 @@ export class InputManager {
     return now && !was;
   }
 
+  /**
+   * Turn local-duel mode on or off. Turning it on hands the arrow keys to seat two; turning it
+   * off releases the second seat's struct so nothing stale keeps firing.
+   */
+  setDualSeat(on) {
+    this.dualSeat = !!on;
+    if (!this.dualSeat) {
+      Object.assign(this.input2, emptyInput());
+      this.pending2.clear();
+      this.pendingPlaycall2 = 0;
+      this.padPrev2 = Object.create(null);
+    }
+  }
+
+  /**
+   * Sample seat two. Runs at the top of `poll()` so it sees the same live edge sets player one
+   * reads before `poll()` consumes them for the frame.
+   */
+  sampleSeat2() {
+    const out = this.input2;
+    const held = (list) => list.some((code) => this.keys.has(code));
+    const hit = (list) => list.some((code) => this.pressed.has(code));
+    const up = (list) => list.some((code) => this.released.has(code));
+
+    let moveX = 0;
+    let moveZ = 0;
+    let moveY = 0;
+    if (held(P2_BINDINGS.left)) moveX -= 1;
+    if (held(P2_BINDINGS.right)) moveX += 1;
+    if (held(P2_BINDINGS.up)) moveZ -= 1;
+    if (held(P2_BINDINGS.down)) moveZ += 1;
+    if (held(P2_BINDINGS.rise)) moveY += 1;
+    if (held(P2_BINDINGS.dive)) moveY -= 1;
+
+    let turbo = held(P2_BINDINGS.turbo);
+    let shoot = held(P2_BINDINGS.shoot);
+    let shootPressed = hit(P2_BINDINGS.shoot);
+    let shootReleased = up(P2_BINDINGS.shoot);
+    let pass = hit(P2_BINDINGS.pass);
+    let trick = hit(P2_BINDINGS.trick);
+    let bigHit = hit(P2_BINDINGS.hit);
+    let breach = hit(P2_BINDINGS.breach);
+    let swap = hit(P2_BINDINGS.swap);
+    let gamebreaker = hit(P2_BINDINGS.gamebreaker);
+    let cage = hit(P2_BINDINGS.cage);
+
+    let playcall = 0;
+    if (hit(P2_BINDINGS.offense)) {
+      this.playIndex2[0] = (this.playIndex2[0] + 1) % 3;
+      playcall = this.playIndex2[0] + 1;
+    }
+    if (hit(P2_BINDINGS.defense)) {
+      this.playIndex2[1] = (this.playIndex2[1] + 1) % 3;
+      playcall = this.playIndex2[1] + 7;
+    }
+
+    // Second pad, if there is one. A duel with two controllers is the nicest way to play it.
+    const pads = connectedGamepads();
+    const pad = pads[1] || null;
+    if (pad) {
+      const axisX = axisWithDeadZone(pad.axes?.[0] || 0);
+      const axisZ = axisWithDeadZone(pad.axes?.[1] || 0);
+      if (axisX !== 0 || axisZ !== 0) {
+        moveX = axisX;
+        moveZ = axisZ;
+      }
+      const axisY = -axisWithDeadZone(pad.axes?.[3] || 0);
+      if (axisY !== 0) moveY = axisY;
+      const pressed = (index) => {
+        const now = this.gamepadButton(pad, index);
+        const was = !!this.padPrev2[index];
+        this.padPrev2[index] = now;
+        return now && !was;
+      };
+      const releasedBtn = (index) => {
+        const now = this.gamepadButton(pad, index);
+        const was = !!this.padPrev2[`r${index}`];
+        this.padPrev2[`r${index}`] = now;
+        return !now && was;
+      };
+      if (this.gamepadButton(pad, 0)) shoot = true;
+      if (pressed(0)) shootPressed = true;
+      if (releasedBtn(0)) shootReleased = true;
+      if (this.gamepadButton(pad, 7) || this.gamepadButton(pad, 5)) turbo = true;
+      if (pressed(2)) pass = true;
+      if (pressed(1)) trick = true;
+      if (pressed(3)) bigHit = true;
+      if (pressed(4)) swap = true;
+      if (pressed(10)) cage = true;
+      if (this.gamepadButton(pad, 6) && this.gamepadButton(pad, 7) && (pressed(6) || pressed(7))) gamebreaker = true;
+      if ([12, 13, 14, 15].some((b) => this.gamepadButton(pad, b))) {
+        moveZ = this.gamepadButton(pad, 12) ? -1 : this.gamepadButton(pad, 13) ? 1 : moveZ;
+        moveX = this.gamepadButton(pad, 14) ? -1 : this.gamepadButton(pad, 15) ? 1 : moveX;
+      }
+    } else {
+      this.padPrev2 = Object.create(null);
+    }
+
+    const magnitude = Math.hypot(moveX, moveZ);
+    if (magnitude > 1) {
+      moveX /= magnitude;
+      moveZ /= magnitude;
+    }
+
+    out.moveX = Math.max(-1, Math.min(1, moveX));
+    out.moveZ = Math.max(-1, Math.min(1, moveZ));
+    out.moveY = Math.max(-1, Math.min(1, moveY));
+    out.aimX = 0;
+    out.aimZ = 0;
+    out.turbo = !!turbo;
+    out.shoot = !!shoot;
+    out.shootPressed = !!shootPressed;
+    out.shootReleased = !!shootReleased;
+    out.pass = !!pass;
+    out.jukeDir = null;
+    out.jukeHeld = false;
+    out.trick = !!trick;
+    out.hit = !!bigHit;
+    out.breach = !!breach;
+    out.keeperAim = null;
+    out.switchPlayer = !!swap;
+    out.gamebreaker = !!gamebreaker;
+    out.cage = !!cage;
+    out.playcall = playcall;
+
+    // One-shots survive until a fixed step consumes them, exactly like seat one.
+    for (const action of ONE_SHOT) {
+      if (out[action]) this.pending2.add(action);
+      else if (this.pending2.has(action)) out[action] = true;
+    }
+    if (out.playcall) this.pendingPlaycall2 = out.playcall;
+    else if (this.pendingPlaycall2) out.playcall = this.pendingPlaycall2;
+
+    return out;
+  }
+
   poll() {
+    // Seat two must sample the live edge sets before this frame consumes them.
+    if (this.dualSeat) this.sampleSeat2();
+
     const output = this.input;
 
     let moveX = 0;
@@ -344,19 +531,23 @@ export class InputManager {
     let cage = this.justPressed('KeyV');
     let playcall = this.touch.playcall || 0;
 
-    if (this.down('KeyA', 'ArrowLeft')) {
+    // In a local duel the arrows drive seat two, so player one swims on WASD alone.
+    const p1 = this.dualSeat ? (code) => code : null;
+    const p1Keys = p1 ? ['KeyA', 'KeyD', 'KeyW', 'KeyS'] : ['KeyA', 'ArrowLeft', 'KeyD', 'ArrowRight', 'KeyW', 'ArrowUp', 'KeyS', 'ArrowDown'];
+
+    if (this.down(p1Keys[0], p1Keys[1])) {
       moveX -= 1;
     }
 
-    if (this.down('KeyD', 'ArrowRight')) {
+    if (this.down(p1Keys[2], p1Keys[3])) {
       moveX += 1;
     }
 
-    if (this.down('KeyW', 'ArrowUp')) {
+    if (this.down(p1Keys[4], p1Keys[5])) {
       moveZ -= 1;
     }
 
-    if (this.down('KeyS', 'ArrowDown')) {
+    if (this.down(p1Keys[6], p1Keys[7])) {
       moveZ += 1;
     }
 
@@ -670,12 +861,18 @@ export class InputManager {
     this.pendingPlaycall = 0;
     this.pendingJukeDir = null;
     this.pendingKeeperAim = null;
+    this.pending2.clear();
+    this.pendingPlaycall2 = 0;
     // MatchSim consumes these on its first step. Clear the shared sampled struct as well, so a
     // queued action cannot repeat forever or leak out of a warm-up / pause transition.
     for (const action of ONE_SHOT) this.input[action] = false;
     this.input.playcall = 0;
     this.input.jukeDir = null;
     this.input.keeperAim = null;
+    for (const action of ONE_SHOT) this.input2[action] = false;
+    this.input2.playcall = 0;
+    this.input2.jukeDir = null;
+    this.input2.keeperAim = null;
   }
 
   setKeeperContext(active, dir = 1) {

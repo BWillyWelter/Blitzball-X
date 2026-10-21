@@ -1,6 +1,6 @@
 import { Vec3, clamp } from '../core/vec3.js';
 import { ACTION, MOVE, STYLE, COMBAT } from '../data/constants.js';
-import { MOVES, moveFor, movePower, isEvading } from './moves.js';
+import { MOVES, moveFor, movePower, isEvading, applyEdge } from './moves.js';
 
 /**
  * Signature moves, dive tackles, big hits, knockdowns and breaches.
@@ -129,14 +129,14 @@ function applyMoveContact(sim, p, def, d, power) {
       coneWash(sim, p, def, d, power, { state: 'fallen', wide: true });
       break;
     case 'armor':
-      brushAside(sim, p, d, power * COMBAT.brushSpeed);
+      brushAside(sim, p, d, power * COMBAT.brushSpeed, def);
       break;
     case 'spear':
       spearContest(sim, p, def, d, power);
       break;
     case 'cut':
       // No damage: an instant lateral release that kills the challenge and opens the lane.
-      brushAside(sim, p, d, power * COMBAT.brushSpeed * 0.6);
+      brushAside(sim, p, d, power * COMBAT.brushSpeed * 0.6, def);
       break;
     case 'vault':
     case 'low':
@@ -197,6 +197,7 @@ function coneWash(sim, p, def, d, power, opts = {}) {
     if (!sim.rng.chance(prob)) continue;
 
     p.trick.washed.add(q.id);
+    applyEdge(q, def.foe);
     knockDown(sim, q, p, 'washed', opts.state || 'reel', impact);
     p.stats.washed++;
     wowBeat(sim, p);
@@ -209,7 +210,7 @@ function coneWash(sim, p, def, d, power, opts = {}) {
  * Shove a defender out of the lane without felling them — roll, cut and vault all use this.
  * Each defender is brushed at most once per move (tr.washed), so the sweep cannot stack pushes.
  */
-function brushAside(sim, p, d, push) {
+function brushAside(sim, p, d, push, def) {
   for (const q of sim.opponentsOf(p)) {
     if (q.isKeeper || q.state === 'fallen') continue;
     if (p.trick && p.trick.washed.has(q.id)) continue;
@@ -220,6 +221,7 @@ function brushAside(sim, p, d, push) {
     q.vel.x += away.x * push;
     q.vel.z += away.z * push;
     q.stun = Math.max(q.stun, 0.18);
+    applyEdge(q, def?.foe);
     if (p.trick) {
       p.trick.washed.add(q.id);
       p.turbo = Math.min(100, p.turbo + MOVE.moveTurboRefund * 0.5);
@@ -253,6 +255,7 @@ function spearContest(sim, p, def, d, power) {
   if (sim.isUser(p)) prob *= sim.difficulty.userBonus;
   if (sim.rng.chance(prob)) {
     const impact = impactOf(p, p.pos, target.pos) * (0.9 + power * 0.25);
+    applyEdge(target, def.foe);
     knockDown(sim, target, p, 'spear', 'reel', impact);
     p.vel.x += d.x * 2.4 * power;
     p.vel.z += d.z * 2.4 * power;
@@ -278,6 +281,8 @@ export function finishTrick(sim, p) {
   if (tr) {
     const power = tr.power ?? 1;
     const beat = (tr.washed?.size || 0) > 0;
+    // The move's own boost: earned by beating someone, or free for motion-only moves.
+    if (beat || !tr.def.foe) applyEdge(p, tr.def.self);
     // Every move leaves you recovering — but the bill is for the move you WASTED. A move that
     // beat its man leaves you clean and ready to play on, which is the whole payoff.
     const commitScale = beat ? 0.25 : (1.2 - power * 0.3) * (tr.turbo ? 1.1 : 1);

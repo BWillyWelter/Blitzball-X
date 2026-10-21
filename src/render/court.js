@@ -120,6 +120,38 @@ export class SpherePoolEnvironment {
     coral.position.set(11, 4, 9);
     this.scene.add(coral);
     this.accentLights = [cyan, coral];
+    this.buildSunShafts();
+  }
+
+  /**
+   * Soft god-ray shafts falling from the surface, the signature light of the FFX sphere-pool look.
+   * Additive, depth-less translucent cones: a handful of draw calls, no shadows, no gameplay impact.
+   */
+  buildSunShafts() {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xcdf7ff,
+      transparent: true,
+      opacity: 0.055,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const r = ARENA.sphereRadius;
+    const group = new THREE.Group();
+    const shafts = [
+      [-0.45 * r, 0.9 * r, -0.2 * r, 0.22, 0.05],
+      [0.1 * r, 0.9 * r, 0.35 * r, 0.3, -0.08],
+      [0.5 * r, 0.9 * r, -0.4 * r, 0.18, 0.12],
+      [-0.1 * r, 0.9 * r, -0.55 * r, 0.26, -0.02],
+    ];
+    for (const [x, y, z, rad, tilt] of shafts) {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(rad * r, 2 * r, 24, 1, true), material);
+      cone.position.set(x, y - r, z);
+      cone.rotation.set(tilt, 0, -tilt * 0.6);
+      group.add(cone);
+    }
+    this.sunShafts = group;
+    this.scene.add(group);
   }
 
   initFog() {

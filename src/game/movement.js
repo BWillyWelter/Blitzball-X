@@ -1,5 +1,6 @@
 import { Vec3, clamp } from '../core/vec3.js';
 import { ARENA, PHYS, MOVE, ACTION } from '../data/constants.js';
+import { tickEdges } from './moves.js';
 
 /**
  * Movement / physics for MatchSim: locomotion + turbo fatigue, glue dribbling,
@@ -10,9 +11,10 @@ import { ARENA, PHYS, MOVE, ACTION } from '../data/constants.js';
 
 export function updatePlayerPhysics(sim, p, dt, deadBall) {
   p.stateTime += dt;
+  tickEdges(p, dt);
   if (p.stun > 0) p.stun -= dt;
   const inp = p.input;
-  const manualCage = sim.inCage && sim.isUser(p) && p.isKeeper;
+  const manualCage = sim.seatOf(p)?.inCage === true && p.isKeeper;
   const isCarrier = sim.ball.holder === p;
 
   // Turbo (defensive fatigue: press costs more stamina, zone recovers some)
@@ -268,7 +270,7 @@ export function constrainPlayer(sim, p) {
     const hi = Math.max(inner, outer);
     p.pos.x = clamp(p.pos.x, lo, hi);
     p.pos.z = clamp(p.pos.z, -ARENA.keeperMaxZ, ARENA.keeperMaxZ);
-    if (sim.inCage && sim.isUser(p)) {
+    if (sim.seatOf(p)?.inCage === true) {
       p.y = clamp(p.y, ARENA.keeperMinY, ARENA.keeperMaxY);
       if (p.y === ARENA.keeperMinY && p.vy < 0 || p.y === ARENA.keeperMaxY && p.vy > 0) p.vy = 0;
     }
@@ -303,11 +305,40 @@ export function constrainPlayer(sim, p) {
  */
 export function updateGlueDribble(sim, dt) {
   const holder = sim.ball.holder;
-  if (!holder) return;
+  if (!holder) {
+    sim.dribbleState = null;
+    return;
+  }
   const f = sim.forwardOf(holder);
-  const ahead = 0.48 + Math.min(0.18, holder.vel.lengthXZ() * 0.025);
-  sim.ball.pos.set(holder.pos.x + f.x * ahead, 0.9 + holder.y, holder.pos.z + f.z * ahead);
-  sim.ball.vel.set(holder.vel.x, holder.vy, holder.vel.z);
+  const speed = holder.vel.lengthXZ();
+  // The hand reaches out ahead of the body; the reach grows with pace.
+  const ahead = 0.46 + Math.min(0.22, speed * 0.03);
+  const tx = holder.pos.x + f.x * ahead;
+  const tz = holder.pos.z + f.z * ahead;
+  const ty = 0.9 + holder.y;
+  let s = sim.dribbleState;
+  // A fresh carrier (or a dead-ball snap with dt 0) starts from the hand, not from the old lag.
+  if (!s || s.holder !== holder.id || !(dt > 0)) {
+    // Seeded with the carrier's own velocity so a sprinting pickup never stalls the ball.
+    s = sim.dribbleState = { holder: holder.id, x: tx, y: ty, z: tz, vx: holder.vel.x, vy: holder.vy, vz: holder.vel.z, phase: 0 };
+  }
+  if (dt > 0) {
+    // Damped spring: the ball trails the hand, overshoots on sharp turns and settles back.
+    const k = 70;
+    const c = 10;
+    s.vx += ((tx - s.x) * k - s.vx * c) * dt;
+    s.vy += ((ty - s.y) * k - s.vy * c) * dt;
+    s.vz += ((tz - s.z) * k - s.vz * c) * dt;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.z += s.vz * dt;
+    // Bounce rhythm: the ball is patted down and rebounds faster the quicker the carrier moves.
+    s.phase += dt * (5 + speed * 1.1);
+  }
+  const pat = Math.abs(Math.sin(s.phase));
+  const bounce = pat * Math.min(0.2, 0.05 + speed * 0.015);
+  sim.ball.pos.set(s.x, s.y - bounce, s.z);
+  sim.ball.vel.set(s.vx, s.vy, s.vz);
   sim.ballPreviousPosition.copy(sim.ball.pos);
   holder.dribbleTouch += dt;
 }

@@ -1,3 +1,5 @@
+import { Vec3 } from '../core/vec3.js';
+import { moveToward } from './ai-core.js';
 import { cpuCallPlay } from './ai-plays.js';
 import { carrierAI } from './ai-carrier.js';
 import { offBallOffenseAI } from './ai-offense.js';
@@ -51,7 +53,17 @@ export function updateAI(sim, p, dt) {
   if (p.isKeeper) return keeperAI(sim, p, dt, roll);
   const holder = sim.ball.holder;
   if (holder === p) return carrierAI(sim, p, dt, roll);
-  if (holder && holder.team === p.team) return offBallOffenseAI(sim, p, dt, roll);
+  if (holder && holder.team === p.team) {
+    // Offense: off-ball movement with tactical passing support
+    offBallOffenseAI(sim, p, dt, roll);
+    // Support run: trailing players position for outlet passes when carrier is
+    // in the attacking third
+    if (holder.pos.x > 0 && holder.pos.distanceToXZ(sim.ownGoalPos(p.team)) > 12) {
+      const outletSpot = new Vec3(holder.pos.x - 8, 0, holder.pos.z);
+      moveToward(p, outletSpot, 0.8, p.turbo > 30);
+    }
+    return;
+  }
   if (holder) return defenseAI(sim, p, dt, roll);
   return looseBallAI(sim, p, dt, roll);
 }

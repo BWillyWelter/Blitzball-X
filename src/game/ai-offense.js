@@ -55,5 +55,11 @@ export function offBallOffenseAI(sim, p, dt, roll) {
   }
   // Stay behind the ball line a bit if the carrier is far back (support)
   if ((holder.pos.x - p.pos.x) * dir < -6) spot = new Vec3(holder.pos.x + dir * (p.isShooter ? 4 : -1.5), 0, spot.z);
+  // Tactical passing: if a teammate is open, call for the pass
+  const openMate = sim.callPassTarget(p);
+  if (openMate && rng.chance(0.3)) {
+    p.input.pass = true;
+    p.input.turbo = false;
+  }
   moveToward(p, spot, 0.95, ai.cutting && p.turbo > 30);
 }

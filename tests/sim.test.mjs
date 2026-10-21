@@ -1239,7 +1239,7 @@ test('signature moves beat the defenders they TRAVEL into — and pay: turbo bac
   sim.state = 'live';
   const p = sim.outfield(0)[0];
   const q = sim.outfield(1)[0];
-  p.data = { ...p.data, move: 'spin', hnd: 90 };
+  p.data = { ...p.data, move: 'tempest', hnd: 90 };
   p.pos.set(0, 0, 0);
   p.vel.set(0, 0, 0);
   p.state = 'idle';

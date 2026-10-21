@@ -586,8 +586,13 @@ export function checkGoalCrossing(sim, previous, current) {
 
       // Touchdown zone: the ball must pass through one of the three rings.
       const hit = zoneRingAt(y, z);
+      // Only the rings this mode scores through count. A ball through a dead ring clatters off
+      // the frame and stays live — which is the whole point of Top Ring.
+      const windows = sim.rules.goalWindows;
+      const windowed = Array.isArray(windows) && windows.length > 0;
+      const scoring = hit && (!windowed || windows.includes(hit.ring));
 
-      if (hit) {
+      if (scoring) {
         sim.ringRattle(team);
         sim.zoneHit = hit;
         return team;
@@ -615,6 +620,8 @@ export function checkGoalCrossing(sim, previous, current) {
         sim.events.emit('post', {
           pos: sim.ball.pos.clone(),
           hard: true,
+          // The ball went through a ring that is dead in this mode: it rattles out instead.
+          deadRing: !!(hit && !scoring),
         });
 
         const flight =
@@ -801,8 +808,7 @@ export function checkKeeperSave(sim, ) {
     probability *=
       sim.difficulty.keeperSkill *
       (
-        sim.userTeam !== null &&
-        keeper.team === sim.userTeam
+        sim.isSeatTeam(keeper.team)
           ? 1.18
           : 1
       );

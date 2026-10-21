@@ -1,7 +1,7 @@
 {
   "name": "blitzball-x",
   "version": "1.1.0",
-  "description": "BLITZBALL X \u2014 arcade underwater 3-on-3 Blitzball. Turbo, tricks, washes, big hits, keepers, Gamebreakers. Two halves, most goals wins.",
+  "description": "BLITZBALL X — arcade underwater 3-on-3 Blitzball. Turbo, tricks, washes, big hits, keepers, Gamebreakers. Two halves, most goals wins.",
   "private": true,
   "type": "module",
   "main": "server/index.js",
@@ -32,7 +32,8 @@
     "cap:ios": "npm run cap:sync && npx cap open ios",
     "cap:android": "npm run cap:sync && npx cap open android",
     "cap:run:ios": "npm run cap:sync && npx cap run ios",
-    "cap:run:android": "npm run cap:sync && npx cap run android"
+    "cap:run:android": "npm run cap:sync && npx cap run android",
+    "modes:balance": "node scripts/modes-balance.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -48,7 +49,8 @@
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.3",
