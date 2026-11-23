@@ -180,16 +180,16 @@ Validates match replay seed and updates user Gil/XP upon verification.
 
 ---
 
-## 🧪 Testing Suite (Vitest)
+## 🧪 Testing Suite
 
-Run the full integration test suite covering RNG seed determinism, encounter math, status ailments, and replay verification:
+Run the full integration test suite covering RNG seed determinism, encounter math, status ailments, combat, AI, substitutions, discipline, replay recording, career, gauntlet, ranked rating, modes, perf frame stats, and tuning dials:
 
 ```bash
 # Run tests once
-npx vitest run test/match.test.js
+npm test
 
 # Run tests in watch mode
-npx vitest test/match.test.js
+npm test -- --watch
 ```
 
 ---

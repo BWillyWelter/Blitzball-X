@@ -939,12 +939,23 @@ export class BlitzballApp {
       // The global board is fed from the player's point of view, so the score is written in the
       // order the player saw it. A failure here is invisible: the board is a bonus, not a
       // dependency.
+      const reported = userTeam === 1 ? [sim.score[1], sim.score[0]] : [sim.score[0], sim.score[1]];
       this.cloud?.reportMatch({
         mode,
-        score: userTeam === 1 ? [sim.score[1], sim.score[0]] : [sim.score[0], sim.score[1]],
+        score: reported,
         won,
         style,
         username: this.state.playerName || this.cloud?.readDevice()?.username || 'PLAYER',
+      });
+      // Ask the server to replay-verify the submitted result. A failure here is invisible — the
+      // board is a bonus, not a dependency — but a valid submission is recorded server-side.
+      this.cloud?.verifyMatch({
+        matchSeed: sim.seed,
+        homeTeamId: sim.teams[0].id,
+        awayTeamId: sim.teams[1].id,
+        actionLog: sim.getActionLog(),
+        reportedHomeScore: reported[0],
+        reportedAwayScore: reported[1],
       });
       if (mode === 'career' && this.state.career) {
         const margin = sim.score[userTeam] - sim.score[1 - userTeam];

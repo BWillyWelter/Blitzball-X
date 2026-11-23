@@ -167,6 +167,32 @@ export class CloudApi {
   }
 
   /**
+   * Ask the server to replay-verify a finished match result.
+   * @param {{ matchSeed: number, homeTeamId: string, awayTeamId: string, actionLog: Array,
+   *           reportedHomeScore: number, reportedAwayScore: number, reportedGilEarned?: number }}
+   * @returns {Promise<{ valid: boolean, verifiedHomeScore: number, verifiedAwayScore: number,
+   *                 verifiedGil: number, reason?: string } | null>}
+   */
+  async verifyMatch({ matchSeed, homeTeamId, awayTeamId, actionLog,
+                      reportedHomeScore, reportedAwayScore, reportedGilEarned } = {}) {
+    if (!Number.isInteger(matchSeed) || !Array.isArray(actionLog)) return null;
+    const result = await this.request('/api/match/verify', {
+      method: 'POST',
+      body: {
+        matchSeed,
+        homeTeamId,
+        awayTeamId,
+        actionLog,
+        reportedHomeScore,
+        reportedAwayScore,
+        reportedGilEarned: reportedGilEarned === undefined ? 0 : reportedGilEarned,
+      },
+    });
+    if (!result.ok || !result.data || typeof result.data !== 'object') return null;
+    return result.data;
+  }
+
+  /**
    * The global board, best first.
    * @returns {Promise<Array<{username: string, wins: number, losses: number, goals_scored: number, xp: number}>>}
    */

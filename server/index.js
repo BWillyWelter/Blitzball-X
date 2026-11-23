@@ -13,12 +13,30 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json({ limit: '5mb' })); // Higher limit to accommodate replay input logs
 
+// Simple IP-based rate limiter for the anonymous auth endpoint: 10 requests per minute per IP.
+const anonRateLimit = new Map();
+function anonRateLimitCheck(ip) {
+  const now = Date.now();
+  const window = anonRateLimit.get(ip) || { count: 0, resetAt: now + 60000 };
+  if (now > window.resetAt) {
+    window.count = 0;
+    window.resetAt = now + 60000;
+  }
+  window.count += 1;
+  anonRateLimit.set(ip, window);
+  return window.count <= 10;
+}
+
 // Anonymous Device Auth Route
 //
 // usernames are UNIQUE in the schema, so a name someone already took must not 500 the request:
 // the suffix loop keeps a preferred name when it is free and quietly makes it unique when it is
 // not.
 app.post('/api/auth/anonymous', (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (!anonRateLimitCheck(ip)) {
+    return res.status(429).json({ error: 'Too many requests. Try again shortly.' });
+  }
   const requested = typeof req.body?.username === 'string'
     ? req.body.username.replace(/[<>&]/g, '').trim().slice(0, 18)
     : '';

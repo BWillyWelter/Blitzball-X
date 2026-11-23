@@ -136,6 +136,8 @@ export class MatchSim {
     this.lastScorer = null;
     this.lastGoalTime = -99;
     this.stats = { possessions: 0, shots: 0, saves: 0, tricks: 0, hits: 0, tackles: 0, volleys: 0, fouls: 0, subs: 0 };
+    // Deterministic record of key match events, for server-side replay verification.
+    this.actionLog = [];
     // Match story: everything the halftime montage and the full-time recap need, recorded as it
     // happens rather than reconstructed afterwards. A goal log drives the shot chart and the
     // scorer list; ring goals are the split by which window the points came through; the biggest
@@ -157,6 +159,61 @@ export class MatchSim {
     // You always pilot one swimmer — including through the warm-up and tip-off presentation.
     for (const seat of this.seats) this.autoSelectControlled(seat);
     this.events.emit('warmup', { home: this.teams[0], away: this.teams[1] });
+
+    // Wire key events into the action log for replay verification.
+    this.events.on('score', (info) => this.logAction('goal', {
+      team: info.team, player: info.player?.id, points: info.points, type: info.type, ring: info.ring, gb: !!info.gb,
+    }));
+    this.events.on('shot', (info) => this.logAction('shot', {
+      team: info.team, player: info.player?.id, distance: Number.isFinite(info.distance) ? info.distance : null,
+    }));
+    this.events.on('volleyshot', (info) => this.logAction('volleyshot', {
+      team: info.team, player: info.player?.id,
+    }));
+    this.events.on('alleyoop', (info) => this.logAction('alleyoop', {
+      team: info.team, player: info.player?.id, passer: info.passer?.id,
+    }));
+    this.events.on('gbshot', (info) => this.logAction('gbshot', {
+      team: info.team, player: info.player?.id,
+    }));
+    this.events.on('tackle', (info) => this.logAction('tackle', {
+      player: info.player?.id, victim: info.victim?.id, impact: info.impact,
+    }));
+    this.events.on('bighit', (info) => this.logAction('hit', {
+      player: info.player?.id, victim: info.victim?.id, impact: info.impact,
+    }));
+    this.events.on('washed', (info) => this.logAction('wash', {
+      player: info.player?.id, victim: info.victim?.id, impact: info.impact,
+    }));
+    this.events.on('foul', (info) => this.logAction('foul', {
+      team: info.team, player: info.player?.id, victim: info.victim?.id,
+    }));
+    this.events.on('card', (info) => this.logAction('card', {
+      team: info.team, player: info.player?.id, red: !!info.red, cards: info.cards,
+    }));
+    this.events.on('sub', (info) => this.logAction('sub', {
+      team: info.team, out: info.out?.id, in: info.in?.id, remaining: info.remaining,
+    }));
+    this.events.on('gamebreaker', (info) => this.logAction('gamebreaker', {
+      team: info.team, player: info.player?.id,
+    }));
+    this.events.on('save', (info) => this.logAction('save', {
+      team: info.team, player: info.player?.id, shooter: info.shooter?.id,
+    }));
+  }
+
+  /** Record one deterministic match event with the current sim time. */
+  logAction(type, data = {}) {
+    this.actionLog.push({
+      t: Math.round(this.time * 100) / 100,
+      type,
+      ...data,
+    });
+  }
+
+  /** A copy of the action log for submission to the replay verifier. */
+  getActionLog() {
+    return this.actionLog.slice();
   }
 
   /**
