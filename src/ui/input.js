@@ -6,10 +6,14 @@ import { emptyInput } from '../game/entities.js';
  * Keyboard:  WASD/Arrows move (also steers shot aim, and aims the pass lead) · SHIFT turbo ·
  *            J/Space shoot (hold to charge) · K pass / call for pass off-ball (K+turbo = lob) ·
  *            L slide/poke tackle · I big hit · U breach (jump/block) · Q switch player ·
- *            E gamebreaker · V take the cage (control your keeper) · ESC pause
+ *            E gamebreaker · V take the cage (control your keeper) · ESC pause ·
+ *            O Current Break (freeze presser) · N Blind Pass (no-look feed) ·
+ *            M hold for spin shot · B hold for bank shot
  * Gamepad:   Left stick move · RT/RB turbo · A/Cross shoot · X/Square pass ·
  *            B/Circle trick/tackle · Y/Triangle hit · LB switch · LT+RT gamebreaker ·
- *            L3 (left-stick click) take the cage · Start pause
+ *            L3 (left-stick click) take the cage · Start pause ·
+ *            Back/Select (btn 8) Current Break · R3 (btn 11) Blind Pass ·
+ *            X hold for spin shot · B hold for bank shot
  */
 /** One-shot input fields: true for a single fixed step, then consumed. */
 const ONE_SHOT = [
@@ -22,6 +26,8 @@ const ONE_SHOT = [
   'switchPlayer',
   'gamebreaker',
   'cage',
+  'currentBreak',
+  'blindPass',
 ];
 
 const PLAY_KEYS = {
@@ -43,6 +49,8 @@ const TOUCH_EDGE = {
   switch: 'switchPlayer',
   gamebreaker: 'gamebreaker',
   cage: 'cage',
+  currentBreak: 'currentBreak',
+  blindPass: 'blindPass',
 };
 
 const GAMEPLAY_CODES = new Set([
@@ -112,6 +120,10 @@ const P2_BINDINGS = {
   cage: ['Numpad9'],
   offense: ['Numpad7'],
   defense: ['Numpad8'],
+  currentBreak: ['NumpadDivide'],
+  blindPass: ['NumpadMultiply'],
+  spinShot: ['NumpadAdd'],
+  bankShot: ['NumpadSubtract'],
 };
 
 export class InputManager {
@@ -395,6 +407,10 @@ export class InputManager {
     let swap = hit(P2_BINDINGS.swap);
     let gamebreaker = hit(P2_BINDINGS.gamebreaker);
     let cage = hit(P2_BINDINGS.cage);
+    let currentBreak = hit(P2_BINDINGS.currentBreak);
+    let blindPass = hit(P2_BINDINGS.blindPass);
+    let spinShot = held(P2_BINDINGS.spinShot);
+    let bankShot = held(P2_BINDINGS.bankShot);
 
     let playcall = 0;
     if (hit(P2_BINDINGS.offense)) {
@@ -437,6 +453,10 @@ export class InputManager {
       if (pressed(2)) pass = true;
       if (pressed(1)) trick = true;
       if (pressed(3)) bigHit = true;
+      if (pressed(8)) currentBreak = true;
+      if (pressed(11)) blindPass = true;
+      if (this.gamepadButton(pad, 2)) spinShot = true;
+      if (this.gamepadButton(pad, 1)) bankShot = true;
       if (pressed(4)) swap = true;
       if (pressed(10)) cage = true;
       if (this.gamepadButton(pad, 6) && this.gamepadButton(pad, 7) && (pressed(6) || pressed(7))) gamebreaker = true;
@@ -473,6 +493,10 @@ export class InputManager {
     out.switchPlayer = !!swap;
     out.gamebreaker = !!gamebreaker;
     out.cage = !!cage;
+    out.currentBreak = !!currentBreak;
+    out.blindPass = !!blindPass;
+    out.spinShot = !!spinShot;
+    out.bankShot = !!bankShot;
     out.playcall = playcall;
 
     // One-shots survive until a fixed step consumes them, exactly like seat one.
@@ -520,6 +544,10 @@ export class InputManager {
     let trick = this.justPressed('KeyL');
     let hit = this.justPressed('KeyI');
     let breach = this.justPressed('KeyU');
+    let currentBreak = this.justPressed('KeyO');
+    let blindPass = this.justPressed('KeyN');
+    let spinShotHeld = this.down('KeyM');
+    let bankShotHeld = this.down('KeyB');
 
     let switchPlayer = this.justPressed(
       'KeyQ',
@@ -627,6 +655,10 @@ export class InputManager {
         gamebreaker = true;
       } else if (field === 'cage') {
         cage = true;
+      } else if (field === 'currentBreak') {
+        currentBreak = true;
+      } else if (field === 'blindPass') {
+        blindPass = true;
       }
     }
 
@@ -701,6 +733,22 @@ export class InputManager {
 
       if (this.gamepadPressed(pad, 3)) {
         hit = true;
+      }
+
+      if (this.gamepadPressed(pad, 8)) {
+        currentBreak = true;
+      }
+
+      if (this.gamepadPressed(pad, 11)) {
+        blindPass = true;
+      }
+
+      if (this.gamepadButton(pad, 2)) {
+        spinShotHeld = true;
+      }
+
+      if (this.gamepadButton(pad, 1)) {
+        bankShotHeld = true;
       }
 
       if (this.gamepadPressed(pad, 4)) {
@@ -820,6 +868,10 @@ export class InputManager {
     output.switchPlayer = !!switchPlayer;
     output.gamebreaker = !!gamebreaker;
     output.cage = !!cage;
+    output.currentBreak = !!currentBreak;
+    output.blindPass = !!blindPass;
+    output.spinShot = !!spinShotHeld;
+    output.bankShot = !!bankShotHeld;
     output.playcall = playcall;
 
     // Preserve one-shot actions until a fixed simulation
@@ -869,10 +921,14 @@ export class InputManager {
     this.input.playcall = 0;
     this.input.jukeDir = null;
     this.input.keeperAim = null;
+    this.input.spinShot = false;
+    this.input.bankShot = false;
     for (const action of ONE_SHOT) this.input2[action] = false;
     this.input2.playcall = 0;
     this.input2.jukeDir = null;
     this.input2.keeperAim = null;
+    this.input2.spinShot = false;
+    this.input2.bankShot = false;
   }
 
   setKeeperContext(active, dir = 1) {

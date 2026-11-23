@@ -1,7 +1,7 @@
 import { Vec3, clamp } from '../core/vec3.js';
 import { RNG } from '../core/rng.js';
 import { EventBus } from '../core/events.js';
-import { ARENA, RULES, MOVE, DIFFICULTY, PHYS } from '../data/constants.js';
+import { ARENA, RULES, MOVE, DIFFICULTY, PHYS, ACTION } from '../data/constants.js';
 import { OFFENSE_PLAYS, DEFENSE_PLAYS } from '../data/plays.js';
 import { createPlayer, createBall, emptyInput, copyInput } from './entities.js';
 import { Seat } from './seat.js';
@@ -199,6 +199,15 @@ export class MatchSim {
     }));
     this.events.on('save', (info) => this.logAction('save', {
       team: info.team, player: info.player?.id, shooter: info.shooter?.id,
+    }));
+    this.events.on('currentbreak', (info) => this.logAction('currentbreak', {
+      player: info.player?.id, defender: info.defender?.id,
+    }));
+    this.events.on('blindpass', (info) => this.logAction('blindpass', {
+      from: info.from?.id, to: info.to?.id, laneRead: !!info.laneRead,
+    }));
+    this.events.on('onfire', (info) => this.logAction('onfire', {
+      team: info.team, player: info.player?.id,
     }));
   }
 
@@ -1086,6 +1095,20 @@ export class MatchSim {
       }
     }
     for (const p of this.players) this.tickCooldowns(p, dt);
+    // Heat / On Fire: drain heat when not on fire, tick the ON FIRE timer when active.
+    for (const p of this.players) {
+      if (p.onFire) {
+        p.onFireTimer -= dt;
+        if (p.onFireTimer <= 0) {
+          p.onFire = false;
+          p.onFireTimer = 0;
+          p.heat = ACTION.heatMax * 0.5; // reset to half so it can build again
+          this.events.emit('onfireend', { player: p, team: p.team });
+        }
+      } else if (p.heat > 0) {
+        p.heat = Math.max(0, p.heat - ACTION.heatDecay * dt);
+      }
+    }
     if (this.ball.releaseCooldown) {
       this.ball.releaseCooldown.t -= dt;
       if (this.ball.releaseCooldown.t <= 0) this.ball.releaseCooldown = null;
@@ -1301,6 +1324,15 @@ export class MatchSim {
           : new Vec3(inp.moveX, 0, inp.moveZ);
         this.tryTrick(p, dir.length() > 0.2 ? dir.normalize() : null, inp.turbo);
       }
+      // Current Break: cut hard to freeze the nearest presser (the crossover).
+      if (inp.currentBreak && this.canAct(p) && p.cd.currentBreak <= 0 && !p.isKeeper) {
+        const dir = inp.jukeDir
+          ? new Vec3(inp.jukeDir.x, 0, inp.jukeDir.y)
+          : new Vec3(inp.moveX, 0, inp.moveZ);
+        this.tryCurrentBreak(p, dir.length() > 0.2 ? dir.normalize() : null);
+      }
+      // Blind Pass: quick release to the nearest open teammate without aiming.
+      if (inp.blindPass && this.canAct(p) && !p.isKeeper) this.tryBlindPass(p);
       if (inp.hit && this.canAct(p) && p.cd.hit <= 0 && !p.isKeeper) this.tryHit(p);
     } else {
       if (inp.breach && this.canAct(p) && p.cd.breach <= 0) this.tryBreach(p);
@@ -1374,6 +1406,7 @@ export class MatchSim {
   // Tricks / tackles / hits / breaches (see ./combat.js)
   // ---------------------------------------------------------------------------
   tryTrick(player, dir, turbo) { return combat.tryTrick(this, player, dir, turbo); }
+  tryCurrentBreak(player, dir) { return combat.tryCurrentBreak(this, player, dir); }
   stepMove(player) { return combat.stepMove(this, player); }
   finishTrick(player) { return combat.finishTrick(this, player); }
   tryTackle(player) { return combat.tryTackle(this, player); }
@@ -1386,6 +1419,7 @@ export class MatchSim {
   // ---------------------------------------------------------------------------
   choosePassTarget(player, lob) { return passing.choosePassTarget(this, player, lob); }
   tryPass(player, targetOverride, lob) { return passing.tryPass(this, player, targetOverride, lob); }
+  tryBlindPass(player) { return passing.tryBlindPass(this, player); }
   gradePass(flight, receiver) { return passing.gradePass(this, flight, receiver); }
   // ---------------------------------------------------------------------------
   // Shooting / volleys / Gamebreaker (see ./shooting.js)

@@ -1,4 +1,4 @@
-import { RULES, STYLE } from '../data/constants.js';
+import { RULES, STYLE, ACTION } from '../data/constants.js';
 
 /**
  * Flow, style meter, scoring and game-over rules, extracted from MatchSim. Functions take
@@ -227,6 +227,10 @@ export function sendOffPlayer(sim, p) {
 export function addStyle(sim, player, base, label, options = {}) {
     const team = player.team;
 
+    // ON FIRE: while the heat meter is maxed, all style gains are doubled.
+    const heatMult = player.onFire ? ACTION.heatStyleMult : 1;
+    const adjustedBase = base * heatMult;
+
     if (
       !sim.flow[team] &&
       sim.possession === team &&
@@ -258,10 +262,21 @@ export function addStyle(sim, player, base, label, options = {}) {
         0.7;
 
     const points = Math.round(
-      base * multiplier
+      adjustedBase * multiplier
     );
 
     player.stats.style += points;
+
+    // Heat meter: a fraction of style earned fills the personal heat meter.
+    // When it maxes out, the swimmer catches fire (ON FIRE state).
+    if (!player.onFire) {
+      player.heat = Math.min(ACTION.heatMax, player.heat + points * ACTION.heatGain);
+      if (player.heat >= ACTION.heatMax) {
+        player.onFire = true;
+        player.onFireTimer = ACTION.heatDuration;
+        sim.events.emit('onfire', { player, team, duration: ACTION.heatDuration });
+      }
+    }
 
     const wasReady =
       sim.gbReady[team];

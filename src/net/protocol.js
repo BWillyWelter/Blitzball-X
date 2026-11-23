@@ -11,7 +11,7 @@
  */
 
 /** Bumped whenever the message shape or the simulation contract changes. Mismatched peers refuse. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** An online duel is a best-of-three series. Two rounds take the set. */
 export const SERIES_BEST_OF = 3;
@@ -60,6 +60,10 @@ const FLAGS = [
   'gamebreaker',
   'cage',
   'jukeHeld',
+  'currentBreak',
+  'blindPass',
+  'spinShot',
+  'bankShot',
 ];
 
 /** Quantise a unit-range float to two decimals — plenty for a stick and cheap on the wire. */
@@ -109,6 +113,10 @@ export function unpackInput(data) {
     switchPlayer: false,
     gamebreaker: false,
     cage: false,
+    currentBreak: false,
+    blindPass: false,
+    spinShot: false,
+    bankShot: false,
     keeperAim: null,
     playcall: playcall >= 1 && playcall <= 9 ? playcall : 0,
   };

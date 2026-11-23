@@ -1517,6 +1517,86 @@ select {
   transform: skewX(15deg);
 }
 
+/* Heat meter — fills as the player earns style, glows when ON FIRE */
+.heat-meter {
+  position: relative;
+  width: 220px;
+  height: 7px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid var(--ink);
+  margin-top: 3px;
+  transform: skewX(-15deg);
+  overflow: hidden;
+  opacity: 0.7;
+}
+.heat-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b00, #ffcc00);
+  transition: width 0.1s linear;
+}
+.heat-label {
+  position: absolute;
+  right: 4px;
+  top: -3px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  color: #fff;
+  transform: skewX(15deg);
+}
+.heat-meter.onfire {
+  opacity: 1;
+  border-color: var(--orange, #ff6b00);
+  box-shadow: 0 0 8px var(--orange, #ff6b00), 0 0 16px var(--yellow, #ffcc00);
+  animation: heatpulse 0.5s ease-in-out infinite alternate;
+}
+.heat-meter.onfire .heat-fill {
+  background: linear-gradient(90deg, #ffcc00, #fff, #ffcc00);
+}
+.heat-meter.onfire .heat-label {
+  color: var(--yellow, #ffcc00);
+}
+@keyframes heatpulse {
+  from { box-shadow: 0 0 6px var(--orange, #ff6b00); }
+  to { box-shadow: 0 0 14px var(--orange, #ff6b00), 0 0 24px var(--yellow, #ffcc00); }
+}
+
+/* Combo chip — shows the current style multiplier */
+.combo-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--pink, #ff3d7f);
+  text-shadow: 1px 1px 0 var(--ink);
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-top: 2px;
+}
+.combo-chip.show {
+  opacity: 1;
+}
+.combo-mult {
+  font-size: 18px;
+  font-weight: 900;
+}
+.combo-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  opacity: 0.8;
+}
+
+/* ON FIRE card flash */
+.onfire-flash {
+  animation: onfire-flash 0.6s ease-out;
+}
+@keyframes onfire-flash {
+  0% { filter: brightness(1); }
+  30% { filter: brightness(1.6) saturate(1.4); }
+  100% { filter: brightness(1); }
+}
+
 /* Style popups */
 .popups {
   position: absolute;
@@ -2546,6 +2626,11 @@ select {
 .match-hud .pcard-move { font-size: 10px; margin-top: 2px; }
 .match-hud .turbo { width: clamp(150px, 20vw, 220px); height: 13px; margin-top: 4px; }
 .match-hud .turbo span { font-size: 9px; top: -3px; }
+.match-hud .heat-meter { width: clamp(150px, 20vw, 220px); height: 6px; margin-top: 2px; }
+.match-hud .heat-meter .heat-label { font-size: 7px; top: -2px; }
+.match-hud .combo-chip { margin-top: 1px; }
+.match-hud .combo-chip .combo-mult { font-size: 15px; }
+.match-hud .combo-chip .combo-label { font-size: 8px; }
 .match-hud .hud-radar {
   left: max(18px, env(safe-area-inset-left));
   bottom: max(18px, env(safe-area-inset-bottom));
@@ -2627,6 +2712,8 @@ select {
 .match-wrap.touch .match-hud .pcard-nick { font-size: 23px; }
 .match-wrap.touch .match-hud .pcard-name { font-size: 10px; }
 .match-wrap.touch .match-hud .turbo { width: min(190px, 44vw); }
+.match-wrap.touch .match-hud .heat-meter { width: min(190px, 44vw); height: 5px; }
+.match-wrap.touch .match-hud .combo-chip { font-size: 12px; }
 .match-wrap.touch .match-hud .hint { display: none; }
 .match-wrap.touch .match-hud .ticker {
   top: max(44px, env(safe-area-inset-top));

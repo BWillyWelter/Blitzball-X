@@ -187,3 +187,80 @@ export function gradePass(sim, flight, receiver) {
     sim.events.emit('leadpass', out);
     return out;
   }
+
+/**
+ * Blind pass: release to the nearest open teammate without aiming. The receiver is found
+ * automatically — the passer does not look at them. If a defender is close to the passing
+ * lane, the pass is risky (interception chance up) but pays big style when it connects.
+ *
+ * This is Blitzball's no-look feed: the quick release through traffic that a defender cannot
+ * read because the passer never looked at the target.
+ */
+export function tryBlindPass(sim, p) {
+  if (sim.ball.holder !== p) return false;
+  const target = choosePassTarget(sim, p, false);
+  if (!target) return false;
+
+  // Find the nearest defender to the passing lane — the "read" risk.
+  const from = new Vec3(p.pos.x, 0.9, p.pos.z);
+  const to = new Vec3(target.pos.x, 0.9, target.pos.z);
+  let laneRead = false;
+  for (const o of sim.opponentsOf(p)) {
+    if (o.isKeeper) continue;
+    const d = pointToSegment(o, from, to);
+    if (d < ACTION.blindPassReadRange) { laneRead = true; break; }
+  }
+
+  p.lastPassTime = sim.time;
+  p.facing = Math.atan2(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+  p.shot = null;
+  p.hasBall = false;
+  sim.ball.holder = null;
+
+  const dist = from.distanceTo(to);
+  const dur = clamp(dist / ACTION.passSpeed, 0.14, 0.95);
+  sim.ball.flight = {
+    kind: 'pass',
+    from,
+    to,
+    t: 0,
+    dur,
+    arc: 0.25,
+    passer: p,
+    target,
+    checked: new Set(),
+    blind: true,
+    laneRead,
+    releasedAt: { x: target.pos.x, z: target.pos.z },
+    releasedVel: { x: target.vel.x, z: target.vel.z },
+  };
+  sim.ball.releaseCooldown = { player: p, t: 0.25 };
+  sim.ball.lastTeam = p.team;
+  p.stats.blindPasses = (p.stats.blindPasses || 0) + 1;
+  sim.setState(p, 'pass', 0.2);
+
+  const style = laneRead ? STYLE.blindPassBig : STYLE.blindPass;
+  sim.addStyle(p, style, laneRead ? 'BLIND PASS · THROUGH TRAFFIC!' : 'BLIND PASS', { big: laneRead });
+  sim.events.emit('blindpass', { from: p, to: target, laneRead });
+
+  // If a defender was in the lane, they get a bonus interception chance.
+  if (laneRead) {
+    sim.events.emit('blindpassrisk', { from: p, to: target });
+  }
+  return true;
+}
+
+/** Distance from point p to the segment a→b. Used to check if a defender is in the passing lane. */
+function pointToSegment(p, a, b) {
+  const abx = b.x - a.x;
+  const abz = b.z - a.z;
+  const apx = p.pos.x - a.x;
+  const apz = p.pos.z - a.z;
+  const len2 = abx * abx + abz * abz;
+  if (len2 < 0.001) return Math.hypot(apx, apz);
+  let t = (apx * abx + apz * abz) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = a.x + t * abx;
+  const cz = a.z + t * abz;
+  return Math.hypot(p.pos.x - cx, p.pos.z - cz);
+}

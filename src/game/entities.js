@@ -46,7 +46,7 @@ export function createPlayer(data, team, slot) {
     controlled: false,
     combo: 0,
     comboTimer: 0,
-    cd: { tackle: 0, hit: 0, trick: 0, breach: 0, catch: 0, shot: 0, dive: 0 },
+    cd: { tackle: 0, hit: 0, trick: 0, breach: 0, catch: 0, shot: 0, dive: 0, currentBreak: 0 },
     // Committed keeper dive: `diveT` is the live window (extra reach + save chance), `diveDir`
     // the lateral direction it was aimed, `diveCommit` how much of it is still accelerating.
     diveT: 0,
@@ -68,6 +68,9 @@ export function createPlayer(data, team, slot) {
     callingForPass: false, // set when a teammate calls for the pass (Rematch-style)
     knockDir: new Vec3(1, 0, 0),
     moveArmor: 0, // seconds of roll/vault left: untackleable while > 0
+    heat: 0, // personal heat meter (0..ACTION.heatMax); fills from style, triggers ON FIRE
+    onFire: false, // true while the heat meter has maxed out (ON FIRE state)
+    onFireTimer: 0, // seconds of ON FIRE remaining
   };
 }
 
@@ -86,6 +89,10 @@ export function emptyStats() {
     gb: 0,
     to: 0,
     volleys: 0,
+    currentBreaks: 0, // defenders caught in the undertow
+    blindPasses: 0, // blind passes that connected
+    bankShots: 0, // ricochet finishes
+    heaves: 0, // desperation long-range flings
   };
 }
 
@@ -111,6 +118,11 @@ export function emptyInput() {
     gamebreaker: false,
     keeperAim: null, // touch dive-pad { z, height } captured on release
     cage: false, // one-shot: take the cage (hand control to your own keeper)
+    // NBA Street-style dribbling and trick-shot inputs.
+    currentBreak: false, // one-shot: cut hard and freeze the nearest presser (the crossover)
+    blindPass: false, // one-shot: release to the nearest open teammate without aiming
+    spinShot: false, // held: add extra curve to the shot (bend it round the keeper)
+    bankShot: false, // held: aim for a wall ricochet if one is close
   };
 }
 
@@ -142,6 +154,10 @@ export function copyInput(dst, src) {
   dst.playcall = src.playcall;
   dst.cage = src.cage;
   dst.keeperAim = src.keeperAim;
+  dst.currentBreak = src.currentBreak;
+  dst.blindPass = src.blindPass;
+  dst.spinShot = src.spinShot;
+  dst.bankShot = src.bankShot;
   return dst;
 }
 

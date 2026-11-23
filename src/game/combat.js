@@ -514,3 +514,81 @@ export function tryBreach(sim, p) {
   }
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Current Break (the crossover)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cut hard in the aimed direction and leave the nearest defender frozen in the undertow.
+ *
+ * The move is only available while carrying the ball — it is a dribbling move, not a defensive
+ * one. The swimmer snaps to a new facing along the input direction, and any defender inside the
+ * cone and range who is facing the carrier (i.e. committed to the challenge) is caught in the
+ * wash and frozen for `MOVE.currentBreakStun` seconds.
+ *
+ * The trade: it costs stamina, has a cooldown, and if no defender is in range it is a wasted cut
+ * that leaves you briefly off balance. The reward is the frozen defender, turbo refunded, and
+ * style points — enough to start or extend a combo.
+ */
+export function tryCurrentBreak(sim, p, dir) {
+  if (sim.ball.holder !== p) return false;
+  if (p.cd.currentBreak > 0) return false;
+  if (p.state !== 'idle' && p.state !== 'swim') return false;
+
+  p.cd.currentBreak = MOVE.currentBreakCooldown;
+  spendStamina(p, 'trick');
+
+  const d = (dir || sim.forwardOf(p)).clone();
+  if (d.length() < 0.2) d.copy(sim.forwardOf(p));
+  else d.normalize();
+
+  // Snap facing to the cut direction — the body turns with the cut.
+  p.facing = Math.atan2(d.x, d.z);
+  sim.setState(p, 'swim', MOVE.currentBreakDuration);
+
+  let caught = null;
+  let bd = Infinity;
+  const cone = Math.cos(MOVE.currentBreakCone);
+  for (const q of sim.opponentsOf(p)) {
+    if (q.isKeeper || q.state === 'fallen' || q.airborne) continue;
+    const dist = q.pos.distanceToXZ(p.pos);
+    if (dist > MOVE.currentBreakRange) continue;
+    if (d.dot(Vec3.dirXZ(p.pos, q.pos)) < cone) continue;
+    // Only catches a defender who is looking at you — the presser who committed.
+    const toMe = Vec3.dirXZ(q.pos, p.pos);
+    if (sim.forwardOf(q).dot(toMe) < 0.15) continue;
+    if (dist < bd) { bd = dist; caught = q; }
+  }
+
+  if (!caught) {
+    // Whiffed: you cut at open water and are briefly off balance.
+    p.stun = Math.max(p.stun, MOVE.currentBreakDuration * 0.6);
+    sim.events.emit('currentbreakwhiff', { player: p });
+    return false;
+  }
+
+  // Caught: the defender is frozen in the undertow.
+  const power = 0.6 + (p.data.hnd / 99) * 0.55;
+  const prob = clamp(0.4 + power * 0.35 - (caught.data.tkl / 99) * 0.2, 0.1, 0.9);
+  if (!sim.rng.chance(sim.isUser(p) ? prob * sim.difficulty.userBonus : prob)) {
+    // The defender read the cut and held position.
+    p.stun = Math.max(p.stun, MOVE.currentBreakDuration * 0.5);
+    sim.events.emit('currentbreakfail', { player: p, defender: caught });
+    return false;
+  }
+
+  // Frozen in the wash: the defender can't move or act for the stun duration.
+  caught.stun = Math.max(caught.stun, MOVE.currentBreakStun);
+  sim.setState(caught, 'reel', MOVE.currentBreakStun);
+  caught.vel.set(0, 0, 0);
+  p.stats.currentBreaks++;
+  sim.stats.currentBreaks = (sim.stats.currentBreaks || 0) + 1;
+
+  // Turbo refund and style — the payoff for baiting the presser.
+  p.turbo = Math.min(100, p.turbo + MOVE.moveTurboRefund);
+  wowBeat(sim, p);
+  sim.addStyle(p, STYLE.currentBreak, 'CURRENT BREAK!', { big: true });
+  sim.events.emit('currentbreak', { player: p, defender: caught, impact: 1.0 });
+  return true;
+}

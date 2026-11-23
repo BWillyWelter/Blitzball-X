@@ -46,13 +46,15 @@ export class MatchHUD {
           <div class="pcard-name">CONTROLLED SWIMMER</div>
           <div class="pcard-move">ALL-AROUND · SH</div>
           <div class="turbo"><div class="turbo-fill"></div><span>STAMINA 100%</span></div>
+          <div class="heat-meter"><div class="heat-fill"></div><span class="heat-label">HEAT</span></div>
+          <div class="combo-chip"><span class="combo-mult">×1</span><span class="combo-label">COMBO</span></div>
         </div>
       </div>
       <div class="hud-radar" role="img" aria-label="Live pool radar">
         <canvas width="180" height="180"></canvas>
         <span class="radar-label">POOL RADAR</span>
       </div>
-      <div class="shoot-meter" aria-label="Shot charge meter"><div class="shoot-fill"></div><span class="shoot-label">SHOOT</span></div><div class="hint">WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE</div>
+      <div class="shoot-meter" aria-label="Shot charge meter"><div class="shoot-fill"></div><span class="shoot-label">SHOOT</span></div><div class="hint">WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · O CURRENT BREAK · N BLIND PASS · I HIT · U BREACH · Q SWAP · ESC PAUSE</div>
       <div class="popups" aria-live="polite"></div>
       <div class="banner" aria-live="assertive"><div class="banner-text"></div><div class="banner-sub"></div></div>
       <div class="ticker" role="status"><span class="ticker-mic">◉</span><span class="ticker-text"></span></div>
@@ -94,6 +96,11 @@ export class MatchHUD {
       turbo: el.querySelector('.turbo'),
       turboFill: el.querySelector('.turbo-fill'),
       turboLabel: el.querySelector('.turbo span'),
+      heatMeter: el.querySelector('.heat-meter'),
+      heatFill: el.querySelector('.heat-fill'),
+      heatLabel: el.querySelector('.heat-label'),
+      comboChip: el.querySelector('.combo-chip'),
+      comboMult: el.querySelector('.combo-mult'),
     };
   }
 
@@ -116,8 +123,8 @@ export class MatchHUD {
     }
     if (this.hintEl) {
       this.hintEl.innerHTML = duel
-        ? 'P1 WASD · SHIFT BURST · J SHOOT · K PASS · L TACKLE · I HIT · U BREACH · Q SWAP · E GB · V CAGE<br>P2 ARROWS · RSHIFT BURST · NUM0 SHOOT · NUM1 PASS · NUM2 TRICK · NUM3 HIT · NUM5 BREACH · NUM4 SWAP · NUM6 GB · NUM9 CAGE'
-        : 'WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · I HIT · U BREACH · Q SWAP · ESC PAUSE';
+        ? 'P1 WASD · SHIFT BURST · J SHOOT · K PASS · L TACKLE · O CURRENT BREAK · N BLIND PASS · I HIT · U BREACH · Q SWAP · E GB · V CAGE<br>P2 ARROWS · RSHIFT BURST · NUM0 SHOOT · NUM1 PASS · NUM2 TRICK · NUM3 HIT · NUM5 BREACH · NUM4 SWAP · NUM6 GB · NUM9 CAGE'
+        : 'WASD MOVE · SHIFT BURST · J / SPACE SHOOT · K PASS<br>L TACKLE · O CURRENT BREAK · N BLIND PASS · I HIT · U BREACH · Q SWAP · ESC PAUSE';
     }
   }
 
@@ -176,6 +183,23 @@ export class MatchHUD {
     });
     this.listen('flowstart', ({ team }) => {
       this.showBanner(sim.isSeatTeam(team) ? 'FLOW STATE' : 'THEY’RE IN FLOW', 'THE POOL IS MOVING THEIR WAY', 1700);
+    });
+    this.listen('onfire', ({ player, team }) => {
+      const mine = sim.isSeatTeam(team);
+      this.showBanner(mine ? 'ON FIRE!' : `${sim.teams[team].abbr} ON FIRE`, 'HEAT MAXED · STYLE ×2 · 14s', 2200, 'huge');
+      this.audio?.playCrowdCheer?.(1.0);
+      this.root.classList.add('onfire-flash');
+      setTimeout(() => this.root.classList.remove('onfire-flash'), 600);
+    });
+    this.listen('onfireend', ({ team }) => {
+      if (sim.isSeatTeam(team)) this.showTicker('HEAT COOLED · BUILD IT BACK', 1500);
+    });
+    this.listen('currentbreak', ({ player }) => {
+      this.audio?.playWaterSplash?.(0.5);
+      this.showTicker(`${player?.data?.nick || 'SWIMMER'} · CURRENT BREAK!`, 1400);
+    });
+    this.listen('blindpass', ({ from, laneRead }) => {
+      this.showTicker(laneRead ? 'BLIND PASS · THROUGH TRAFFIC!' : 'BLIND PASS', 1200);
     });
     this.listen('bighit', ({ player, victim }) => {
       this.audio?.playWaterSplash?.(0.72);
@@ -340,6 +364,23 @@ export class MatchHUD {
       card.turboFill.style.width = `${stamina}%`;
       card.turboLabel.textContent = `${player.gassed ? 'GASSED' : 'STAMINA'} ${Math.round(stamina)}%`;
       card.turbo.classList.toggle('low', stamina < 25);
+      // Heat meter: show the player's heat buildup. When ON FIRE, the meter glows and the label
+      // changes. The combo chip shows the current multiplier when a combo is active.
+      if (card.heatFill) {
+        const heatPct = clamp((player.heat || 0) / 100 * 100, 0, 100);
+        card.heatFill.style.width = `${heatPct}%`;
+        card.heatMeter.classList.toggle('onfire', !!player.onFire);
+        card.heatLabel.textContent = player.onFire ? `ON FIRE ${Math.ceil(player.onFireTimer || 0)}s` : 'HEAT';
+      }
+      if (card.comboChip) {
+        const combo = player.combo || 1;
+        const showCombo = combo >= 2 && player.comboTimer > 0;
+        card.comboChip.classList.toggle('show', showCombo);
+        if (showCombo) {
+          const mult = Math.min(2.5, 1 + (combo - 1) * 0.25);
+          card.comboMult.textContent = `×${mult.toFixed(2).replace(/0$/, '')}`;
+        }
+      }
       card.el.classList.toggle('in-cage', !!seat.inCage);
     });
     this.drawRadar(sim);

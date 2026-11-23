@@ -52,6 +52,15 @@ export function tryShoot(sim, player) {
             Math.floor(distance / 4)
           )
         ],
+      // Trick shot type: spin and bank are read from held inputs at wind-up time.
+      // A heave is any shot from beyond the heave range — no modifier needed, it's the distance.
+      trick: player.input?.spinShot
+        ? 'spin'
+        : player.input?.bankShot
+          ? 'bank'
+          : distance > ACTION.heaveMinRange
+            ? 'heave'
+            : null,
     };
 
     sim.setState(
@@ -146,6 +155,7 @@ export function releaseShot(sim, player) {
         amount
       ),
       aimDir: aim,
+      trick: shot.trick || null,
     });
 
     sim.setState(
@@ -170,6 +180,7 @@ export function fireShot(
       power = 0.85,
       aimDir = null,
       spin: spinOverride = null,
+      trick: trickType = null,
     } = {}
   
   ) {
@@ -283,6 +294,19 @@ export function fireShot(
           ? 1.35
           : 1
       );
+
+    // Trick shots modify the spin and accuracy:
+    // - spin: extra curve (harder for keeper to read, slightly less accurate)
+    // - bank: ball is aimed at a wall point first, then ricochets toward goal
+    const isSpin = trickType === 'spin';
+    const isBank = trickType === 'bank';
+    const isHeave = trickType === 'heave';
+
+    if (isSpin && !gb) {
+      // Boost the spin magnitude — the ball bends harder around the keeper.
+      spin = clamp(spin * (1 + ACTION.spinCurveBonus), -1.5, 1.5);
+      quality = Math.max(0.4, quality - ACTION.spinAccuracyPenalty);
+    }
 
     const error =
       (
@@ -401,11 +425,19 @@ export function fireShot(
       spin,
       t: 0,
       checked: new Set(),
+      trick: trickType,
+      bank: isBank,
       name: player.shot
         ? player.shot.name
         : gb
           ? 'GAMEBREAKER'
-          : 'VOLLEY',
+          : isBank
+            ? 'BANK SHOT'
+            : isSpin
+              ? 'SPIN SHOT'
+              : isHeave
+                ? 'HEAVE'
+                : 'VOLLEY',
     };
 
     sim.ball.releaseCooldown = {
@@ -436,6 +468,21 @@ export function fireShot(
         20,
         'FROM DEEP'
       );
+    }
+
+    // Trick shot style rewards.
+    if (isBank && !gb) {
+      player.stats.bankShots = (player.stats.bankShots || 0) + 1;
+      sim.addStyle(player, STYLE.bankShot, 'BANK SHOT', { big: true });
+      sim.events.emit('bankshot', { player, dist: distance });
+    }
+    if (isHeave && !gb) {
+      player.stats.heaves = (player.stats.heaves || 0) + 1;
+      sim.addStyle(player, STYLE.heave, 'HEAVE!', { big: true });
+      sim.events.emit('heave', { player, dist: distance });
+    }
+    if (isSpin && !gb) {
+      sim.events.emit('spinsHot', { player, dist: distance, spin });
     }
   }
 

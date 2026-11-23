@@ -168,6 +168,15 @@ export const MOVE = {
   // distance, so beating a defender is a change of direction you have to earn.
   massBase: 0.88, // body mass from `pow`: heavier = lazier turn, slower acceleration
   massPerPow: 0.24,
+  // Current Break. A rapid cut that leaves the water swirling — the nearest defender is
+  // caught in the undertow and frozen. BlitzBall's answer to the crossover: bait a presser
+  // into committing, then cut hard and leave them thrashing.
+  currentBreakRange: 1.9, // radius to find defenders
+  currentBreakCone: 0.9, // forward cone (radians from facing)
+  currentBreakCooldown: 1.1,
+  currentBreakStamina: 3.5,
+  currentBreakStun: 0.85, // how long the defender is frozen in the undertow
+  currentBreakDuration: 0.35, // the swimmer's own recovery window
 };
 
 export const ACTION = {
@@ -212,6 +221,28 @@ export const ACTION = {
   gbShotRange: 9, // scaled with the arena (was 7)
   gbSlowmo: 0.42,
   blockRadius: 0.75,
+  // Heat / On Fire. A style-driven meter that fills as you string tricks together. When it hits
+  // max, the crew enters "ON FIRE" for a limited window: all style gains double, moves hit
+  // harder, and the HUD glows. BlitzBall's version of the NBA Street heat check.
+  heatMax: 100,
+  heatDuration: 14, // seconds of "on fire"
+  heatStyleMult: 2.0, // style multiplier while on fire
+  heatDecay: 2.0, // heat drains per second while not on fire (so it fades if you play passively)
+  heatGain: 0.12, // fraction of style points earned that also fill the heat meter
+  // Blind Pass. A quick release to the nearest open teammate without aiming — the receiver is
+  // found automatically. If a defender is close to the passing lane, it's risky (interception
+  // chance up) but pays big style when it connects. BlitzBall's between-the-legs equivalent:
+  // the no-look feed through traffic.
+  blindPassReadRange: 1.4, // max distance a defender can be from the pass line and still read it
+  // Trick Shots. Hold a modifier while shooting to add flair:
+  // Spin: extra curve on the ball (harder for keeper, lower accuracy) — already partially in place
+  // Bank: ball ricochets off a wall before heading to goal (if wall is close enough)
+  // Heave: a desperate long-range fling with bonus style
+  spinCurveBonus: 0.9, // extra curve multiplier for spin shots
+  spinAccuracyPenalty: 0.12, // spin shots are slightly less accurate
+  bankWindow: 2.2, // max distance to a wall for a bank shot to work
+  heaveMinRange: 13, // minimum shot distance to count as a heave
+  heaveStyleMult: 1.6, // extra style for a heave
 };
 
 export const STYLE = {
@@ -238,6 +269,12 @@ export const STYLE = {
   comboWindow: 2.2,
   comboStep: 0.25,
   comboMax: 2.5,
+  currentBreak: 180, // caught a defender in the undertow
+  blindPass: 90, // threaded a blind pass through traffic
+  blindPassBig: 160, // blind pass that led to a goal
+  bankShot: 140, // ricochet finish off the wall
+  heave: 200, // desperation long-range fling
+  onFire: 300, // heat meter maxed — the crew catches fire
 };
 
 // Contact. The sim is arcade-first: contact has to read instantly and punish a bad commitment, so
